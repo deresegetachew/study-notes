@@ -14,16 +14,13 @@ import LessonCallout   from '@/components/LessonCallout.astro';
 import LessonChecklist from '@/components/LessonChecklist.astro';
 import LessonQuiz      from '@/components/LessonQuiz.astro';
 import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro'; // optional
 
 // Put large code strings here — NOT inline in JSX (Astro brace-count bug)
 const myCode = `...`.trim();
 ---
 
-<LessonLayout
-  title="LN — Title"
-  prevHref="/lessons/prev-slug"  prevTitle="Prev Title"
-  nextHref="/lessons/next-slug"  nextTitle="Next Title"
->
+<LessonLayout title="LN — Title">
   <LessonHeader num="LN" title="Title" subtitle="One-line hook." />
 
   <div class="lesson-content">
@@ -33,7 +30,13 @@ const myCode = `...`.trim();
 </LessonLayout>
 ```
 
-`LessonLayout` renders `LessonNav` at **both** top and bottom automatically — do not add `LessonNav` manually.
+`LessonLayout` only takes a `title` prop — it derives prev/next itself by
+looking up the current page in `src/data/lessons.ts` and renders `LessonNav`
+at **both** top and bottom automatically. Do not add `LessonNav` manually, and
+do not pass `prevHref`/`prevTitle`/`nextHref`/`nextTitle` — `LessonLayout`
+doesn't declare those props, so passing them is silently a no-op. Getting nav
+right for a new lesson means adding its entry to `lessons.ts` in the right
+sequence position, nothing more.
 
 ---
 
@@ -171,6 +174,32 @@ Props: `sources?` (string), `tensions?` (`{a,b}[]`), `questions?` (`{q, hint?, a
 
 ---
 
+### `LessonMindMap`
+Modal mind-map overlay rendered from a markdown outline, via `markmap-autoloader`
+(CDN, already wired into `LessonLayout.astro` — no per-lesson setup needed).
+Injects a "◈ mind map" trigger button into the breadcrumb on mount. Used in
+nearly every lesson in this module — a good default to include.
+
+```astro
+const mindMap = `
+# Tool Design & Structured Output
+## Why It Matters
+### LLM sees only name, description, schema
+## Input Schema
+### Per-property descriptions
+`.trim();
+```
+```astro
+<LessonMindMap content={mindMap} />
+```
+
+Props: `content` (string — markdown hierarchy; **first line must be `# Title`**,
+then `##`/`###` for nested levels). Define as a frontmatter `const`. Place the
+call anywhere in the template (commonly right before `</LessonLayout>`) — it
+renders as a fixed overlay, not inline content.
+
+---
+
 ## Page structure conventions
 
 - One `<h2 class="lesson-heading">` per major section.
@@ -187,7 +216,7 @@ Before adding any new class or `<style>` block, exhaust these existing options *
 1. **Headings:** `<h2 class="lesson-heading">` / `<h3 class="lesson-heading">` — never use `<h4>` with inline styles.
 2. **Prose:** `<p>`, `<ul>`, `<ol>`, `<strong>`, `<em>`, `<code>` — cover almost all text content.
 3. **Tables:** `<div class="lesson-table"><table>` — use for any comparison or multi-column data.
-4. **Components:** `LessonCallout`, `LessonDiagram`, `CodeBlock`, `LessonChecklist`, `LessonQuiz`, `DeepDive`.
+4. **Components:** `LessonCallout`, `LessonDiagram`, `CodeBlock`, `LessonChecklist`, `LessonQuiz`, `DeepDive`, `LessonMindMap`.
 5. **Global classes from `global.css`:** `lesson-content`, `callout-*`, `lesson-diagram`, `lesson-table`, etc.
 
 Only if none of the above achieves the layout should you add a new scoped `<style>` block. When you do:
@@ -198,21 +227,12 @@ Only if none of the above achieves the layout should you add a new scoped `<styl
 
 ## Navigation
 
-`LessonLayout` accepts `prevHref`, `prevTitle`, `nextHref`, `nextTitle` and renders `LessonNav` at the top and bottom automatically.
-
-- First lesson: `nextHref` only, no `prevHref`.
-- Last lesson: `prevHref` only, no `nextHref`.
-- Middle lessons: both.
+See the file-skeleton note above — `LessonLayout` derives prev/next itself
+from `src/data/lessons.ts`, no props to pass.
 
 ## Page URL → file naming
 
-`/lessons/000N-slug` → `src/pages/lessons/000N-slug.astro`
-
-Current sequence:
-- L1 `/lessons/0001-what-is-an-ai-agent`
-- L2 `/lessons/0002-your-first-agent-in-nodejs`
-- L3 `/lessons/0003-tool-design-and-structured-output`
-- L4 `/lessons/0004-memory-and-conversation-state`
-- L5 `/lessons/0005-building-a-nestjs-agent-service`
-- L6 `/lessons/0006-multi-agent-systems`
-- L7 `/lessons/0007-capstone-project`
+`/lessons/000N-slug` → `src/pages/lessons/000N-slug.astro`, and add a matching
+entry to `src/data/lessons.ts`'s `LESSONS` array in sequence order — that file
+is the source of truth for lesson order, not this doc (which would only go
+stale if kept in sync by hand).
