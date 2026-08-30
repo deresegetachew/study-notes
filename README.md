@@ -22,12 +22,14 @@ npm install   # once, from this root — installs every module's Astro site (npm
 ## Run a module's site
 
 ```bash
-npm run dev     -w oreilly-ai-agents/site
-npm run build   -w oreilly-ai-agents/site
-npm run preview -w oreilly-ai-agents/site
+npm run dev     -- oreilly-ai-agents
+npm run build   -- oreilly-ai-agents
+npm run preview -- oreilly-ai-agents
 ```
 
-Swap the `-w <module>/site` path for any other module that has a `site/`.
+Swap the module slug for any other module that has a `site/`. (Equivalent to
+`npm run dev -w oreilly-ai-agents/site`, if you'd rather use npm's own workspace
+flag directly.)
 
 ## Add a new module
 
@@ -40,8 +42,8 @@ npm run new -- <module-slug> --site --title "Human Readable Title"
 
 Scaffolds `<module-slug>/` at the repo root using the `study-notes` skill's
 templates. For a `--site` module, run `npm install` again afterward (root-level —
-the new workspace member gets picked up automatically), then `npm run dev -w
-<module-slug>/site`.
+the new workspace member gets picked up automatically), then `npm run dev --
+<module-slug>`.
 
 ## Skill
 
