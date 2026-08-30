@@ -1,0 +1,366 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import LessonDiagram from '@/components/LessonDiagram.astro';
+import CodeBlock     from '@/components/CodeBlock.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+import LessonQuiz    from '@/components/LessonQuiz.astro';
+import DeepDive      from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const mindMap = `
+# Your First Agent in Node.js
+## Project Setup
+### Anthropic SDK only
+### No framework abstraction
+### .env for API key
+## Tool Definition
+### JSON schema per tool
+### Handler function
+### Return strings never throw
+## Agent Loop
+### Send messages to LLM
+### Check stop_reason
+### Append before executing
+## Tool Execution
+### executeTool function
+### Error as return string
+### LLM sees result and adapts
+## What Frameworks Add
+### Convenience wrappers
+### Built-in retries
+### Observability hooks
+## Tensions
+### Custom ReAct vs Framework
+### Low vs High max_turns
+### System prompt verbosity vs Token cost
+## Pitfalls
+### Unbounded message history
+### No distinction terminal vs recoverable errors
+### Silent max_turns termination
+### Throw breaks conversation flow
+`;
+---
+
+<LessonLayout title="L2 — Your First Agent in Node.js"
+>
+
+  <LessonHeader
+    num="L02"
+    title="Your First Agent in Node.js"
+    subtitle="Implement the loop from scratch · No framework · Just the Anthropic SDK"
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      You'll build a command-line agent that answers questions requiring real tool use.
+      Give it a task like <em>"What files are in my current directory and how many are there?"</em>
+      — it calls a shell command, observes the result, and returns a human-readable answer.
+    </p>
+    <p>
+      No LangChain, no Vercel AI SDK. Just the <strong>Anthropic SDK</strong> and the loop
+      from Lesson 1 — so you know exactly what every framework does under the hood.
+    </p>
+
+    <h2 class="lesson-heading">Step 1 — Project setup</h2>
+
+    <CodeBlock lang="bash" label="terminal" code={`
+mkdir my-first-agent && cd my-first-agent
+npm init -y
+npm install @anthropic-ai/sdk
+touch agent.mjs
+    `} />
+
+    <p>
+      We use <code>.mjs</code> for top-level <code>await</code> without extra config.
+      Add your API key in a <code>.env</code> file and add it to <code>.gitignore</code>:
+    </p>
+
+    <CodeBlock lang="bash" label="terminal" code={`
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+echo ".env" >> .gitignore
+    `} />
+
+    <LessonCallout variant="info">
+      <p>Get a key at <strong>console.anthropic.com</strong>. Haiku is the cheapest model — we use it here.</p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Step 2 — The agent loop (annotated)</h2>
+
+    <p>Every line of code below maps to one of these four steps:</p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  A["1 · SEND\ngoal + tools\n→ LLM"]:::step --> B{"stop_reason?"}:::decision
+  B -->|end_turn| C["4 · RETURN\nanswer"]:::done
+  B -->|tool_use| D["2 · EXECUTE\ntool call"]:::step
+  D --> E["3 · APPEND\ntool_result\nto messages"]:::step
+  E --> A
+
+  classDef step     fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef decision fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done     fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <CodeBlock lang="javascript" label="agent.mjs" code={`
+import Anthropic from '@anthropic-ai/sdk';
+import { execSync } from 'child_process';
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// ── 1. DEFINE TOOLS ───────────────────────────────────────────────────────────
+// A tool is a JSON schema + a handler function.
+// The LLM reads the schema to decide when and how to call the tool.
+
+const tools = [
+  {
+    name: 'run_shell',
+    description:
+      'Run a safe, read-only shell command and return its output. ' +
+      'Use for listing files, checking environment, reading file contents.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string',
+          description: 'The shell command to run (read-only operations only)',
+        },
+      },
+      required: ['command'],
+    },
+  },
+];
+
+// ── 2. TOOL HANDLER ───────────────────────────────────────────────────────────
+// This is the code that actually executes when the LLM calls a tool.
+// Return strings — never throw — so the LLM can recover from errors.
+
+function executeTool(name, input) {
+  if (name === 'run_shell') {
+    try {
+      return execSync(input.command, { encoding: 'utf8', timeout: 5000 });
+    } catch (err) {
+      return \`Error: \${err.message}\`;
+    }
+  }
+  return 'Unknown tool';
+}
+
+// ── 3. THE AGENT LOOP ─────────────────────────────────────────────────────────
+// This is the core. Exactly the 4-step loop from Lesson 1.
+
+async function runAgent(userMessage) {
+  console.log(\`\\n🤖 Task: \${userMessage}\\n\`);
+
+  // The messages array IS the agent's memory.
+  // Every turn — user message, assistant response, tool result — appends here.
+  const messages = [{ role: 'user', content: userMessage }];
+  const MAX_TURNS = 10;
+  let turns = 0;
+
+  while (turns < MAX_TURNS) {
+    turns++;
+    // STEP 1: Send current state to the LLM
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      tools,
+      messages,
+    });
+
+    // STEP 2: Check what the LLM returned
+    if (response.stop_reason === 'end_turn') {
+      const text = response.content
+        .filter(b => b.type === 'text')
+        .map(b => b.text)
+        .join('');
+      console.log(\`\\n✅ Answer:\\n\${text}\\n\`);
+      return text;
+    }
+
+    if (response.stop_reason === 'tool_use') {
+      // Append the assistant's decision before executing — the LLM needs to see
+      // its own tool call on the next iteration to understand the context.
+      messages.push({ role: 'assistant', content: response.content });
+
+      // STEP 3: Execute each tool call and collect results
+      const toolResults = response.content
+        .filter(b => b.type === 'tool_use')
+        .map(toolCall => {
+          console.log(\`  🔧 Tool: \${toolCall.name} → \${JSON.stringify(toolCall.input)}\`);
+          const result = executeTool(toolCall.name, toolCall.input);
+          console.log(\`  📋 Result: \${result.slice(0, 120)}...\`);
+          return { type: 'tool_result', tool_use_id: toolCall.id, content: result };
+        });
+
+      // Append tool results — the LLM reads these on the next iteration
+      messages.push({ role: 'user', content: toolResults });
+
+      // STEP 4: Loop — go back to top and call the LLM again
+    }
+  }
+  throw new Error('Agent exceeded ' + MAX_TURNS + ' turns without completing.');
+}
+
+// ── 4. RUN IT ─────────────────────────────────────────────────────────────────
+await runAgent('List the files in the current directory and tell me how many there are.');
+    `} />
+
+    <h2 class="lesson-heading">Step 3 — Run it</h2>
+
+    <CodeBlock lang="bash" label="terminal" code={`node --env-file=.env agent.mjs`} />
+
+    <p>You should see something like:</p>
+
+    <CodeBlock lang="text" label="output" code={`
+🤖 Task: List the files in the current directory and tell me how many there are.
+
+  🔧 Tool: run_shell → {"command":"ls -la"}
+  📋 Result: total 32
+drwxr-xr-x  4 user staff  128 Jun 14 ...
+
+✅ Answer:
+The current directory contains 4 items:
+- agent.mjs
+- node_modules/
+- package.json
+- package-lock.json
+    `} />
+
+    <p>
+      What just happened: the LLM decided to call <code>run_shell</code>, your code executed it,
+      the result was fed back in, and the LLM synthesised a human-readable answer. That is the
+      full agent loop — you built it from scratch.
+    </p>
+
+    <h2 class="lesson-heading">What frameworks actually do</h2>
+
+    <p>
+      Every framework — LangChain, Vercel AI SDK, LangGraph — wraps this exact same pattern. They add:
+    </p>
+    <ul>
+      <li>Convenience for defining and registering tools</li>
+      <li>Built-in error handling and retries</li>
+      <li>Streaming support</li>
+      <li>Graph-based control flow for multi-agent setups</li>
+      <li>Observability hooks</li>
+    </ul>
+    <p>None of them change the core loop. When something breaks inside a framework, you now know where to look.</p>
+
+    <h2 class="lesson-heading">Stretch — try a multi-step task</h2>
+
+    <p>Change the last line to a task requiring multiple tool calls:</p>
+
+    <CodeBlock lang="javascript" label="agent.mjs" code={`
+await runAgent(
+  'Read the contents of package.json and tell me what version of Node this project expects.'
+);
+    `} />
+
+    <p>
+      Watch the loop iterate more than once. The LLM will call <code>ls</code>, then
+      <code>cat package.json</code>, then synthesise an answer from both results.
+    </p>
+
+    <LessonCallout variant="key" title="The mental model">
+      <p>
+        An agent is a <code>while</code> loop around an LLM call. The loop exits when
+        <code>stop_reason === 'end_turn'</code>. The <code>messages</code> array is the only
+        memory the stateless LLM has — every turn must be appended, including the LLM's own
+        tool-call decisions.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Quick-check quiz</h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'What does stop_reason: "tool_use" mean in the agent loop?',
+        options: [
+          'The LLM wants to call a tool before it can answer',
+          'The agent has finished and the answer is ready',
+          'A tool threw an error and the loop should stop',
+          'The context window is full',
+        ],
+        answer:  0,
+        explain: 'tool_use = LLM needs more information from a tool. Your code must execute it and loop again. end_turn = done, return the answer.',
+      },
+      {
+        q:       'Why append the assistant response to messages before executing the tool?',
+        options: [
+          'So the LLM can see its own decision on the next iteration',
+          'Because the SDK requires it for request validation',
+          'To reduce token count on the next call',
+          'So the tool handler can read what the LLM said',
+        ],
+        answer:  0,
+        explain: 'The messages array is the agent\'s memory. The LLM needs to see its own tool-call request so the tool_result on the next turn makes sense.',
+      },
+      {
+        q:       'The LLM never directly executes tools. Who does?',
+        options: [
+          'Your code — the executeTool function',
+          'The Anthropic cloud infrastructure',
+          'A separate tool-executor LLM',
+          'The Node.js event loop automatically',
+        ],
+        answer:  0,
+        explain: 'The LLM outputs intent only — a tool name and arguments. Your executeTool function runs the actual shell command, DB query, etc.',
+      },
+      {
+        q:       'The messages array grows every loop iteration. What is its role?',
+        options: [
+          "The agent's memory — the LLM reads all of it on every call",
+          'A debug log — it has no effect on the LLM responses',
+          'Used only for error reporting',
+          'Cleared after each tool call to save tokens',
+        ],
+        answer:  0,
+        explain: 'The LLM is stateless. The messages array is the only memory it has. It sees the full array on every API call — that\'s how it knows what it already tried.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="l2_2.5, l2_2.6"
+    tensions={[
+      { a: 'Custom ReAct loop',       b: 'Framework abstraction' },
+      { a: 'System prompt verbosity', b: 'Token cost per call' },
+      { a: 'Tight loop control',      b: 'Agent flexibility' },
+      { a: 'Low max_turns (safe)',     b: 'High max_turns (capable)' },
+    ]}
+    questions={[
+      {
+        q:      'Your agent enters a loop calling the same tool with slightly different arguments without making progress. How do you detect and break it?',
+        hint:   'Detect repetition, not just max_turns. Same tool + similar arguments is a stuck signal.',
+        answer: '<p>Maintain a <code>tool_call_history</code>. After each call append <code>(tool_name, hash_of_args)</code>. If the last 2 entries have the same tool and similar args hash — inject a message: <em>"You have called [tool] multiple times without new information. Try a different approach or provide a best-effort answer."</em></p><p>If still stuck after 2 more turns: force termination and return a partial result with explanation. Track "stuck detected" as a metric — a high rate signals the tools or prompt need redesign.</p>',
+      },
+      {
+        q:      'Why does the full message history need to be sent to every LLM call? What breaks if you only send the latest message?',
+        hint:   'LLMs are stateless. The history IS the state.',
+        answer: '<p>LLMs are completely stateless between API calls. If you send only the latest message, the LLM sees no original task, no previous tool results, no available tools (unless re-injected). It hallucinates context or gives a nonsensical response.</p><p>Every call must include: <code>[system, user_msg, assistant_turn_1, tool_result_1, assistant_turn_2, ...]</code>. This costs tokens, but there is no alternative. Optimise by compressing old turns — not eliminating them.</p>',
+      },
+      {
+        q:      'What are the 4 essential elements of an effective agent system prompt, and what goes wrong if each is missing?',
+        hint:   'Each element serves a specific purpose. What does the LLM do without it?',
+        answer: '<p><strong>1. Loop format instructions</strong> ("Think → Act → Observe"): without this, the LLM doesn\'t know to alternate thinking and acting.</p><p><strong>2. Available tools list with examples</strong>: without this, the LLM may hallucinate tool calls or call non-existent tools.</p><p><strong>3. Termination instruction</strong> ("After each tool call, wait for the result"): without this, the LLM generates both the call and a hallucinated result without waiting.</p><p><strong>4. A worked example session</strong>: without this, the LLM understands abstractly but formats output incorrectly. The example is the template the LLM replicates.</p>',
+      },
+      {
+        q:      'The loop hits max_turns on every complex query. What changes do you make — to the system prompt, tools, or max_turns?',
+        hint:   'Diagnose first: are queries genuinely complex, or is the agent being inefficient?',
+        answer: '<p>Log the full turn sequence for 10 failing runs. Common patterns:</p><p><strong>Agent re-verifies everything</strong> → add to prompt: "Trust your tool results. Do not re-verify already-retrieved information."</p><p><strong>Agent can\'t find specific info</strong> → add: "If you cannot find X after 2 searches, provide a best-effort answer stating the limitation."</p><p><strong>Queries are genuinely complex</strong> → add a complexity classifier; set <code>max_turns=20</code> for complex, <code>max_turns=5</code> for simple.</p><p>Fix root causes — redesign tools to return richer data in fewer calls rather than raising max_turns as a band-aid.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Message history growing without bounds — after 15 cycles you may have 45+ messages filling the context window. Implement history trimming or summarisation for long-running agents.',
+      'No distinction between recoverable and terminal tool failures — <code>"API key invalid"</code> is terminal; <code>"429 rate limited"</code> is recoverable. Without the distinction, the agent wastes turns retrying a terminal error.',
+      'Silent max_turns termination — the loop hits the limit and returns <code>undefined</code> with no explanation. Always return the best available partial result plus an explicit message when terminating early. Log a WARNING.',
+      'Return error strings from tools, never throw — throwing breaks the message conversation flow. The LLM cannot observe the error and adjust; it just crashes the loop.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

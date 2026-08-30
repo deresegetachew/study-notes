@@ -1,0 +1,280 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const robustToolCode = `
+import { z } from 'zod';
+
+// A robust tool has: typed input, typed output, timeout, and structured errors
+interface ToolResult<T> {
+  ok:    true;
+  data:  T;
+} | {
+  ok:    false;
+  error: string;
+  code:  'TIMEOUT' | 'INVALID_INPUT' | 'EXTERNAL_ERROR';
+}
+
+// Tool wrapper — validates input, enforces timeout, wraps errors
+function buildTool<TInput extends z.ZodType, TOutput>(
+  schema:  TInput,
+  timeout: number,
+  fn:      (input: z.infer<TInput>) => Promise<TOutput>,
+) {
+  return async (rawInput: unknown): Promise<ToolResult<TOutput>> => {
+    // 1. Validate input
+    const parsed = schema.safeParse(rawInput);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.message, code: 'INVALID_INPUT' };
+    }
+
+    // 2. Enforce timeout
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout')), timeout)
+    );
+
+    try {
+      const data = await Promise.race([fn(parsed.data), timeoutPromise]);
+      return { ok: true, data };
+    } catch (err) {
+      if (String(err).includes('Timeout')) {
+        return { ok: false, error: \`Tool timed out after \${timeout}ms\`, code: 'TIMEOUT' };
+      }
+      return { ok: false, error: String(err), code: 'EXTERNAL_ERROR' };
+    }
+  };
+}
+
+// Example: robust web search tool
+const SearchInput = z.object({
+  query:   z.string().min(1).max(500),
+  maxResults: z.number().int().min(1).max(20).default(5),
+});
+
+const webSearch = buildTool(SearchInput, 10_000, async ({ query, maxResults }) => {
+  // Call real search API
+  const results = await searchAPI(query, maxResults);
+  return results;
+});
+
+declare function searchAPI(q: string, n: number): Promise<string[]>;
+`.trim();
+
+const promptOptCode = `
+// Prompt optimization: measure, iterate, and version
+
+// 1. Establish a baseline with eval pipeline (L13)
+const baselineScore = await runEval(agentV1);
+console.log('Baseline pass rate:', baselineScore);
+
+// 2. Systematic prompt variants — test one variable at a time
+const variants = [
+  { name: 'v2-cot',         system: systemPrompt + '\\nThink step by step before answering.' },
+  { name: 'v2-few-shot',    system: systemPrompt + examples },
+  { name: 'v2-role',        system: 'You are an expert customer support specialist.' + systemPrompt },
+  { name: 'v2-output-fmt',  system: systemPrompt + '\\nReturn JSON: { "category": "...", "response": "..." }' },
+];
+
+for (const variant of variants) {
+  const agent = buildAgent(variant.system);
+  const score = await runEval(agent);
+  console.log(\`\${variant.name}: \${score} (baseline: \${baselineScore})\`);
+}
+
+// 3. Model downgrade test — can Haiku match Opus quality at 10x lower cost?
+const haikuAgent  = buildAgent(systemPrompt, 'claude-haiku-4-5-20251001');
+const haikuScore  = await runEval(haikuAgent);
+const opusScore   = await runEval(buildAgent(systemPrompt, 'claude-opus-4-8'));
+console.log('Haiku vs Opus:', haikuScore, 'vs', opusScore);
+
+// 4. Cache warming — prefix prompts with a stable system block that fits
+// Anthropic's prompt cache TTL (5 min), reducing cost on repeated calls
+const cachedSystem = \`\${stableRules}\\n\${domainKnowledge}\`;  // > 1024 tokens for cache eligibility
+
+function buildAgent(system: string, model = 'claude-opus-4-8') {
+  return { invoke: async (msg: string) => ''; };
+}
+async function runEval(agent: ReturnType<typeof buildAgent>): Promise<number> { return 0; }
+const systemPrompt = '';
+const examples = '';
+const stableRules = '';
+const domainKnowledge = '';
+`.trim();
+
+const mindMap = `
+# Production Tools & Optimization
+## Robust Tool Design
+### Typed input validation (Zod)
+### Hard timeout enforcement
+### Structured error returns
+### Never throw from tool
+## Optimization Process
+### Establish eval baseline
+### Test one variable at a time
+### Model downgrade testing
+## Cost Levers
+### Model downgrade (10-20x reduction)
+### Prompt caching (90% on stable prefix)
+### Max tokens reduction
+### Batch API (50% discount)
+### Haiku for classifiers
+## Tensions
+### Strict input validation (safe) vs Lenient parsing (flexible)
+### Powerful model (quality) vs Fast cheap model (cost)
+## Pitfalls
+### Uncaught tool exceptions crash agent loop
+### No tool timeout — hung external call
+### Optimising prompts without eval baseline
+### Model downgrading without eval coverage
+### Cache-ineligible prompts under 1024 tokens
+`;
+---
+
+<LessonLayout
+  title="L30 — Production Tools & Optimization"
+>
+  <LessonHeader
+    num="L30"
+    title="Production Tools & Optimization"
+    subtitle="Build robust tools with typed I/O and timeouts, then optimise agent quality and cost with systematic prompt experiments and model selection."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§4.1 — Building Robust Tools</h2>
+    <p>
+      A production tool is not a one-liner. It needs: schema validation on input,
+      a hard timeout, typed error returns, and enough logging to debug failures.
+      Without these, a single flaky external API call crashes the entire agent.
+    </p>
+
+    <LessonCallout variant="key" title="Tool errors are first-class">
+      <p>
+        Return structured error objects from tools — not thrown exceptions. The agent
+        can inspect <code>result.ok === false</code> and the <code>code</code> field,
+        then decide whether to retry, fall back, or ask the user. An uncaught exception
+        crashes the loop.
+      </p>
+    </LessonCallout>
+
+    <CodeBlock lang="typescript" label="robust-tool.ts" code={robustToolCode} />
+
+    <LessonDiagram definition={`
+flowchart LR
+  A["Agent\n(tool call)"]:::agent --> V["Input\nvalidation"]:::guard
+  V -->|invalid| E1["Structured\nerror"]:::error
+  V -->|valid| T["Tool\n(with timeout)"]:::tool
+  T -->|success| R["Typed\nresult"]:::output
+  T -->|timeout| E2["TIMEOUT\nerror"]:::error
+  T -->|API fail| E3["EXTERNAL_ERROR"]:::error
+  E1 & E2 & E3 --> A
+
+  classDef agent  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef guard  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef tool   fill:#fefce8,color:#713f12,stroke:#fde68a,stroke-width:2px
+  classDef output fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef error  fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+`} />
+
+    <h2 class="lesson-heading">§4.9 — Optimizing Prompts & Tools</h2>
+    <p>
+      Optimisation in AI agents is empirical — you measure, hypothesis, test, and
+      compare against a baseline. There is no single "best prompt" without data.
+    </p>
+
+    <CodeBlock lang="typescript" label="prompt-optimization.ts" code={promptOptCode} />
+
+    <h3 class="lesson-heading">Cost optimisation levers</h3>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Lever</th><th>Effect</th><th>Trade-off</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Model downgrade</strong></td><td>10–20x cost reduction</td><td>Quality regression risk — must eval</td></tr>
+          <tr><td><strong>Prompt caching</strong></td><td>90% cost reduction on stable prefixes</td><td>Only for prompts &gt;1024 tokens</td></tr>
+          <tr><td><strong>Max tokens reduction</strong></td><td>Proportional cost saving</td><td>Risk of truncated output</td></tr>
+          <tr><td><strong>Batch API</strong></td><td>50% cost discount</td><td>Async only — not for real-time</td></tr>
+          <tr><td><strong>Haiku for classifiers</strong></td><td>30x cheaper than Opus</td><td>Accuracy for simple tasks is comparable</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="Optimize the tool, not just the prompt">
+      <p>
+        Before tuning prompts, check if tool quality is the bottleneck. A perfectly
+        written prompt still underperforms if the search tool returns irrelevant results
+        or the extraction tool misparses the input. Instrument tools with latency and
+        success-rate metrics first.
+      </p>
+    </LessonCallout>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Wrap any tool with typed input validation, timeout, and structured error returns',
+        'Run systematic prompt variants against a baseline eval to measure improvements',
+        'Test model downgrades (Haiku for Opus) with eval coverage before shipping',
+        'Identify which model and cache settings minimise cost without quality regression',
+        'Instrument tools with latency and error-rate metrics to find the real bottleneck',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'A tool times out in 15% of calls. What is the correct first step?',
+        options: [
+          'Increase the timeout to eliminate all failures',
+          'Remove the tool and ask the user instead',
+          'Measure p50/p95/p99 latency to understand the distribution before changing anything',
+          'Retry the tool automatically 3 times',
+        ],
+        answer:  2,
+        explain: 'Before changing the timeout, measure the latency distribution. If p95 is 8s and your timeout is 5s, increasing to 9s eliminates most failures. If p99 is 30s, automatic retries would make the problem worse. Data first, then a decision.',
+      },
+      {
+        q:       'You want to use Anthropic prompt caching to reduce costs. What is the minimum system prompt length for a prefix to be cache-eligible?',
+        options: ['256 tokens', '512 tokens', '1024 tokens', '2048 tokens'],
+        answer:  2,
+        explain: 'Anthropic\'s prompt cache requires the cached prefix to be at least 1024 tokens. Shorter prompts are not cached. Structure your system prompt so the stable, long-form domain knowledge (rules, examples, persona) comes first and exceeds 1024 tokens — then the cache hit rate will be high on repeated calls.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§4.1, §4.9"
+      tensions={[
+        { a: 'Strict input validation (safe)',    b: 'Lenient parsing (flexible for LLM output)' },
+        { a: 'Powerful model (quality)',          b: 'Fast cheap model (cost and latency)' },
+      ]}
+      questions={[
+        {
+          q:    'Your web search tool works fine in testing but fails in 20% of production calls due to network flakiness. How do you make it more resilient without hiding the failures?',
+          hint: 'Think about retry policy and what the agent needs to know about failures.',
+          answer: '<p>Layer resilience without hiding failures: (1) <strong>Retry with backoff inside the tool</strong> — for EXTERNAL_ERROR results, retry up to 2 times with 1s / 2s delays before returning the error. This handles transient flakiness transparently. (2) <strong>Return structured errors on permanent failure</strong> — after retries exhaust, return <code>&#123; ok: false, code: "EXTERNAL_ERROR", error: "search unavailable after 3 attempts" &#125;</code>. The agent sees a real failure, not a fake empty result. (3) <strong>Cache successful results</strong> — if the same query was searched recently, return the cached result. Reduces both flakiness exposure and cost. (4) <strong>Instrument the 20%</strong> — emit a metric per failure: tool name, error code, latency. Dashboard alert when error rate exceeds a threshold. 20% is a symptom of an underlying infrastructure issue — don\'t just retry your way past it.</p>',
+        },
+        {
+          q:    'After downgrading from Opus to Haiku for 80% of requests, eval pass rate dropped from 94% to 88%. Is this an acceptable trade-off, and how do you decide?',
+          hint: 'Think about the business impact of the quality drop, not just the numbers.',
+          answer: '<p>6 percentage points sounds small, but the right question is: <em>which 6% of requests regressed, and what happens when they do?</em> (1) <strong>Inspect the failing cases</strong> — are the regressions on rare edge cases (low business impact) or on common high-stakes queries (billing disputes, refund requests)? (2) <strong>Calculate the cost savings</strong> — Haiku is ~30x cheaper. If cost savings are substantial, a 6% quality drop on low-stakes queries may be worth it. (3) <strong>Hybrid routing</strong> — send 80% routine queries to Haiku, route the 20% that historically regressed to Opus. Use a fast Haiku classifier to make the routing decision. Achieves near-Opus quality at 60–70% cost reduction. (4) <strong>Set a floor</strong> — define the minimum acceptable pass rate by business requirement (99% for financial, 85% for informational). The number is a business decision, not a technical one.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Uncaught tool exceptions — a thrown error in a tool crashes the agent loop instead of allowing recovery.',
+        'No tool timeout — a hung external API call blocks the agent indefinitely.',
+        'Optimising prompts without an eval baseline — no way to know if a change is better or worse.',
+        'Model downgrading without eval — quality regressions ship silently to production.',
+        'Cache-ineligible prompts — spending time on prompt caching when the prompt is under 1024 tokens gives zero benefit.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

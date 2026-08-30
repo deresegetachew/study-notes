@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lesson 6 — Multi-Agent Systems</title>
+  <style>
+    :root {
+      --ink: #1a1a1a; --muted: #555; --accent: #2563eb;
+      --bg: #fafaf8; --card: #ffffff; --border: #e5e5e0;
+      --correct: #16a34a; --wrong: #dc2626; --highlight: #fef9c3;
+      --code-bg: #1e1e2e; --code-fg: #cdd6f4;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Georgia", serif; background: var(--bg); color: var(--ink); line-height: 1.75; font-size: 18px; padding: 2rem 1rem 6rem; }
+    article { max-width: 720px; margin: 0 auto; }
+    header { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 2.5rem; }
+    .lesson-meta { font-family: monospace; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
+    h1 { font-size: 2rem; font-weight: normal; line-height: 1.25; }
+    h2 { font-size: 1.25rem; font-weight: bold; margin: 2.5rem 0 0.75rem; }
+    h3 { font-size: 1rem; font-weight: bold; margin: 1.5rem 0 0.5rem; }
+    p { margin-bottom: 1rem; }
+    ul, ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+    li { margin-bottom: 0.35rem; }
+    a { color: var(--accent); }
+    .sidenote { float: right; clear: right; width: 190px; margin: 0 -210px 1rem 1rem; font-size: 13px; color: var(--muted); line-height: 1.5; border-left: 2px solid var(--border); padding-left: 0.75rem; }
+    @media (max-width: 940px) { .sidenote { float: none; width: 100%; margin: 0 0 1rem; } }
+    .callout { background: var(--highlight); border-left: 3px solid #ca8a04; padding: 0.75rem 1rem; margin: 1.5rem 0; font-size: 0.95rem; }
+    .callout strong { display: block; margin-bottom: 0.25rem; }
+    pre { background: var(--code-bg); color: var(--code-fg); padding: 1.25rem 1.5rem; border-radius: 6px; overflow-x: auto; font-family: "Menlo","Monaco","Fira Code",monospace; font-size: 0.82rem; line-height: 1.6; margin: 1rem 0; position: relative; }
+    .copy-btn { position: absolute; top: 0.6rem; right: 0.6rem; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #cdd6f4; padding: 0.25rem 0.65rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; font-family: monospace; }
+    .copy-btn:hover { background: rgba(255,255,255,0.2); }
+    code { font-family: "Menlo","Monaco","Fira Code",monospace; font-size: 0.85em; }
+    p code, li code { background: #f0f0ec; padding: 0.1em 0.35em; border-radius: 3px; }
+    .kw { color: #cba6f7; } .fn { color: #89b4fa; } .str { color: #a6e3a1; }
+    .num { color: #fab387; } .cmt { color: #6c7086; font-style: italic; }
+    .dec { color: #f38ba8; } .type { color: #94e2d5; }
+    table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.9rem; }
+    th { background: var(--ink); color: white; padding: 0.5rem 0.75rem; text-align: left; font-family: monospace; font-weight: normal; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: #f5f5f3; }
+    .diagram { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; margin: 1.75rem 0; font-family: monospace; font-size: 0.82rem; }
+    .diag-row { display: flex; align-items: center; gap: 0.75rem; }
+    .diag-box { border: 1px solid var(--border); border-radius: 4px; padding: 0.5rem 1rem; background: var(--card); text-align: center; min-width: 120px; }
+    .diag-box.supervisor { background: #eff6ff; border-color: #93c5fd; font-weight: bold; }
+    .diag-box.specialist { background: #f0fdf4; border-color: #86efac; }
+    .diag-arrow { color: var(--muted); font-size: 1.1rem; }
+    .file-label { font-family: monospace; font-size: 0.8rem; color: var(--muted); background: #f0f0ec; padding: 0.2rem 0.5rem; border-radius: 3px; margin-bottom: 0.35rem; display: inline-block; }
+    .output-label { font-family: monospace; font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.25rem; }
+    .output-block { background: #0d1117; color: #58a6ff; padding: 1rem 1.5rem; border-radius: 6px; font-family: monospace; font-size: 0.82rem; line-height: 1.7; margin: 1rem 0; }
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
+    @media (max-width: 600px) { .compare { grid-template-columns: 1fr; } }
+    .compare-card { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .compare-card .compare-label { font-family: monospace; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); background: #f5f5f3; }
+    .compare-card .compare-body { padding: 0.75rem; font-size: 0.88rem; color: var(--muted); line-height: 1.6; }
+    .quiz { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 1.5rem; margin: 2.5rem 0; }
+    .quiz h2 { margin-top: 0; }
+    .question { margin-bottom: 2rem; }
+    .question p { font-weight: bold; margin-bottom: 0.75rem; }
+    .options { display: flex; flex-direction: column; gap: 0.5rem; }
+    .option { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; user-select: none; font-size: 0.95rem; background: white; }
+    .option:hover { background: #f0f4ff; }
+    .option.correct { background: #dcfce7; border-color: var(--correct); }
+    .option.wrong { background: #fee2e2; border-color: var(--wrong); }
+    .option input { margin-top: 3px; flex-shrink: 0; }
+    .feedback { margin-top: 0.75rem; font-size: 0.9rem; min-height: 1.2em; color: var(--muted); }
+    .feedback.correct { color: var(--correct); font-weight: bold; }
+    .feedback.wrong { color: var(--wrong); }
+    .check-btn { margin-top: 1.25rem; background: var(--accent); color: white; border: none; padding: 0.6rem 1.5rem; border-radius: 4px; font-size: 0.95rem; cursor: pointer; font-family: inherit; }
+    .check-btn:hover { opacity: 0.9; }
+    .score { margin-top: 1rem; font-size: 1rem; font-weight: bold; text-align: center; display: none; }
+    .lesson-nav { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); font-size: 0.9rem; color: var(--muted); }
+    .teacher-prompt { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 1rem 1.25rem; margin-top: 2rem; font-size: 0.9rem; }
+    .breadcrumb { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+    .breadcrumb a { color: var(--muted); }
+  
+/* ── Deep Dive ───────────────────────────────────────────────── */
+.dd-wrap {
+  border: 1px solid #e5e5e0;
+  border-radius: 8px;
+  margin: 2.5rem 0;
+  overflow: hidden;
+}
+.dd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  background: #1a1a2e;
+  cursor: pointer;
+  user-select: none;
+  gap: 1rem;
+}
+.dd-header:hover { background: #1e1e38; }
+.dd-header-left { display: flex; flex-direction: column; gap: 0.15rem; }
+.dd-label {
+  font-family: monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.dd-sub { font-size: 0.78rem; color: #6c7086; }
+.dd-chevron { color: #6c7086; font-size: 1.1rem; transition: transform .2s; }
+.dd-wrap.open .dd-chevron { transform: rotate(90deg); }
+.dd-body { display: none; padding: 1.25rem 1.5rem; background: #fafaf8; }
+.dd-wrap.open .dd-body { display: block; }
+.dd-block { margin-bottom: 1.75rem; }
+.dd-block:last-child { margin-bottom: 0; }
+.dd-block-title {
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e5e5e0;
+}
+.dd-tension {
+  display: grid;
+  grid-template-columns: 210px 1.5rem 1fr;
+  gap: 0.25rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f0f0ec;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  align-items: baseline;
+}
+.dd-tension:last-child { border-bottom: none; }
+.dd-tension-label { font-weight: bold; color: #1a1a1a; }
+.dd-tension-sep { color: #aaa; text-align: center; }
+.dd-tension-body { color: #555; }
+.dd-q {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 0.75rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid #f0f0ec;
+}
+.dd-q:last-child { border-bottom: none; }
+.dd-q-num {
+  font-family: monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  background: #1a1a2e;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.6rem;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+}
+.dd-q-text { font-size: 0.9rem; font-weight: bold; color: #1a1a1a; margin-bottom: 0.35rem; line-height: 1.5; }
+.dd-hint { font-size: 0.82rem; color: #555; margin-bottom: 0.5rem; font-style: italic; }
+.dd-hint strong { font-style: normal; color: #2563eb; }
+.dd-ans-btn {
+  font-size: 0.8rem;
+  font-family: monospace;
+  background: none;
+  border: 1px solid #e5e5e0;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  color: #555;
+  margin-bottom: 0.5rem;
+}
+.dd-ans-btn:hover { background: #f0f4ff; color: #2563eb; border-color: #93c5fd; }
+.dd-ans {
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: #333;
+  background: #eff6ff;
+  border-left: 3px solid #2563eb;
+  padding: 0.75rem 1rem;
+  border-radius: 0 4px 4px 0;
+}
+.dd-pitfall {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f0f0ec;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  align-items: baseline;
+}
+.dd-pitfall:last-child { border-bottom: none; }
+.dd-pitfall-title { font-weight: bold; color: #dc2626; }
+.dd-pitfall-body { color: #555; }
+@media (max-width: 640px) {
+  .dd-tension, .dd-pitfall { grid-template-columns: 1fr; }
+  .dd-tension-sep { display: none; }
+}
+
+</style>
+</head>
+<body>
+<article>
+  <header>
+    <div class="breadcrumb">
+      <a href="./0001-what-is-an-ai-agent.html">L1</a> ·
+      <a href="./0002-your-first-agent-in-nodejs.html">L2</a> ·
+      <a href="./0003-tool-design-and-structured-output.html">L3</a> ·
+      <a href="./0004-memory-and-conversation-state.html">L4</a> ·
+      <a href="./0005-building-a-nestjs-agent-service.html">L5</a>
+    </div>
+    <div class="lesson-meta">Lesson 06 · AI Agents · ~30 min</div>
+    <h1>Multi-Agent Systems</h1>
+    <p style="color:var(--muted);font-size:0.95rem;margin-top:0.5rem;">
+      One agent with 15 tools is slow, unreliable, and hard to debug.
+      Multi-agent systems fix this by splitting expertise across specialised agents
+      coordinated by a supervisor.
+    </p>
+  </header>
+
+  <h2>Why single agents hit a ceiling</h2>
+
+  <div class="sidenote">
+    Course ref: <em>Level 4, §4.2 — Supervisor Systems</em> and
+    <em>§4.3 — Swarm Architecture.</em>
+  </div>
+
+  <p>
+    In lesson 3 you learned to keep tools to 3–5 per agent. But real products need more
+    capability than that. A customer support agent might need to handle billing queries,
+    technical troubleshooting, account management, and refund processing — each a domain
+    in itself.
+  </p>
+
+  <p>
+    Cramming all of that into one agent causes two problems:
+  </p>
+
+  <ul>
+    <li><strong>Decision quality drops.</strong> The more tools an LLM must choose between, the more often it picks the wrong one.</li>
+    <li><strong>Debugging becomes hard.</strong> When something goes wrong you cannot tell which "role" caused it.</li>
+  </ul>
+
+  <p>
+    The solution is the same one you'd use in a NestJS codebase: split by responsibility.
+  </p>
+
+  <h2>Two patterns: supervisor vs swarm</h2>
+
+  <div class="compare">
+    <div class="compare-card">
+      <div class="compare-label">Supervisor (use this first)</div>
+      <div class="compare-body">
+        One coordinator agent routes each request to the right specialist.
+        The supervisor decides who handles what.<br><br>
+        <strong>Best for:</strong> known workflow steps, predictable routing,
+        governance and auditability required.
+      </div>
+    </div>
+    <div class="compare-card">
+      <div class="compare-label">Swarm (for later)</div>
+      <div class="compare-body">
+        Agents hand off to each other peer-to-peer. No central coordinator —
+        any agent can decide to pass the task on.<br><br>
+        <strong>Best for:</strong> unpredictable routing, speed-critical flows,
+        fluid multi-step collaboration.
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Start with supervisor.</strong>
+    It is easier to reason about, easier to test, and easier to debug. Swarms are powerful
+    but their emergent behaviour is harder to predict. (<em>Level 4, §4.3</em>)
+  </div>
+
+  <h2>The supervisor pattern</h2>
+
+  <p>
+    Three roles, cleanly separated:
+  </p>
+
+  <div class="diagram">
+    <div class="diag-row">
+      <div class="diag-box" style="background:#f0f4ff;border-color:#93c5fd;">User request</div>
+    </div>
+    <div class="diag-arrow">&#8595;</div>
+    <div class="diag-row">
+      <div class="diag-box supervisor">Supervisor<br><span style="font-size:0.75rem;font-weight:normal">routes to the right specialist</span></div>
+    </div>
+    <div class="diag-row" style="gap:1.5rem;margin-top:0.4rem;">
+      <div class="diag-arrow">&#8595;</div>
+      <div class="diag-arrow">&#8595;</div>
+      <div class="diag-arrow">&#8595;</div>
+    </div>
+    <div class="diag-row" style="gap:1rem;">
+      <div class="diag-box specialist">Billing<br>Agent</div>
+      <div class="diag-box specialist">Tech Support<br>Agent</div>
+      <div class="diag-box specialist">Account<br>Agent</div>
+    </div>
+    <div class="diag-arrow">&#8593;</div>
+    <div class="diag-row">
+      <div class="diag-box" style="background:#f0f4ff;border-color:#93c5fd;">Final answer to user</div>
+    </div>
+  </div>
+
+  <p>
+    The supervisor does not answer the user directly — it decides which specialist to call.
+    Each specialist has a tight set of tools and a focused system prompt.
+    The supervisor collects the specialist's answer and returns it.
+  </p>
+
+  <h2>Build it: customer support supervisor in Node.js</h2>
+
+  <p>
+    Two specialists (<code>billing</code>, <code>tech_support</code>) and one supervisor
+    that routes between them. The supervisor uses structured output (Lesson 3 pattern) to
+    make its routing decision reliably.
+  </p>
+
+  <div class="file-label">multi-agent.mjs</div>
+  <div style="position:relative">
+  <pre id="code-main"><code><span class="cmt">// multi-agent.mjs
+// node --env-file=.env multi-agent.mjs</span>
+
+<span class="kw">import</span> Anthropic <span class="kw">from</span> <span class="str">'@anthropic-ai/sdk'</span>;
+
+<span class="kw">const</span> client = <span class="kw">new</span> <span class="fn">Anthropic</span>({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+<span class="cmt">// ── SPECIALIST AGENTS ─────────────────────────────────────────────────────────
+// Each agent has: a system prompt defining its role + a small tool set.
+// 3-5 tools each, tightly scoped. They know nothing about each other.</span>
+
+<span class="kw">const</span> specialists = {
+  billing: {
+    system: <span class="str">`You are a billing specialist. You handle invoices, charges, refunds,
+and payment methods. You only deal with financial matters.
+If the user's issue is not billing-related, say so clearly.`</span>,
+    tools: [
+      {
+        name: <span class="str">'get_invoice'</span>,
+        description: <span class="str">'Look up an invoice by ID. Returns invoice details including amount, status, and line items.'</span>,
+        input_schema: {
+          type: <span class="str">'object'</span>,
+          properties: { invoice_id: { type: <span class="str">'string'</span>, description: <span class="str">'The invoice ID, e.g. INV-1234'</span> } },
+          required: [<span class="str">'invoice_id'</span>],
+        },
+      },
+      {
+        name: <span class="str">'issue_refund'</span>,
+        description: <span class="str">'Issue a refund for an invoice. Returns confirmation ID.'</span>,
+        input_schema: {
+          type: <span class="str">'object'</span>,
+          properties: {
+            invoice_id: { type: <span class="str">'string'</span>, description: <span class="str">'The invoice to refund'</span> },
+            reason: { type: <span class="str">'string'</span>, description: <span class="str">'Reason for the refund'</span> },
+          },
+          required: [<span class="str">'invoice_id'</span>, <span class="str">'reason'</span>],
+        },
+      },
+    ],
+  },
+
+  tech_support: {
+    system: <span class="str">`You are a technical support specialist. You diagnose software bugs,
+connectivity issues, and product errors. You do not handle billing or accounts.
+If the issue is not technical, say so clearly.`</span>,
+    tools: [
+      {
+        name: <span class="str">'check_system_status'</span>,
+        description: <span class="str">'Check whether a given service or system component is operational. Returns status: ok | degraded | down.'</span>,
+        input_schema: {
+          type: <span class="str">'object'</span>,
+          properties: { service: { type: <span class="str">'string'</span>, enum: [<span class="str">'api'</span>, <span class="str">'dashboard'</span>, <span class="str">'webhooks'</span>], description: <span class="str">'The service to check'</span> } },
+          required: [<span class="str">'service'</span>],
+        },
+      },
+      {
+        name: <span class="str">'create_support_ticket'</span>,
+        description: <span class="str">'Create a support ticket for an issue that needs engineer investigation. Returns ticket ID.'</span>,
+        input_schema: {
+          type: <span class="str">'object'</span>,
+          properties: {
+            summary: { type: <span class="str">'string'</span>, description: <span class="str">'One-line issue summary'</span> },
+            severity: { type: <span class="str">'string'</span>, enum: [<span class="str">'low'</span>, <span class="str">'medium'</span>, <span class="str">'high'</span>], description: <span class="str">'Impact severity'</span> },
+          },
+          required: [<span class="str">'summary'</span>, <span class="str">'severity'</span>],
+        },
+      },
+    ],
+  },
+};
+
+<span class="cmt">// ── MOCK TOOL EXECUTION ───────────────────────────────────────────────────────</span>
+
+<span class="kw">function</span> <span class="fn">executeTool</span>(name, input) {
+  <span class="kw">const</span> mocks = {
+    <span class="fn">get_invoice</span>: () => <span class="fn">JSON.stringify</span>({ id: input.invoice_id, amount: <span class="num">99.00</span>, status: <span class="str">'paid'</span>, date: <span class="str">'2026-06-01'</span> }),
+    <span class="fn">issue_refund</span>: () => <span class="fn">JSON.stringify</span>({ confirmation: <span class="str">'REF-9921'</span>, status: <span class="str">'approved'</span> }),
+    <span class="fn">check_system_status</span>: () => <span class="fn">JSON.stringify</span>({ service: input.service, status: <span class="str">'ok'</span> }),
+    <span class="fn">create_support_ticket</span>: () => <span class="fn">JSON.stringify</span>({ ticket_id: <span class="str">'TKT-4457'</span>, status: <span class="str">'created'</span> }),
+  };
+  <span class="kw">return</span> mocks[name]?.() ?? <span class="str">'Unknown tool'</span>;
+}
+
+<span class="cmt">// ── SPECIALIST RUNNER ─────────────────────────────────────────────────────────
+// The same agent loop from Lesson 2, parameterised by specialist config.</span>
+
+<span class="kw">async function</span> <span class="fn">runSpecialist</span>(specialistKey, userMessage) {
+  <span class="kw">const</span> spec = specialists[specialistKey];
+  <span class="kw">const</span> messages = [{ role: <span class="str">'user'</span>, content: userMessage }];
+
+  <span class="kw">while</span> (<span class="kw">true</span>) {
+    <span class="kw">const</span> response = <span class="kw">await</span> client.messages.<span class="fn">create</span>({
+      model: <span class="str">'claude-haiku-4-5-20251001'</span>,
+      max_tokens: <span class="num">1024</span>,
+      system: spec.system,
+      tools: spec.tools,
+      messages,
+    });
+
+    <span class="kw">if</span> (response.stop_reason === <span class="str">'end_turn'</span>) {
+      <span class="kw">return</span> response.content.<span class="fn">filter</span>(b => b.type === <span class="str">'text'</span>).<span class="fn">map</span>(b => b.text).<span class="fn">join</span>(<span class="str">''</span>);
+    }
+
+    messages.<span class="fn">push</span>({ role: <span class="str">'assistant'</span>, content: response.content });
+    <span class="kw">const</span> results = response.content
+      .<span class="fn">filter</span>(b => b.type === <span class="str">'tool_use'</span>)
+      .<span class="fn">map</span>(t => ({
+        type: <span class="str">'tool_result'</span>,
+        tool_use_id: t.id,
+        content: <span class="fn">executeTool</span>(t.name, t.input),
+      }));
+    messages.<span class="fn">push</span>({ role: <span class="str">'user'</span>, content: results });
+  }
+}
+
+<span class="cmt">// ── SUPERVISOR ────────────────────────────────────────────────────────────────
+// Uses forced tool use (Lesson 3) to produce a reliable routing decision.
+// It reads the user message, picks a specialist, and hands off.</span>
+
+<span class="kw">const</span> routeTool = {
+  name: <span class="str">'route'</span>,
+  description: <span class="str">'Select the specialist best suited to handle this request.'</span>,
+  input_schema: {
+    type: <span class="str">'object'</span>,
+    properties: {
+      specialist: {
+        type: <span class="str">'string'</span>,
+        enum: [<span class="str">'billing'</span>, <span class="str">'tech_support'</span>],
+        description: <span class="str">'billing: invoices, charges, refunds. tech_support: bugs, errors, outages.'</span>,
+      },
+      reason: {
+        type: <span class="str">'string'</span>,
+        description: <span class="str">'One sentence explaining why this specialist was chosen.'</span>,
+      },
+    },
+    required: [<span class="str">'specialist'</span>, <span class="str">'reason'</span>],
+  },
+};
+
+<span class="kw">async function</span> <span class="fn">supervisor</span>(userMessage) {
+  console.<span class="fn">log</span>(<span class="str">`\nUser: </span>${userMessage}\n`</span>);
+
+  <span class="cmt">// Step 1: Supervisor decides who handles this</span>
+  <span class="kw">const</span> routingResponse = <span class="kw">await</span> client.messages.<span class="fn">create</span>({
+    model: <span class="str">'claude-haiku-4-5-20251001'</span>,
+    max_tokens: <span class="num">256</span>,
+    system: <span class="str">`You are a customer support supervisor. You read incoming requests and
+route them to the correct specialist. Do not answer questions yourself.`</span>,
+    tools: [routeTool],
+    tool_choice: { type: <span class="str">'tool'</span>, name: <span class="str">'route'</span> }, <span class="cmt">// always route, never answer directly</span>
+    messages: [{ role: <span class="str">'user'</span>, content: userMessage }],
+  });
+
+  <span class="kw">const</span> routing = routingResponse.content.<span class="fn">find</span>(b => b.type === <span class="str">'tool_use'</span>).input;
+  console.<span class="fn">log</span>(<span class="str">`Supervisor → </span>${routing.specialist}<span class="str"> (</span>${routing.reason}<span class="str">)`</span>);
+
+  <span class="cmt">// Step 2: Run the chosen specialist with the original message</span>
+  <span class="kw">const</span> answer = <span class="kw">await</span> <span class="fn">runSpecialist</span>(routing.specialist, userMessage);
+  console.<span class="fn">log</span>(<span class="str">`\nAnswer: </span>${answer}\n`</span>);
+  <span class="kw">return</span> answer;
+}
+
+<span class="cmt">// ── TEST IT ───────────────────────────────────────────────────────────────────</span>
+
+<span class="kw">await</span> <span class="fn">supervisor</span>(<span class="str">'I was charged twice for invoice INV-5512, can I get a refund?'</span>);
+<span class="kw">await</span> <span class="fn">supervisor</span>(<span class="str">'The dashboard has been returning 503 errors for the last hour.'</span>);</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-main',this)">copy</button>
+  </div>
+
+  <pre><code>node --env-file=.env multi-agent.mjs</code></pre>
+
+  <div class="output-label">Expected output</div>
+  <div class="output-block">User: I was charged twice for invoice INV-5512, can I get a refund?
+
+Supervisor → billing (The user is reporting a duplicate charge and requesting a refund, which is a billing matter.)
+
+Answer: I can see invoice INV-5512 was paid for $99.00 on 2026-06-01. I've issued
+a refund with confirmation REF-9921. You should see the credit within 3–5 business days.
+
+---
+
+User: The dashboard has been returning 503 errors for the last hour.
+
+Supervisor → tech_support (The user is reporting a service error, which is a technical issue.)
+
+Answer: I've checked the dashboard status — it's currently showing as operational.
+I've created support ticket TKT-4457 to investigate the intermittent 503s. An engineer
+will follow up shortly.</div>
+
+  <h2>Key design decisions</h2>
+
+  <h3>Supervisor uses forced tool use for routing</h3>
+  <p>
+    If you ask the supervisor to "pick a specialist" in prose, it might write
+    "I'll route this to billing" and then also try to answer the question itself.
+    Forced tool use (Lesson 3) guarantees it <em>only</em> outputs a routing decision
+    — no accidental answers.
+  </p>
+
+  <h3>Specialists are isolated</h3>
+  <p>
+    Each specialist has its own system prompt and tools. The billing agent cannot
+    accidentally call <code>check_system_status</code>. This is the same reason
+    you write separate NestJS modules instead of one god-service.
+  </p>
+
+  <h3>Parallel specialists (for independent sub-tasks)</h3>
+  <p>
+    When a request needs <em>two</em> specialists simultaneously — e.g. "fix my billing
+    AND check my service status" — run them in parallel with <code>Promise.all</code>:
+  </p>
+
+  <pre><code>const [billingAnswer, techAnswer] = await Promise.all([
+  runSpecialist('billing', userMessage),
+  runSpecialist('tech_support', userMessage),
+]);
+const combined = `Billing: ${billingAnswer}\n\nTech: ${techAnswer}`;</code></pre>
+
+  <p>
+    This is the Node.js equivalent of LangGraph's parallel execution (Level 4, §4.5).
+    No framework needed — <code>Promise.all</code> is sufficient for I/O-bound agents.
+  </p>
+
+  <h2>When to add a new specialist vs a new tool</h2>
+
+  <table>
+    <thead><tr><th>Situation</th><th>Solution</th></tr></thead>
+    <tbody>
+      <tr><td>Adding a 6th tool to an existing agent</td><td>Split into two agents instead</td></tr>
+      <tr><td>New domain with its own vocabulary and rules</td><td>New specialist agent</td></tr>
+      <tr><td>Same domain, just one more action</td><td>Add a tool to the existing specialist</td></tr>
+      <tr><td>Two specialists frequently collaborate</td><td>Consider swarm pattern (agents hand off to each other)</td></tr>
+    </tbody>
+  </table>
+
+  <div class="quiz">
+    <h2>Check your understanding</h2>
+    <p style="font-weight:normal;color:var(--muted);margin-bottom:1.5rem;font-size:0.9rem;">From memory.</p>
+
+    <div class="question" id="q1">
+      <p>1. Why does the supervisor use <code>tool_choice: { type: 'tool', name: 'route' }</code> instead of asking it to "respond with the specialist name"?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q1" value="a" /><span>Because the Anthropic API requires tool_choice for all requests</span></label>
+        <label class="option"><input type="radio" name="q1" value="b" /><span>To guarantee a structured routing decision — without it, the supervisor might answer the user directly instead of routing</span></label>
+        <label class="option"><input type="radio" name="q1" value="c" /><span>To reduce latency — tool calls are faster than text responses</span></label>
+        <label class="option"><input type="radio" name="q1" value="d" /><span>Because text responses cannot include a specialist name</span></label>
+      </div>
+      <div class="feedback" id="f1"></div>
+    </div>
+
+    <div class="question" id="q2">
+      <p>2. The billing agent accidentally starts answering a technical question because the user's message mentioned both a charge and a bug. How do you prevent this?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q2" value="a" /><span>Give the billing agent all tools so it can handle anything</span></label>
+        <label class="option"><input type="radio" name="q2" value="b" /><span>Tell the billing agent in its system prompt: "If the issue is not billing-related, say so and stop"</span></label>
+        <label class="option"><input type="radio" name="q2" value="c" /><span>Run the billing agent first and only run tech_support if billing fails</span></label>
+        <label class="option"><input type="radio" name="q2" value="d" /><span>Use a higher temperature to make the agent more flexible</span></label>
+      </div>
+      <div class="feedback" id="f2"></div>
+    </div>
+
+    <div class="question" id="q3">
+      <p>3. A user asks: "Can you check my invoice AND tell me if the API is down?" Both specialists are needed. What is the right approach?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q3" value="a" /><span>Route to billing first, then tech_support sequentially</span></label>
+        <label class="option"><input type="radio" name="q3" value="b" /><span>Run both specialists in parallel with Promise.all and combine the answers</span></label>
+        <label class="option"><input type="radio" name="q3" value="c" /><span>Create a new specialist that covers both billing and tech</span></label>
+        <label class="option"><input type="radio" name="q3" value="d" /><span>Route to whichever specialist the supervisor picks first</span></label>
+      </div>
+      <div class="feedback" id="f3"></div>
+    </div>
+
+    <div class="question" id="q4">
+      <p>4. You have a billing agent with 4 tools. You need to add invoice PDF generation and email dispatch. What should you do?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q4" value="a" /><span>Add both tools to the billing agent — it now has 6, but that is acceptable</span></label>
+        <label class="option"><input type="radio" name="q4" value="b" /><span>Split into a billing agent (4 tools) and a document agent (PDF + email), routed by the supervisor</span></label>
+        <label class="option"><input type="radio" name="q4" value="c" /><span>Add them to the supervisor so it can call them directly</span></label>
+        <label class="option"><input type="radio" name="q4" value="d" /><span>Create one tool that does both PDF generation and email dispatch</span></label>
+      </div>
+      <div class="feedback" id="f4"></div>
+    </div>
+
+    <button class="check-btn" onclick="checkAll()">Check answers</button>
+    <div class="score" id="score"></div>
+  </div>
+
+  <h2>Primary source for this lesson</h2>
+  <p>
+    <strong>Course slides: Level 4, §4.2 and §4.3</strong> — open
+    <code>resources/AI_Agents_Course_Slides/AI_Agents_Slides_Level4.pdf</code>.
+    §4.2 covers the supervisor architecture with a financial analysis example.
+    §4.3 covers swarm architecture and the comparison table. The Node.js
+    <code>Promise.all</code> pattern for parallel agents maps directly to
+    LangGraph's parallel execution (§4.5).
+  </p>
+
+  
+  <!-- ── DEEP DIVE ─────────────────────────────────────────────────────────── -->
+  <div class="dd-wrap" id="dd-l1_1.9">
+    <div class="dd-header" onclick="toggleDD('l1_1.9')">
+      <div class="dd-header-left">
+        <span class="dd-label">&#9650; Senior &amp; Staff Deep Dive</span>
+        <span class="dd-sub">Engineering tensions &bull; staff-level questions with answers &bull; production pitfalls</span>
+      </div>
+      <span class="dd-chevron">&#9654;</span>
+    </div>
+    <div class="dd-body">
+      <div class="dd-block">
+<div class="dd-block-title">&#9889; Engineering tensions</div>
+<div class="dd-tension"><span class="dd-tension-label">Supervisor complexity vs. coordination clarity</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">A supervisor pattern is conceptually clean but the supervisor itself becomes a complex agent that must understand all sub-agent capabilities. If the supervisor makes routing mistakes, every downstream agent fails. Concentrated risk at the coordination layer.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Single agent simplicity vs. multi-agent parallelism</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">A single agent running 5 sequential tool calls takes 5× tool latency. Map-reduce running them in parallel takes 1× latency. But multi-agent adds coordination overhead, state merging complexity, and inter-agent failure propagation. The latency win must justify the complexity cost.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Sub-agent isolation vs. shared context</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">Isolated sub-agents prevent context overflow and enable specialization. But coordinating between them requires explicit state passing, serialization, and careful result aggregation. The coordination code often becomes more complex than the agent logic itself.</span></div>
+</div>
+<div class="dd-block">
+<div class="dd-block-title">&#128172; Staff-level questions</div>
+<div class="dd-q">
+<div class="dd-q-num">Q1</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Your multi-agent system has Agent A depending on Agent B's output, and Agent B depending on Agent C's output. Agent C fails. Design the failure propagation and recovery strategy.</div>
+<div class="dd-hint"><strong>Steer:</strong> Failures in dependency chains need to be explicit, not silent. Each agent needs to handle 'I received an error, not a result.'</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.9-0')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.9-0" style="display:none">Design with explicit error propagation: (1) Agent C fails — returns {status: 'error', error_type: 'tool_failure', message: '...', partial_result: None}. It never raises an exception. (2) Agent B receives the error result. It checks status before processing: if error, it returns {status: 'error', source: 'agent_c', propagated: true, message: '...'}. B should not attempt to work with missing input. (3) Agent A receives the propagated error. It decides: can it complete with partial information? If yes, proceed with a caveat. If no, propagate the error to the user with a clear explanation of which step failed. Recovery: the supervisor can retry Agent C independently (the dependency chain knows where the failure originated). Retry Agent C → if success, re-run B and A from C's corrected output. No need to re-run the entire pipeline.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q2</div>
+<div class="dd-q-body">
+<div class="dd-q-text">When does the coordination overhead of a multi-agent system exceed the benefits? Give a concrete threshold.</div>
+<div class="dd-hint"><strong>Steer:</strong> Coordination overhead has a formula: serialization + routing + state merging + inter-agent latency. When does this exceed the benefit of parallelism or specialization?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.9-1')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.9-1" style="display:none">Concrete threshold: multi-agent adds value when EITHER: (a) Parallelism saves more time than coordination costs: if parallel tasks each take 2s and coordination overhead is 500ms, you save 1.5s per parallel pair. Break even at: (N-1) × task_latency > coordination_overhead × N. For N=3 tasks at 2s each: single-agent = 6s, multi-agent = 2s + 0.5s overhead = 2.5s. Worth it. For N=2 tasks at 0.5s each: single-agent = 1s, multi-agent = 0.5s + 0.5s = 1s. Not worth it. (b) Context isolation is genuinely necessary: each sub-agent needs >30% of the context window just for its specialized prompt, making a single agent impossible. Rule of thumb: start multi-agent only when a single agent is actively failing due to context overflow or conflicting instructions — not preemptively.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q3</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Design an agent architecture for a task requiring both deep domain expertise and broad task management. How do you prevent the supervisor from being a bottleneck?</div>
+<div class="dd-hint"><strong>Steer:</strong> The supervisor's job is routing and aggregation. If it's doing domain reasoning, it's overloaded.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.9-2')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.9-2" style="display:none">Strict separation of concerns: the supervisor only routes and aggregates — it has zero domain knowledge. It classifies the task, routes to the right specialist, receives structured output, and assembles the final response. The domain expert sub-agents contain all domain-specific knowledge and tools. Design the supervisor's system prompt to be domain-agnostic: 'You receive a task and a set of specialist agent results. Route tasks to the correct specialist. Combine specialist results into a coherent response.' The specialist agents' system prompts are domain-dense. Bottleneck prevention: design specialist agents to return self-contained, pre-formatted results that require minimal synthesis by the supervisor. The supervisor should spend <1 LLM call on synthesis. If the supervisor needs multiple turns to understand a specialist's output, the specialist's output schema is wrong.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q4</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you test a multi-agent system end-to-end when testing individual agents in isolation doesn't catch inter-agent communication bugs?</div>
+<div class="dd-hint"><strong>Steer:</strong> Integration tests for multi-agent systems need to exercise the communication contracts between agents.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.9-3')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.9-3" style="display:none">Test strategy layers: (1) Unit: test each agent in isolation with mocked inputs that represent the structured output of other agents. Validates each agent's behavior given correct inputs. (2) Contract: define the schema for each inter-agent message. Test that Agent A's output always matches the schema Agent B expects. Use Pydantic models for these schemas and validate them in CI. (3) Integration: run the full multi-agent pipeline with a small set of real end-to-end test cases. Capture the actual inter-agent messages and verify they match the contract schemas. (4) Chaos: inject failures at specific agents and verify propagation behavior. Agent C fails — does Agent A receive the right error and produce an appropriate response? Most bugs in multi-agent systems live in the failure paths, not the happy path.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q5</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How does token cost scale in a multi-agent system compared to a single agent? At what scale does this become a real budget concern?</div>
+<div class="dd-hint"><strong>Steer:</strong> Each agent has its own system prompt, context, and tool schemas. These multiply by the number of agents.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.9-4')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.9-4" style="display:none">Cost formula: multi-agent_cost = Σ(agent_i_system_prompt_tokens + agent_i_context_tokens + agent_i_output_tokens) across all agents. If each agent has a 2K token system prompt and receives a 1K token context, and runs for 3 turns: 3 agents × (2K + 1K) × 3 turns = 27K tokens vs. a single agent at 2K system + 1K context × 3 turns = 9K tokens. Multi-agent costs 3× more just from system prompt overhead. At scale (1M runs/month at $0.01/1K tokens): single agent = $90/month vs. 3-agent system = $270/month. Budget concern threshold: when the cost multiplier from multi-agent exceeds the productivity gain from parallelism or specialization. Always model cost before committing to multi-agent. Profile in production: log token counts per agent per run.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q6</div>
+<div class="dd-q-body">
+<div class="dd-q-text">The swarm/network pattern has no central router. How do you debug a swarm where agents hand off incorrectly?</div>
+<div class="dd-hint"><strong>Steer:</strong> Without a central router, there's no single point to log all routing decisions. Debugging requires reconstructing the hand-off chain.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.9-5')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.9-5" style="display:none">Debugging approach: (1) Assign a unique run_id that propagates through every hand-off. Log: {run_id, from_agent, to_agent, handoff_reason, state_snapshot} at every hand-off. (2) Reconstruct the hand-off chain from logs: SELECT * FROM agent_logs WHERE run_id=X ORDER BY timestamp. This gives you the exact sequence of hand-offs. (3) Identify the incorrect hand-off: which agent handed to the wrong agent? Look at the state_snapshot at that point — what did the agent 'see' that led to the wrong decision? (4) Fix: update that agent's routing logic (system prompt or conditional edge) to handle this case correctly. Prevention: define a finite set of valid hand-off targets for each agent type. An agent that tries to hand off to an undefined target raises an error rather than silently routing incorrectly.</div>
+</div>
+</div>
+</div>
+</div>
+<div class="dd-block">
+<div class="dd-block-title">&#128308; Production pitfalls</div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Infinite agent spawning</span><span class="dd-pitfall-body">An agent that can spawn sub-agents, where those sub-agents can also spawn sub-agents, can create exponentially growing trees. Apply a shallow hierarchy rule: sub-agents cannot spawn sub-agents. Without this, a confused agent can exhaust your API rate limits in minutes.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Token cost multiplied by agent count</span><span class="dd-pitfall-body">Multi-agent systems often cost 3–5× more than single-agent equivalents due to per-agent system prompt overhead. Model cost before committing to the architecture. Log token counts per agent per run from day one.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Missing inter-agent error contracts</span><span class="dd-pitfall-body">When Agent B expects a success result from Agent A but receives an error, and there's no defined error schema, B fails in an undefined way. Define explicit error schemas for every inter-agent message, not just happy-path schemas.</span></div>
+</div>
+
+    </div>
+  </div>
+
+  <div class="lesson-nav">
+    <div><a href="./0005-building-a-nestjs-agent-service.html">← Lesson 5 — Building a NestJS Agent Service</a></div>
+    <div style="margin-top:0.5rem;">
+      <strong>Next:</strong>
+      <a href="./0007-capstone-project.html">Lesson 7 — Capstone: Build a Complete Agent Product</a>
+      — tie everything together into one project you can show: a multi-agent NestJS API
+      with persistence, tools, structured output, and a supervisor.
+    </div>
+  </div>
+
+  <div class="teacher-prompt">
+    <strong>Ask your teacher.</strong> Ask how to add a third specialist. Ask how the swarm
+    pattern would look in Node.js (agents calling each other). Ask how to test specialist
+    routing in isolation. Open Claude Code and ask.
+  </div>
+</article>
+
+<script>
+  const answers = { q1:'b', q2:'b', q3:'b', q4:'b' };
+  const explanations = {
+    q1: {
+      b: 'Correct. Forced tool use guarantees the supervisor outputs only a routing decision. Without it, the LLM often "helpfully" answers the question itself instead of delegating.',
+      wrong: 'Not quite. Forced tool use (tool_choice) is the Lesson 3 structured output pattern. It guarantees a schema-conforming routing decision — the supervisor cannot accidentally answer the user directly.'
+    },
+    q2: {
+      b: 'Correct. The system prompt is the specialist\'s constitution. Telling it to stay in its lane and explicitly stop if out-of-domain is the standard way to enforce boundaries.',
+      wrong: 'Not quite. The system prompt defines the agent\'s identity and constraints. Explicit out-of-scope instructions ("if not billing-related, say so and stop") is the right tool.'
+    },
+    q3: {
+      b: 'Correct. Independent specialists on independent sub-tasks = Promise.all. No need to serialise — run both simultaneously, combine the results, return one answer.',
+      wrong: 'Not quite. When sub-tasks are independent, run them in parallel with Promise.all. Sequential is only necessary when the output of one feeds the input of another.'
+    },
+    q4: {
+      b: 'Correct. Once an agent exceeds 5 tools, split by responsibility. PDF/email is a distinct "document" or "notifications" domain — its own specialist keeps each agent focused.',
+      wrong: 'Not quite. 6 tools on one agent degrades routing quality. Split into a billing specialist and a document specialist, both reachable from the supervisor.'
+    }
+  };
+
+  function checkAll() {
+    let correct = 0;
+    const total = Object.keys(answers).length;
+    Object.entries(answers).forEach(([qid, correctVal]) => {
+      const selected = document.querySelector(`input[name="${qid}"]:checked`);
+      const feedback = document.getElementById('f' + qid.slice(1));
+      document.querySelectorAll(`input[name="${qid}"]`).forEach(opt => {
+        const label = opt.parentElement;
+        label.classList.remove('correct','wrong');
+        if (opt.value === correctVal) label.classList.add('correct');
+        else if (opt.checked) label.classList.add('wrong');
+      });
+      if (!selected) { feedback.textContent = 'No answer selected.'; feedback.className = 'feedback'; return; }
+      const isCorrect = selected.value === correctVal;
+      if (isCorrect) { correct++; feedback.textContent = explanations[qid][correctVal]; feedback.className = 'feedback correct'; }
+      else { feedback.textContent = explanations[qid].wrong; feedback.className = 'feedback wrong'; }
+    });
+    const scoreEl = document.getElementById('score');
+    scoreEl.style.display = 'block';
+    if (correct === total) { scoreEl.style.color = 'var(--correct)'; scoreEl.textContent = `${correct}/${total} — Build it, add a third specialist, then move to the capstone.`; }
+    else { scoreEl.style.color = correct >= 2 ? '#92400e' : 'var(--wrong)'; scoreEl.textContent = `${correct}/${total} — Re-read the supervisor diagram, then try again.`; }
+  }
+
+  function copyCode(id, btn) {
+    navigator.clipboard.writeText(document.getElementById(id).innerText).then(() => {
+      btn.textContent = 'copied!';
+      setTimeout(() => btn.textContent = 'copy', 1500);
+    });
+  }
+</script>
+<script>
+
+function toggleDD(id) {
+  const w = document.getElementById('dd-' + id);
+  if (w) w.classList.toggle('open');
+}
+function toggleAns(id) {
+  const el = document.getElementById(id);
+  const btn = el?.previousElementSibling;
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (btn) btn.textContent = open ? '▶ Show answer' : '▼ Hide answer';
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lesson 3 — Tool Design &amp; Structured Output</title>
+  <style>
+    :root {
+      --ink: #1a1a1a;
+      --muted: #555;
+      --accent: #2563eb;
+      --bg: #fafaf8;
+      --card: #ffffff;
+      --border: #e5e5e0;
+      --correct: #16a34a;
+      --wrong: #dc2626;
+      --highlight: #fef9c3;
+      --warn: #fff7ed;
+      --warn-border: #fb923c;
+      --code-bg: #1e1e2e;
+      --code-fg: #cdd6f4;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Georgia", serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.75;
+      font-size: 18px;
+      padding: 2rem 1rem 6rem;
+    }
+
+    article { max-width: 720px; margin: 0 auto; }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .lesson-meta {
+      font-family: monospace;
+      font-size: 13px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.5rem;
+    }
+
+    h1 { font-size: 2rem; font-weight: normal; line-height: 1.25; }
+    h2 { font-size: 1.25rem; font-weight: bold; margin: 2.5rem 0 0.75rem; }
+    h3 { font-size: 1rem; font-weight: bold; margin: 1.5rem 0 0.5rem; }
+
+    p { margin-bottom: 1rem; }
+    ul, ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+    li { margin-bottom: 0.35rem; }
+    a { color: var(--accent); }
+
+    .sidenote {
+      float: right;
+      clear: right;
+      width: 190px;
+      margin: 0 -210px 1rem 1rem;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+      border-left: 2px solid var(--border);
+      padding-left: 0.75rem;
+    }
+
+    @media (max-width: 940px) {
+      .sidenote { float: none; width: 100%; margin: 0 0 1rem; }
+    }
+
+    .callout {
+      background: var(--highlight);
+      border-left: 3px solid #ca8a04;
+      padding: 0.75rem 1rem;
+      margin: 1.5rem 0;
+      font-size: 0.95rem;
+    }
+
+    .callout strong { display: block; margin-bottom: 0.25rem; }
+
+    .warn {
+      background: var(--warn);
+      border-left: 3px solid var(--warn-border);
+      padding: 0.75rem 1rem;
+      margin: 1.5rem 0;
+      font-size: 0.95rem;
+    }
+
+    .warn strong { display: block; margin-bottom: 0.25rem; }
+
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    @media (max-width: 600px) { .compare { grid-template-columns: 1fr; } }
+
+    .compare-card {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .compare-card .compare-label {
+      font-family: monospace;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .compare-card.bad .compare-label  { background: #fee2e2; color: var(--wrong); }
+    .compare-card.good .compare-label { background: #dcfce7; color: var(--correct); }
+
+    pre {
+      background: var(--code-bg);
+      color: var(--code-fg);
+      padding: 1.25rem 1.5rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: "Menlo", "Monaco", "Fira Code", monospace;
+      font-size: 0.82rem;
+      line-height: 1.6;
+      margin: 1rem 0;
+      position: relative;
+    }
+
+    .compare-card pre { margin: 0; border-radius: 0; font-size: 0.78rem; }
+
+    .copy-btn {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.6rem;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #cdd6f4;
+      padding: 0.25rem 0.65rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      font-family: monospace;
+    }
+
+    .copy-btn:hover { background: rgba(255,255,255,0.2); }
+
+    code { font-family: "Menlo","Monaco","Fira Code",monospace; font-size: 0.85em; }
+    p code, li code {
+      background: #f0f0ec;
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+    }
+
+    .kw   { color: #cba6f7; }
+    .fn   { color: #89b4fa; }
+    .str  { color: #a6e3a1; }
+    .num  { color: #fab387; }
+    .cmt  { color: #6c7086; font-style: italic; }
+    .key  { color: #f38ba8; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      font-size: 0.9rem;
+    }
+
+    th {
+      background: var(--ink);
+      color: white;
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+      font-family: monospace;
+      font-weight: normal;
+    }
+
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: #f5f5f3; }
+
+    .output-label {
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.25rem;
+    }
+
+    .output-block {
+      background: #0d1117;
+      color: #58a6ff;
+      padding: 1rem 1.5rem;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      margin: 1rem 0;
+    }
+
+    /* Quiz */
+    .quiz {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.5rem;
+      margin: 2.5rem 0;
+    }
+
+    .quiz h2 { margin-top: 0; }
+    .question { margin-bottom: 2rem; }
+    .question p { font-weight: bold; margin-bottom: 0.75rem; }
+    .options { display: flex; flex-direction: column; gap: 0.5rem; }
+
+    .option {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 0.95rem;
+      background: white;
+    }
+
+    .option:hover { background: #f0f4ff; }
+    .option.correct { background: #dcfce7; border-color: var(--correct); }
+    .option.wrong   { background: #fee2e2; border-color: var(--wrong); }
+    .option input { margin-top: 3px; flex-shrink: 0; }
+
+    .feedback { margin-top: 0.75rem; font-size: 0.9rem; min-height: 1.2em; color: var(--muted); }
+    .feedback.correct { color: var(--correct); font-weight: bold; }
+    .feedback.wrong   { color: var(--wrong); }
+
+    .check-btn {
+      margin-top: 1.25rem;
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.6rem 1.5rem;
+      border-radius: 4px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .check-btn:hover { opacity: 0.9; }
+    .score { margin-top: 1rem; font-size: 1rem; font-weight: bold; text-align: center; display: none; }
+
+    .lesson-nav {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .teacher-prompt {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 6px;
+      padding: 1rem 1.25rem;
+      margin-top: 2rem;
+      font-size: 0.9rem;
+    }
+
+    .breadcrumb { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+    .breadcrumb a { color: var(--muted); }
+
+    .schema-field {
+      display: flex;
+      gap: 1rem;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+
+    .schema-field:last-child { border-bottom: none; }
+    .schema-field .field-name { font-family: monospace; color: #89b4fa; flex-shrink: 0; min-width: 130px; }
+    .schema-field .field-desc { color: var(--muted); }
+  
+/* ── Deep Dive ───────────────────────────────────────────────── */
+.dd-wrap {
+  border: 1px solid #e5e5e0;
+  border-radius: 8px;
+  margin: 2.5rem 0;
+  overflow: hidden;
+}
+.dd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  background: #1a1a2e;
+  cursor: pointer;
+  user-select: none;
+  gap: 1rem;
+}
+.dd-header:hover { background: #1e1e38; }
+.dd-header-left { display: flex; flex-direction: column; gap: 0.15rem; }
+.dd-label {
+  font-family: monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.dd-sub { font-size: 0.78rem; color: #6c7086; }
+.dd-chevron { color: #6c7086; font-size: 1.1rem; transition: transform .2s; }
+.dd-wrap.open .dd-chevron { transform: rotate(90deg); }
+.dd-body { display: none; padding: 1.25rem 1.5rem; background: #fafaf8; }
+.dd-wrap.open .dd-body { display: block; }
+.dd-block { margin-bottom: 1.75rem; }
+.dd-block:last-child { margin-bottom: 0; }
+.dd-block-title {
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e5e5e0;
+}
+.dd-tension {
+  display: grid;
+  grid-template-columns: 210px 1.5rem 1fr;
+  gap: 0.25rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f0f0ec;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  align-items: baseline;
+}
+.dd-tension:last-child { border-bottom: none; }
+.dd-tension-label { font-weight: bold; color: #1a1a1a; }
+.dd-tension-sep { color: #aaa; text-align: center; }
+.dd-tension-body { color: #555; }
+.dd-q {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 0.75rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid #f0f0ec;
+}
+.dd-q:last-child { border-bottom: none; }
+.dd-q-num {
+  font-family: monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  background: #1a1a2e;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.6rem;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+}
+.dd-q-text { font-size: 0.9rem; font-weight: bold; color: #1a1a1a; margin-bottom: 0.35rem; line-height: 1.5; }
+.dd-hint { font-size: 0.82rem; color: #555; margin-bottom: 0.5rem; font-style: italic; }
+.dd-hint strong { font-style: normal; color: #2563eb; }
+.dd-ans-btn {
+  font-size: 0.8rem;
+  font-family: monospace;
+  background: none;
+  border: 1px solid #e5e5e0;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  color: #555;
+  margin-bottom: 0.5rem;
+}
+.dd-ans-btn:hover { background: #f0f4ff; color: #2563eb; border-color: #93c5fd; }
+.dd-ans {
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: #333;
+  background: #eff6ff;
+  border-left: 3px solid #2563eb;
+  padding: 0.75rem 1rem;
+  border-radius: 0 4px 4px 0;
+}
+.dd-pitfall {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f0f0ec;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  align-items: baseline;
+}
+.dd-pitfall:last-child { border-bottom: none; }
+.dd-pitfall-title { font-weight: bold; color: #dc2626; }
+.dd-pitfall-body { color: #555; }
+@media (max-width: 640px) {
+  .dd-tension, .dd-pitfall { grid-template-columns: 1fr; }
+  .dd-tension-sep { display: none; }
+}
+
+</style>
+</head>
+<body>
+<article>
+  <header>
+    <div class="breadcrumb">
+      <a href="./0001-what-is-an-ai-agent.html">Lesson 1</a> ·
+      <a href="./0002-your-first-agent-in-nodejs.html">Lesson 2</a>
+    </div>
+    <div class="lesson-meta">Lesson 03 · AI Agents · ~25 min</div>
+    <h1>Tool Design &amp; Structured Output</h1>
+    <p style="color:var(--muted);font-size:0.95rem;margin-top:0.5rem;">
+      The LLM reads your tool descriptions, not you. Write them badly and the agent behaves
+      unpredictably. Write them well and the agent becomes reliable.
+    </p>
+  </header>
+
+  <!-- PART 1 -->
+  <h2>Why tool design matters</h2>
+
+  <div class="sidenote">
+    Course ref: <em>Level 2, §2.2 — Structured Outputs</em> and <em>§2.3 — Integrating External Tools.</em>
+    The principles here apply identically in Python and Node.js.
+  </div>
+
+  <p>
+    In Lesson 2 you gave the LLM a <code>run_shell</code> tool and it worked. But that was a toy.
+    In a real agent — one that talks to a database, sends emails, updates records — the LLM must choose
+    the <em>right</em> tool, with the <em>right</em> arguments, every time.
+  </p>
+
+  <p>
+    The LLM makes that choice by reading three things:
+  </p>
+
+  <ul>
+    <li>The tool's <strong>name</strong></li>
+    <li>The tool's <strong>description</strong></li>
+    <li>The tool's <strong>input schema</strong> (the JSON Schema object)</li>
+  </ul>
+
+  <p>
+    That is all it sees. Your implementation is invisible. Which means <strong>the description
+    is your contract with the LLM</strong> — it determines when the tool gets called and how
+    arguments are filled.
+  </p>
+
+  <!-- PART 2: DESCRIPTIONS -->
+  <h2>Writing good tool descriptions</h2>
+
+  <p>
+    The description must answer three questions the LLM silently asks before calling a tool:
+  </p>
+
+  <ol>
+    <li><em>What does this tool do?</em></li>
+    <li><em>When should I use it (vs the other tools)?</em></li>
+    <li><em>What does it return?</em></li>
+  </ol>
+
+  <p>Compare these two descriptions for a database lookup tool:</p>
+
+  <div class="compare">
+    <div class="compare-card bad">
+      <div class="compare-label">✗ Bad</div>
+      <pre><code><span class="str">'Look up user data'</span></code></pre>
+    </div>
+    <div class="compare-card good">
+      <div class="compare-label">✓ Good</div>
+      <pre><code><span class="str">'Look up a user record by their ID or email.
+Returns { id, name, email, role, createdAt }.
+Use this when you need to verify who a user is
+or retrieve their account details. Do NOT use
+this for searching — use search_users instead.'</span></code></pre>
+    </div>
+  </div>
+
+  <p>
+    The good version tells the LLM <em>what it returns</em>, when to prefer it,
+    and explicitly rules out a confusion case. That last part — "Do NOT use this for searching"
+    — is especially important when you have two similar tools.
+  </p>
+
+  <div class="callout">
+    <strong>Rule of thumb: 3–5 tools maximum per agent.</strong>
+    Each additional tool makes the LLM's decision harder and increases the chance of the wrong
+    tool being selected. If you have 10 tools, split into multiple agents.
+    (<em>Level 2, §2.3</em>)
+  </div>
+
+  <!-- PART 3: INPUT SCHEMA -->
+  <h2>Anatomy of a good input schema</h2>
+
+  <p>
+    The <code>input_schema</code> is a <a href="https://json-schema.org/" target="_blank">JSON Schema</a>
+    object. Every property should have a type <em>and</em> a description.
+    The LLM reads property descriptions to know what value to pass.
+  </p>
+
+  <p>Here is a well-designed schema for a "send notification" tool:</p>
+
+  <div style="position:relative">
+  <pre id="code-schema"><code><span class="kw">const</span> sendNotificationTool = {
+  name: <span class="str">'send_notification'</span>,
+  description: <span class="str">'Send a push notification to a user. Use when the task requires
+    alerting a specific user. Returns { success: boolean, messageId: string }.
+    Do NOT use for email — use send_email instead.'</span>,
+  input_schema: {
+    type: <span class="str">'object'</span>,
+    properties: {
+      userId: {
+        type: <span class="str">'string'</span>,
+        description: <span class="str">'The UUID of the user to notify'</span>,
+      },
+      message: {
+        type: <span class="str">'string'</span>,
+        description: <span class="str">'The notification body. Plain text, max 140 characters.'</span>,
+      },
+      priority: {
+        type: <span class="str">'string'</span>,
+        enum: [<span class="str">'low'</span>, <span class="str">'normal'</span>, <span class="str">'high'</span>],
+        description: <span class="str">'Urgency level. Use "high" only for time-sensitive alerts.'</span>,
+      },
+    },
+    required: [<span class="str">'userId'</span>, <span class="str">'message'</span>],  <span class="cmt">// priority is optional — defaults to 'normal'</span>
+  },
+};</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-schema',this)">copy</button>
+  </div>
+
+  <p>Notice:</p>
+  <ul>
+    <li>Every property has a <code>description</code> — not just the tool itself</li>
+    <li><code>enum</code> constrains the LLM to valid values, preventing hallucinated strings</li>
+    <li>Optional fields stay out of <code>required</code></li>
+    <li>The tool description says what it returns</li>
+  </ul>
+
+  <!-- PART 4: STRUCTURED OUTPUT -->
+  <h2>Structured output</h2>
+
+  <p>
+    Sometimes you don't want the LLM to call a tool — you want it to produce a
+    <em>structured object</em> as its final answer. For example: extract entities from text,
+    classify a support ticket, or triage a request into a typed response.
+  </p>
+
+  <p>
+    LLMs naturally produce prose. To get a reliable JSON object, you have two options:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>How</th><th>Reliability</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Prompt-based</strong></td>
+        <td>Tell the LLM to "respond only with JSON" in the system prompt</td>
+        <td>Low — it sometimes adds prose anyway</td>
+      </tr>
+      <tr>
+        <td><strong>Forced tool use</strong></td>
+        <td>Define a "response" tool and force the LLM to call it</td>
+        <td>High — tool calls always produce valid schema-conforming JSON</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The <strong>forced tool use</strong> trick is the standard pattern. You define a tool called
+    <code>respond</code> (or <code>format_response</code>) that represents the output shape,
+    then tell the API to always call it via <code>tool_choice</code>.
+  </p>
+
+  <h3>Example: extract a task from natural language</h3>
+
+  <div style="position:relative">
+  <pre id="code-structured"><code><span class="cmt">// extract-task.mjs</span>
+<span class="kw">import</span> Anthropic <span class="kw">from</span> <span class="str">'@anthropic-ai/sdk'</span>;
+
+<span class="kw">const</span> client = <span class="kw">new</span> <span class="fn">Anthropic</span>({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+<span class="cmt">// The "output schema" disguised as a tool</span>
+<span class="kw">const</span> respondTool = {
+  name: <span class="str">'respond'</span>,
+  description: <span class="str">'Return the extracted task as structured data'</span>,
+  input_schema: {
+    type: <span class="str">'object'</span>,
+    properties: {
+      title: {
+        type: <span class="str">'string'</span>,
+        description: <span class="str">'Short task title, max 8 words'</span>,
+      },
+      description: {
+        type: <span class="str">'string'</span>,
+        description: <span class="str">'Full task description in one sentence'</span>,
+      },
+      priority: {
+        type: <span class="str">'string'</span>,
+        enum: [<span class="str">'low'</span>, <span class="str">'medium'</span>, <span class="str">'high'</span>],
+        description: <span class="str">'Inferred urgency from the user\'s language'</span>,
+      },
+      dueDate: {
+        type: <span class="str">'string'</span>,
+        description: <span class="str">'ISO 8601 date if mentioned, otherwise null'</span>,
+        nullable: <span class="kw">true</span>,
+      },
+    },
+    required: [<span class="str">'title'</span>, <span class="str">'description'</span>, <span class="str">'priority'</span>],
+  },
+};
+
+<span class="kw">async function</span> <span class="fn">extractTask</span>(userInput) {
+  <span class="kw">const</span> response = <span class="kw">await</span> client.messages.<span class="fn">create</span>({
+    model: <span class="str">'claude-haiku-4-5-20251001'</span>,
+    max_tokens: <span class="num">512</span>,
+    system: <span class="str">'You are a task extraction assistant. Extract the task from the user\'s message.'</span>,
+    tools: [respondTool],
+    tool_choice: { type: <span class="str">'tool'</span>, name: <span class="str">'respond'</span> }, <span class="cmt">// ← forces the LLM to call this tool</span>
+    messages: [{ role: <span class="str">'user'</span>, content: userInput }],
+  });
+
+  <span class="cmt">// The tool call input IS the structured output</span>
+  <span class="kw">const</span> toolCall = response.content.<span class="fn">find</span>(b => b.type === <span class="str">'tool_use'</span>);
+  <span class="kw">return</span> toolCall.input; <span class="cmt">// { title, description, priority, dueDate }</span>
+}
+
+<span class="kw">const</span> result = <span class="kw">await</span> <span class="fn">extractTask</span>(
+  <span class="str">'Hey, can you remind me to send the Q3 report to Sarah by Friday? It\'s pretty urgent.'</span>
+);
+
+console.<span class="fn">log</span>(<span class="fn">JSON.stringify</span>(result, <span class="kw">null</span>, <span class="num">2</span>));</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-structured',this)">copy</button>
+  </div>
+
+  <p>Expected output:</p>
+  <div class="output-label">Terminal output</div>
+  <div class="output-block">{
+  "title": "Send Q3 report to Sarah",
+  "description": "Send the Q3 report to Sarah by Friday as it is urgent.",
+  "priority": "high",
+  "dueDate": "2026-06-20"
+}</div>
+
+  <p>
+    No JSON parsing, no regex, no try-catch around <code>JSON.parse</code>.
+    The tool call always produces schema-conforming input — guaranteed by the API.
+  </p>
+
+  <!-- PART 5: ZOD -->
+  <h2>Validation with Zod (the TypeScript equivalent of Pydantic)</h2>
+
+  <div class="sidenote">
+    The course uses Python's Pydantic for validation. In Node.js/TypeScript,
+    <strong>Zod</strong> is the direct equivalent. Same idea: define a schema,
+    validate at runtime, get typed output.
+  </div>
+
+  <p>
+    The API guarantees the shape matches your schema, but doesn't give you TypeScript types.
+    Use <strong>Zod</strong> to validate and get full type inference:
+  </p>
+
+  <pre><code>npm install zod</code></pre>
+
+  <div style="position:relative">
+  <pre id="code-zod"><code><span class="kw">import</span> { z } <span class="kw">from</span> <span class="str">'zod'</span>;
+
+<span class="cmt">// Define the shape once with Zod</span>
+<span class="kw">const</span> TaskSchema = z.<span class="fn">object</span>({
+  title:       z.<span class="fn">string</span>().<span class="fn">max</span>(<span class="num">60</span>),
+  description: z.<span class="fn">string</span>(),
+  priority:    z.<span class="fn">enum</span>([<span class="str">'low'</span>, <span class="str">'medium'</span>, <span class="str">'high'</span>]),
+  dueDate:     z.<span class="fn">string</span>().<span class="fn">nullable</span>(),
+});
+
+<span class="kw">type</span> <span class="type">Task</span> = z.<span class="fn">infer</span>&lt;<span class="kw">typeof</span> TaskSchema&gt;;
+
+<span class="cmt">// After getting toolCall.input from the API:</span>
+<span class="kw">const</span> task: <span class="type">Task</span> = TaskSchema.<span class="fn">parse</span>(toolCall.input);
+<span class="cmt">// task is now fully typed — autocomplete works, type errors caught at compile time</span></code></pre>
+  <button class="copy-btn" onclick="copyCode('code-zod',this)">copy</button>
+  </div>
+
+  <p>
+    In a NestJS service, you'd also use a Zod schema (or a class-validator DTO) to validate
+    the output before passing it downstream — exactly the same pattern as validating a request body.
+  </p>
+
+  <!-- CHECKLIST -->
+  <h2>Tool design checklist</h2>
+
+  <p>Before adding a tool to an agent, run through this:</p>
+
+  <table>
+    <thead><tr><th>Check</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Name is a clear verb-noun</td><td><code>send_email</code> not <code>email</code> or <code>mailer</code></td></tr>
+      <tr><td>Description says what it returns</td><td>LLM needs to know what data it gets back</td></tr>
+      <tr><td>Description says when <em>not</em> to use it</td><td>Prevents confusion with similar tools</td></tr>
+      <tr><td>Every property has a description</td><td>LLM reads these to decide argument values</td></tr>
+      <tr><td>Enums used for finite valid values</td><td>Prevents hallucinated strings like <code>"urgent"</code></td></tr>
+      <tr><td>Optional fields excluded from <code>required</code></td><td>LLM won't be forced to invent values</td></tr>
+      <tr><td>Total tools per agent ≤ 5</td><td>More tools = slower + less reliable selection</td></tr>
+    </tbody>
+  </table>
+
+  <!-- QUIZ -->
+  <div class="quiz">
+    <h2>Check your understanding</h2>
+    <p style="font-weight:normal;color:var(--muted);margin-bottom:1.5rem;font-size:0.9rem;">From memory.</p>
+
+    <div class="question" id="q1">
+      <p>1. You have two tools: <code>get_user</code> and <code>search_users</code>. What should the <code>get_user</code> description explicitly include?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q1" value="a" /><span>The implementation details of how it queries the database</span></label>
+        <label class="option"><input type="radio" name="q1" value="b" /><span>A note that says "Do NOT use this for searching — use search_users instead"</span></label>
+        <label class="option"><input type="radio" name="q1" value="c" /><span>The name of the developer who wrote it</span></label>
+        <label class="option"><input type="radio" name="q1" value="d" /><span>Nothing extra — the name is self-explanatory</span></label>
+      </div>
+      <div class="feedback" id="f1"></div>
+    </div>
+
+    <div class="question" id="q2">
+      <p>2. Why use <code>enum</code> in a tool's input schema for a field like <code>priority</code>?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q2" value="a" /><span>To make the JSON schema file smaller</span></label>
+        <label class="option"><input type="radio" name="q2" value="b" /><span>To prevent the LLM from passing invalid strings like "urgent" or "ASAP"</span></label>
+        <label class="option"><input type="radio" name="q2" value="c" /><span>Enums are required by the Anthropic API</span></label>
+        <label class="option"><input type="radio" name="q2" value="d" /><span>To improve performance by reducing token count</span></label>
+      </div>
+      <div class="feedback" id="f2"></div>
+    </div>
+
+    <div class="question" id="q3">
+      <p>3. What is the "forced tool use" pattern for structured output?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q3" value="a" /><span>Telling the LLM in the system prompt to "only respond with JSON"</span></label>
+        <label class="option"><input type="radio" name="q3" value="b" /><span>Defining a "respond" tool with your output schema and passing <code>tool_choice: { type: 'tool', name: 'respond' }</code></span></label>
+        <label class="option"><input type="radio" name="q3" value="c" /><span>Using <code>JSON.parse</code> on the LLM's text output</span></label>
+        <label class="option"><input type="radio" name="q3" value="d" /><span>Sending the output to a second LLM to reformat it</span></label>
+      </div>
+      <div class="feedback" id="f3"></div>
+    </div>
+
+    <div class="question" id="q4">
+      <p>4. Why keep tool count to 3–5 per agent?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q4" value="a" /><span>The Anthropic API hard-limits to 5 tools per request</span></label>
+        <label class="option"><input type="radio" name="q4" value="b" /><span>More tools increase decision complexity, slowing the LLM and raising wrong-tool selection risk</span></label>
+        <label class="option"><input type="radio" name="q4" value="c" /><span>Each tool adds $0.01 to the API cost</span></label>
+        <label class="option"><input type="radio" name="q4" value="d" /><span>More than 5 tools causes the agent loop to break</span></label>
+      </div>
+      <div class="feedback" id="f4"></div>
+    </div>
+
+    <button class="check-btn" onclick="checkAll()">Check answers</button>
+    <div class="score" id="score"></div>
+  </div>
+
+  <!-- PRIMARY SOURCE -->
+  <h2>Primary source for this lesson</h2>
+  <p>
+    <strong>Course slides: Level 2, §2.2 and §2.3</strong> — open
+    <code>resources/AI_Agents_Course_Slides/AI_Agents_Slides_Level2.pdf</code>.
+    §2.2 covers structured output and JSON Schema. §2.3 covers tool integration best practices.
+    The Python examples use Pydantic — mentally substitute Zod everywhere you see it.
+  </p>
+
+  <!-- NAV -->
+  
+  <!-- ── DEEP DIVE ─────────────────────────────────────────────────────────── -->
+  <div class="dd-wrap" id="dd-l1_1.6">
+    <div class="dd-header" onclick="toggleDD('l1_1.6')">
+      <div class="dd-header-left">
+        <span class="dd-label">&#9650; Senior &amp; Staff Deep Dive</span>
+        <span class="dd-sub">Engineering tensions &bull; staff-level questions with answers &bull; production pitfalls</span>
+      </div>
+      <span class="dd-chevron">&#9654;</span>
+    </div>
+    <div class="dd-body">
+      <div class="dd-block">
+<div class="dd-block-title">&#9889; Engineering tensions</div>
+<div class="dd-tension"><span class="dd-tension-label">Tool granularity vs. LLM decision load</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">Fine-grained tools (one operation each) give precise control but require the LLM to make more routing decisions per task, increasing error rates. Coarse-grained tools reduce decisions but are harder to validate. 3–5 focused tools is the practical sweet spot.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Tool reliability vs. agent resilience</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">A tool that always succeeds hides brittle assumptions. A tool that returns structured errors lets the agent reason about failures. Designing tools to fail gracefully is harder to build but produces dramatically more resilient agents.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">MCP interoperability vs. protocol overhead</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">MCP gives you M+N integrations instead of M×N. But MCP adds protocol overhead (subprocess communication, schema negotiation) that matters in latency-sensitive applications. For 1–2 tools, direct integration is simpler and faster.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Strict schema vs. LLM flexibility</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">A Pydantic schema with tight validation prevents invalid values but creates a deployment coordination problem when the valid values change — you must update schema and prompt simultaneously.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Structured output overhead vs. reliability</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">with_structured_output() adds an internal tool-calling step and sometimes a retry — adds 100–300ms. For high-throughput pipelines, this compounds. Some teams use regex parsing for simple cases; structured output for complex schemas.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Tool count vs. selection accuracy</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">Above 7–10 tools, LLM tool selection accuracy degrades. The model starts confusing similar tools. This is a hard architectural constraint: if you need more than 5–7 tools, you need multiple agents.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Error handling strategy: return vs. raise</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">Returning error dicts lets the LLM recover gracefully but requires the LLM to understand and act on errors. Raising exceptions crashes the loop but makes failures explicit. Return for recoverable errors, raise for unrecoverable.</span></div>
+</div>
+<div class="dd-block">
+<div class="dd-block-title">&#128172; Staff-level questions</div>
+<div class="dd-q">
+<div class="dd-q-num">Q1</div>
+<div class="dd-q-body">
+<div class="dd-q-text">You have a tool that takes 2–5 seconds to execute. How does this affect your agent architecture, user experience design, and error handling strategy?</div>
+<div class="dd-hint"><strong>Steer:</strong> A slow tool changes the math on parallelism, user feedback, and retry cost.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-0')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-0" style="display:none">Architecture: if the tool is called multiple times per run, parallelize calls using asyncio.gather — call it simultaneously for different inputs rather than sequentially. Add a tool-level cache for identical inputs within a session (a slow tool called twice with the same input should return the cached result immediately). UX: stream progress indicators — 'Checking inventory... (this may take a few seconds)' rather than a silent spinner. For chat interfaces, stream intermediate status updates from the agent. Error handling: a 5-second timeout on a tool that sometimes takes 5+ seconds means frequent timeout errors — set timeouts at 2× the P95 execution time, not the mean. On timeout: return an error dict (not an exception), let the LLM decide whether to retry or proceed without this data.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q2</div>
+<div class="dd-q-body">
+<div class="dd-q-text">An LLM keeps calling the wrong tool for a specific query pattern. Walk through the systematic debugging process you'd use to fix it without just rewriting the prompt.</div>
+<div class="dd-hint"><strong>Steer:</strong> Wrong tool selection is usually a docstring problem or a tool similarity problem. Diagnose before prescribing.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-1')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-1" style="display:none">Step 1: Log the full context sent to the LLM when the wrong tool is selected. What did the model see? Step 2: Check if the two tools (correct and incorrect) have similar descriptions. If so, the LLM cannot distinguish them — make the descriptions more discriminative by adding 'use this tool when X, NOT when Y.' Step 3: Check if the query pattern contains words that appear in the wrong tool's description but not the right one. Update the right tool's description to explicitly address this pattern. Step 4: If the model consistently calls tool A when tool B is needed, add a few-shot example to the system prompt showing this exact query type routing to tool B. Step 5: If the problem persists, add a routing pre-processor: a cheap LLM call that classifies query intent and constrains which tools are available for this query type.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q3</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Design a tool permission system where different users can invoke different subsets of tools. How does this interact with the system prompt and agent decision-making?</div>
+<div class="dd-hint"><strong>Steer:</strong> Permissions live at the tool layer, not the prompt layer. How do you ensure the LLM only knows about tools it's allowed to use?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-2')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-2" style="display:none">Pattern: at request time, load the user's permission set. Filter the full tool list to only the tools that user is permitted to call. Pass only the permitted tools to llm.bind_tools() — the LLM never sees tools it can't use, so it can never try to call them. The system prompt says 'use the available tools' without listing them explicitly (the tools are passed via the tools parameter, not the prompt). This way, there's no prompt injection path to accessing forbidden tools: the tool schema simply isn't in the LLM's context. Additionally: validate at the tool execution layer that the requesting user has permission to call this tool — defense in depth in case the tool schema filtering has a bug.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q4</div>
+<div class="dd-q-body">
+<div class="dd-q-text">When should a tool call the LLM internally vs. returning raw results for the agent to process? What are the tradeoffs?</div>
+<div class="dd-hint"><strong>Steer:</strong> A tool that calls an LLM internally is itself an agent. When is this the right pattern vs. an antipattern?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-3')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-3" style="display:none">Tool calling LLM internally is appropriate when: the tool's purpose is inherently language-based (e.g., a 'summarize_document' tool), the processing is stable and the same every time (not requiring the outer agent's context), and you want to hide complexity from the outer agent's context window. It's an antipattern when: the tool's LLM call uses context that the outer agent has but the tool doesn't — this requires passing a large context into the tool, making the tool tightly coupled to the agent. Also antipattern when: the tool's output needs to feed back into the agent's reasoning in a nuanced way — the outer agent should see the raw data and reason about it. Rule of thumb: tools should do deterministic work. If the work requires judgment or context from the broader conversation, it belongs in the agent, not the tool.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q5</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you version tool APIs so that changes to a tool don't break agents in production?</div>
+<div class="dd-hint"><strong>Steer:</strong> Tool APIs are contracts between the LLM and the tool implementation. Treat them like any other API contract.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-4')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-4" style="display:none">Treat tools like REST APIs: (1) Version tool names explicitly (search_inventory_v2) or use parameter versioning. (2) Never change a tool's parameter names or types without a migration — the LLM has learned to call the tool with specific parameter names from the docstring. (3) Deprecate, don't delete — run old and new versions side by side with the old version logging a warning when called. (4) Run LLM regression tests after any tool change: does the agent still call the tool correctly for the 20 most common query patterns? (5) Treat the docstring as part of the API contract — changes to the docstring can change LLM behavior even if the code is unchanged. Version control docstrings alongside code.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q6</div>
+<div class="dd-q-body">
+<div class="dd-q-text">A tool calls an external API that occasionally returns stale data (cached at the API provider for 5 minutes). How do you handle this in your agent architecture?</div>
+<div class="dd-hint"><strong>Steer:</strong> Stale data is a correctness problem that looks like a performance problem. The agent may make decisions based on data that was accurate 5 minutes ago.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-5')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-5" style="display:none">Handle at three layers: (1) Tool level: include a data_freshness field in the return value: {data: ..., cached_at: '2024-01-15T10:30:00Z', max_age_seconds: 300}. (2) Prompt level: instruct the agent: 'When a tool returns cached data, include the cache age in your response and caveat time-sensitive facts.' (3) Application level: for decisions where staleness matters (e.g., inventory checks before committing an order), add a freshness check: if cached_at > 4 minutes ago, call a cache-bypass endpoint (if available) or add a caveat to the final output. Track cache hit rates in your observability system — high cache hit rates may indicate the external API is having problems.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q7</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Design a structured output schema for a classifier that needs to handle documents that don't fit any known category.</div>
+<div class="dd-hint"><strong>Steer:</strong> Closed-world classification schemas force the LLM to pick a wrong answer rather than admitting uncertainty.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-6')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-6" style="display:none">Add an explicit escape hatch: category: Literal['billing', 'technical', 'refund', 'other']. When other is selected, require additional context: reasoning: str — why no category fits, suggested_category: Optional[str] — what new category would fit, confidence: Literal['high', 'medium', 'low'] — how uncertain. The application layer handles 'other': route to human review, log for analysis (the 'other' category distribution tells you what new categories to add), and use it as a training signal for the classifier. Never ship a schema without an 'other' or 'unknown' option — unknown inputs are a certainty in production.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q8</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you version structured output schemas in a multi-service architecture where different services consume the output?</div>
+<div class="dd-hint"><strong>Steer:</strong> Schema changes are breaking changes for consumers. How do you manage this safely?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-7')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-7" style="display:none">Treat output schemas like REST API versions: (1) Additive changes (new optional fields) are safe — existing consumers ignore unknown fields if they use a permissive parser. (2) Removing or renaming fields is a breaking change — requires versioning. Version naming: ClassificationV1, ClassificationV2. (3) Maintain both versions simultaneously during transition. Producer supports V1 and V2. Consumers migrate to V2 at their own pace. (4) Deprecate V1 after all consumers have migrated. (5) Use a schema registry (or even just a shared package) that all services import the Pydantic models from — single source of truth for schema definition. A schema change PR requires updating the shared package and identifying all downstream consumers. Version bump in the shared package is the signal to update.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q9</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Structured output validation fails at 2am in production. The LLM keeps returning values not in your Literal type. What's your recovery path?</div>
+<div class="dd-hint"><strong>Steer:</strong> You need a short-term fix (keep production running) and a medium-term fix (prevent recurrence).</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-8')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-8" style="display:none">Short-term recovery: (1) Catch the ValidationError in your agent wrapper. (2) Add a fallback: if structured output fails 3 times, fall back to string output with a best-effort parse. Log the fallback prominently. (3) Set state['status'] = 'degraded' and continue with a safe default (route to the most conservative handler, not the most appropriate one). Medium-term fix: (1) Log the raw LLM output when validation fails — what did it actually return? (2) Common cause: model returned a value that's semantically correct but not in your Literal (e.g., 'urgent' vs. 'critical'). Fix: add synonyms to the schema or update the prompt with explicit examples of what 'critical' looks like. (3) Another common cause: model returned a value in a different language. Add language=Literal['en'] to your schema if multilingual inputs are possible. Prevention: add a schema validation test in CI that runs 20 representative queries and verifies all return valid Pydantic objects.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q10</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you use structured output to make agent debugging easier?</div>
+<div class="dd-hint"><strong>Steer:</strong> Structured output produces typed, predictable data. How does this change your debugging workflow?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-9')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-9" style="display:none">Structured output dramatically improves debugging because: (1) You know exactly what fields the LLM filled in and what values it chose — no string parsing required to understand the decision. (2) Validation failures are immediate and explicit (ValidationError with the exact field that failed) rather than silent (a string parse that produces garbage). (3) You can log the full structured object as JSON without ambiguity. (4) In debugging: filter logs by field values — 'show me all runs where priority=critical that routed to standard_handler.' (5) For A/B testing: compare the distribution of output field values between model versions — 'did the new model classify more items as urgent?' This would be impossible with free-text output. Best practice: define structured output schemas for every decision node in your agent, even internal ones. The schema documents the agent's reasoning at each step.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q11</div>
+<div class="dd-q-body">
+<div class="dd-q-text">When should you NOT use structured output, even when it seems like it would help?</div>
+<div class="dd-hint"><strong>Steer:</strong> Structured output is a constraint. Constraints have costs.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-10')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-10" style="display:none">Avoid structured output when: (1) The output is inherently free-form and its value lies in the LLM's language quality (creative writing, complex explanations, conversational responses). Forcing into a schema degrades quality and adds latency for no benefit. (2) The output structure is highly variable and you would need a very complex schema with many optional fields — the schema itself becomes a maintenance burden. Use a simpler approach (e.g., just extract key fields with regex) or use free-form output with a separate extraction pass. (3) You're using a weak model that struggles to reliably produce valid schema outputs — you'll spend more time retrying failed validations than you'd spend parsing strings. (4) Latency is extremely critical (<100ms target) — the structured output mechanism adds a step. Use a simple Literal choice with a routing prompt instead.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q12</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Two tools do similar things (search_products and browse_catalog). The LLM keeps picking the wrong one. What is your systematic fix?</div>
+<div class="dd-hint"><strong>Steer:</strong> The LLM reads docstrings to decide. The docstrings are probably too similar.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-11')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-11" style="display:none">Step 1: Make the docstrings discriminative. Don't describe what each tool does — describe when to use each one vs. the other. search_products docstring: 'Use when the user provides specific product attributes (name, SKU, category, price range). NOT for browsing.' browse_catalog docstring: 'Use when the user wants to explore what's available without specific criteria. NOT for searching by attribute.' Step 2: Add negative examples to the system prompt: 'When the user says "show me all products" → browse_catalog. When the user says "find product SKU-123" → search_products.' Step 3: If confusion persists, merge them into one tool with a mode parameter: search_or_browse(mode: Literal['search', 'browse'], query: Optional[str]). Reducing decision count reduces error rate.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q13</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Design a tool that interacts with a rate-limited external API. How do you handle rate limits gracefully within the tool without breaking the agent loop?</div>
+<div class="dd-hint"><strong>Steer:</strong> Rate limits are predictable, recoverable errors. The tool should handle them internally, not propagate them as failures.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-12')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-12" style="display:none">Inside the tool: (1) Catch the 429 response. (2) Read the Retry-After header if present. (3) sleep(retry_after + jitter) inside the tool — not in the agent loop. (4) Retry up to 3 times with exponential backoff within the tool. (5) If all retries exhausted: return {'status': 'rate_limited', 'message': 'External API rate limit exceeded after 3 retries. Try again in 60 seconds.', 'retry_after': 60}. The agent receives a structured error it can reason about. It might respond: 'I'm unable to check inventory right now due to an external API rate limit. I'll note this and you can try again shortly.' The agent loop never sees a 429 exception — the tool handles it internally.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q14</div>
+<div class="dd-q-body">
+<div class="dd-q-text">A tool requires authentication credentials. Design the credential management strategy that doesn't expose secrets to the LLM context or logs.</div>
+<div class="dd-hint"><strong>Steer:</strong> Credentials must reach the tool implementation but never touch the LLM's context window or any logs.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-13')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-13" style="display:none">Credentials management: (1) Store credentials in environment variables or a secrets manager (AWS Secrets Manager, HashiCorp Vault). Never in code. (2) Load credentials at application startup, not at call time. (3) Inject credentials into the tool function via closure or dependency injection — the tool function has access to the credential object without it being passed through the agent's state or context. Example: def make_inventory_tool(api_key: str): def check_inventory(product_id: str) -> dict: # api_key captured in closure, never in context return client.get(product_id, auth=api_key). (4) Logging: mask credentials in all logs. Add a log sanitizer that replaces any string matching the credential pattern with [REDACTED]. (5) The LLM context never contains credentials — it sees only the tool name, parameters, and results. Credentials flow through a separate channel.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q15</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you test that a tool correctly handles every error mode — network errors, authentication errors, not-found errors, rate limits?</div>
+<div class="dd-hint"><strong>Steer:</strong> Testing error paths requires mocking the external service to return specific error responses.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-14')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-14" style="display:none">Mock-based testing: (1) Use unittest.mock.patch to replace the external API client with a mock that returns specific responses. (2) Test each error class: mock.return_value = Mock(status_code=429, headers={'Retry-After': '30'}) → verify tool returns {status: 'rate_limited', retry_after: 30}. mock.return_value = Mock(status_code=404) → verify tool returns {status: 'not_found', message: '...'}. mock.side_effect = ConnectionError() → verify tool returns {status: 'network_error', ...}. (3) Integration tests (test against a test API environment, not mocks) verify that the mock behavior matches real API behavior. (4) Property-based test: any response from the external API that is not a 200 should result in a structured error dict, never an exception propagating to the agent loop. Write a test that exercises 20 non-200 status codes and verifies this invariant.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q16</div>
+<div class="dd-q-body">
+<div class="dd-q-text">What makes a good tool docstring vs. a bad one? Rewrite this bad example: 'Gets product data.'</div>
+<div class="dd-hint"><strong>Steer:</strong> The docstring is the instruction the LLM reads to decide when and how to call the tool. Write it for an LLM, not a human developer.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.6-l2_2.2-l2_2.3-15')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.6-l2_2.2-l2_2.3-15" style="display:none">Bad: 'Gets product data.' — tells the LLM nothing about when to use it, what to pass, or what it returns. Good rewrite: 'Retrieves detailed product information from the inventory system. Use when the user asks about product specifications, availability, pricing, or description for a specific product. Requires a product_id (alphanumeric, e.g., "SKU-1234"). Returns: {name, description, price, quantity_in_stock, category}. NOT for searching across multiple products — use search_products instead. Example: product_id="SKU-1234" to look up the Widget Pro.' Key elements: when to use, when NOT to use, what parameters mean with examples, what the return value contains. The docstring should answer every question the LLM needs to call this tool correctly without trial and error.</div>
+</div>
+</div>
+</div>
+</div>
+<div class="dd-block">
+<div class="dd-block-title">&#128308; Production pitfalls</div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Tools that succeed silently when they should fail</span><span class="dd-pitfall-body">A database update returns {status: 'ok'} even when 0 rows were updated (no exception thrown). The agent believes it succeeded. Design tools to distinguish 'executed without error' from 'produced the intended outcome' — check affected row counts, verify side effects, return explicit success indicators.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Docstring drift</span><span class="dd-pitfall-body">A tool's behavior changes but the docstring is not updated. The LLM reads the old description and misuses the tool. Treat tool docstrings with the same rigor as API contracts — version them, review changes, and run behavioral regression tests after updates.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">More than 7 tools in one agent</span><span class="dd-pitfall-body">Above 7–10 tools, LLM tool selection accuracy degrades noticeably. The model starts confusing similar tools. This is a hard architectural constraint: if you need more than 5–7 tools, split into multiple specialized agents.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Missing the 'unknown' case</span><span class="dd-pitfall-body">A classification schema with Literal['billing', 'technical', 'refund'] has no escape hatch for inputs that don't fit. The LLM will force-fit every input into one of three categories. Always include an 'other' or 'unknown' option and handle it explicitly downstream.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Over-engineering the schema</span><span class="dd-pitfall-body">A 20-field schema with 5 nested objects for a 3-way classification task. The LLM spends tokens on schema compliance rather than accurate classification. Start with the minimum fields you actually use downstream. Add fields only when there's a specific use case.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Stateful tools in stateless agents</span><span class="dd-pitfall-body">A tool that modifies external state is not idempotent. If the agent retries after a network timeout, it may call the tool twice — sending the email twice, placing the order twice. Design write tools with idempotency keys (include a unique request_id in every write call) or check-before-write.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Tools that raise unhandled exceptions</span><span class="dd-pitfall-body">An unhandled exception in a tool propagates to the agent loop and crashes it. Every tool must catch all exceptions and return structured error dicts. No exception should ever escape a production tool.</span></div>
+</div>
+
+    </div>
+  </div>
+
+  <div class="lesson-nav">
+    <div><a href="./0002-your-first-agent-in-nodejs.html">← Lesson 2 — Your First Agent in Node.js</a></div>
+    <div style="margin-top:0.5rem;">
+      <strong>Next:</strong>
+      <a href="./0004-memory-and-conversation-state.html">Lesson 4 — Memory &amp; Conversation State</a>
+      — short-term vs long-term memory, conversation threading, and managing the context window.
+    </div>
+  </div>
+
+  <div class="teacher-prompt">
+    <strong>Ask your teacher.</strong> Paste your tool definition and ask for a review.
+    Ask how this applies to a NestJS service you're already building. Open Claude Code and ask.
+  </div>
+</article>
+
+<script>
+  const answers = { q1: 'b', q2: 'b', q3: 'b', q4: 'b' };
+
+  const explanations = {
+    q1: {
+      b: 'Correct. When two tools overlap in purpose, the LLM needs explicit "do not use X for Y" guidance in the description to make the right choice.',
+      wrong: 'Not quite. Implementation details are invisible to the LLM. The description must explicitly contrast similar tools — otherwise the LLM guesses.'
+    },
+    q2: {
+      b: 'Correct. Without enum, the LLM might pass "urgent", "ASAP", "critical", or anything else. Enum constrains it to values your code actually handles.',
+      wrong: 'Not quite. Enum exists to prevent hallucinated values. Without it, the LLM may pass strings your code doesn\'t recognise, causing runtime errors.'
+    },
+    q3: {
+      b: 'Correct. Defining a "respond" tool with your output schema and forcing the LLM to call it via tool_choice is the reliable way to get structured output. Tool inputs always conform to the schema.',
+      wrong: 'Not quite. Prompt-based JSON instructions are unreliable — the LLM sometimes adds prose anyway. Forced tool use guarantees schema-conforming output.'
+    },
+    q4: {
+      b: 'Correct. Every additional tool forces the LLM to evaluate one more option on each turn. More options → slower decisions and higher probability of choosing the wrong tool.',
+      wrong: 'Not quite. There is no hard API limit. The issue is cognitive load on the LLM: more tools means more decisions, slower responses, and more wrong-tool errors.'
+    }
+  };
+
+  function checkAll() {
+    let correct = 0;
+    const total = Object.keys(answers).length;
+
+    Object.entries(answers).forEach(([qid, correctVal]) => {
+      const selected = document.querySelector(`input[name="${qid}"]:checked`);
+      const feedback = document.getElementById('f' + qid.slice(1));
+      const options = document.querySelectorAll(`input[name="${qid}"]`);
+
+      options.forEach(opt => {
+        const label = opt.parentElement;
+        label.classList.remove('correct', 'wrong');
+        if (opt.value === correctVal) label.classList.add('correct');
+        else if (opt.checked) label.classList.add('wrong');
+      });
+
+      if (!selected) {
+        feedback.textContent = 'No answer selected.';
+        feedback.className = 'feedback';
+        return;
+      }
+
+      const isCorrect = selected.value === correctVal;
+      if (isCorrect) {
+        correct++;
+        feedback.textContent = explanations[qid][correctVal];
+        feedback.className = 'feedback correct';
+      } else {
+        feedback.textContent = explanations[qid].wrong;
+        feedback.className = 'feedback wrong';
+      }
+    });
+
+    const scoreEl = document.getElementById('score');
+    scoreEl.style.display = 'block';
+    if (correct === total) {
+      scoreEl.style.color = 'var(--correct)';
+      scoreEl.textContent = `${correct}/${total} — All correct. Build the extract-task example, then move to Lesson 4.`;
+    } else {
+      scoreEl.style.color = correct >= 2 ? '#92400e' : 'var(--wrong)';
+      scoreEl.textContent = `${correct}/${total} — Review the tool design checklist, then try again.`;
+    }
+  }
+
+  function copyCode(id, btn) {
+    const pre = document.getElementById(id);
+    navigator.clipboard.writeText(pre.innerText).then(() => {
+      btn.textContent = 'copied!';
+      setTimeout(() => btn.textContent = 'copy', 1500);
+    });
+  }
+</script>
+<script>
+
+function toggleDD(id) {
+  const w = document.getElementById('dd-' + id);
+  if (w) w.classList.toggle('open');
+}
+function toggleAns(id) {
+  const el = document.getElementById(id);
+  const btn = el?.previousElementSibling;
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (btn) btn.textContent = open ? '▶ Show answer' : '▼ Hide answer';
+}
+
+</script>
+</body>
+</html>

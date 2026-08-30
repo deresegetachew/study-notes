@@ -1,0 +1,396 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const mindMap = `
+# Tool Design & Structured Output
+## Why It Matters
+### LLM sees only name, description, schema
+### Description = LLM contract
+### Max 3–5 tools per agent
+## Good Descriptions
+### What / When / Returns
+### Verb-noun naming
+### Disambiguate — Do NOT use for X
+## Input Schema
+### Per-property descriptions
+### enum over open string
+### required = mandatory only
+## Structured Output
+### Prompt JSON — unreliable
+### Forced tool use — guaranteed
+### No JSON.parse needed
+## Zod Validation
+### Single schema source
+### TypeScript inference
+### Return errors to LLM
+## Tensions
+### Fine-grained vs coarse-grained
+### Strict schema vs change cost
+### Return errors vs raise exceptions
+### MCP reuse vs latency overhead
+## Pitfalls
+### Missing property descriptions
+### string instead of enum
+### Too many tools degrades selection
+### Prompt-based JSON output
+`;
+---
+
+<LessonLayout title="L3 — Tool Design & Structured Output"
+>
+
+  <LessonHeader
+    num="L03"
+    title="Tool Design & Structured Output"
+    subtitle="The LLM reads your descriptions, not you. Write them well and the agent becomes reliable."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">Why tool design matters</h2>
+
+    <p>
+      In Lesson 2 you gave the LLM a <code>run_shell</code> tool and it worked. But that was a toy.
+      In a real agent — one that talks to a database, sends emails, updates records — the LLM must
+      choose the <em>right</em> tool, with the <em>right</em> arguments, every time.
+    </p>
+    <p>The LLM makes that choice by reading three things:</p>
+    <ul>
+      <li>The tool's <strong>name</strong></li>
+      <li>The tool's <strong>description</strong></li>
+      <li>The tool's <strong>input schema</strong> (JSON Schema object)</li>
+    </ul>
+    <p>
+      That is all it sees. Your implementation is invisible. Which means <strong>the description
+      is your contract with the LLM</strong> — it determines when the tool gets called and how
+      arguments are filled.
+    </p>
+
+    <h2 class="lesson-heading">Writing good tool descriptions</h2>
+
+    <p>A description must answer three questions the LLM silently asks before calling a tool:</p>
+    <ol class="tool-desc-list">
+      <li><em>What does this tool do?</em></li>
+      <li><em>When should I use it (vs the other tools)?</em></li>
+      <li><em>What does it return?</em></li>
+    </ol>
+
+    <p>Compare these two descriptions for a database lookup tool:</p>
+
+    <CodeBlock lang="text" label="bad — don't do this" code={`'Look up user data'`} />
+
+    <CodeBlock lang="text" label="good" code={`
+'Look up a user record by their ID or email.
+Returns { id, name, email, role, createdAt }.
+Use this when you need to verify who a user is or retrieve their account details.
+Do NOT use this for searching — use search_users instead.'
+    `} />
+
+    <p>
+      The good version tells the LLM <em>what it returns</em>, when to prefer it, and explicitly
+      rules out a confusion case. That last sentence — "Do NOT use this for searching" — is
+      especially important when you have two similar tools.
+    </p>
+
+    <LessonCallout variant="warn" title="3–5 tools maximum per agent">
+      <p>
+        Each additional tool makes the LLM's decision harder and increases wrong-tool selection
+        risk. Above 7–10 tools, selection accuracy degrades noticeably. If you need more, split
+        into multiple agents with focused tool sets.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Anatomy of a good input schema</h2>
+
+    <p>
+      The <code>input_schema</code> is a JSON Schema object. Every property should have a type
+      <em>and</em> a description. The LLM reads property descriptions to know what value to pass.
+    </p>
+
+    <CodeBlock lang="typescript" label="send-notification tool" code={`
+const sendNotificationTool = {
+  name: 'send_notification',
+  description:
+    'Send a push notification to a user. Use when the task requires alerting a specific user. ' +
+    'Returns { success: boolean, messageId: string }. ' +
+    'Do NOT use for email — use send_email instead.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      userId: {
+        type: 'string',
+        description: 'The UUID of the user to notify',
+      },
+      message: {
+        type: 'string',
+        description: 'The notification body. Plain text, max 140 characters.',
+      },
+      priority: {
+        type: 'string',
+        enum: ['low', 'normal', 'high'],
+        description: "Urgency level. Use 'high' only for time-sensitive alerts.",
+      },
+    },
+    required: ['userId', 'message'], // priority is optional — defaults to 'normal'
+  },
+};
+    `} />
+
+    <p>Notice:</p>
+    <ul>
+      <li>Every property has a <code>description</code> — not just the tool itself</li>
+      <li><code>enum</code> constrains the LLM to valid values, preventing hallucinated strings like <code>"urgent"</code></li>
+      <li>Optional fields stay out of <code>required</code></li>
+      <li>The tool description says what it returns</li>
+    </ul>
+
+    <h2 class="lesson-heading">Structured output — forced tool use</h2>
+
+    <p>
+      Sometimes you don't want tool calls — you want the LLM to produce a <em>typed object</em>
+      as its final answer. Examples: extract entities from text, classify a support ticket,
+      triage a request.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Method</th><th>How</th><th>Reliability</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Prompt-based</strong></td>
+            <td>Tell the LLM "respond only with JSON" in the system prompt</td>
+            <td>Low — it sometimes adds prose anyway</td>
+          </tr>
+          <tr>
+            <td><strong>Forced tool use</strong></td>
+            <td>Define a <code>respond</code> tool and force the LLM to call it via <code>tool_choice</code></td>
+            <td>High — tool calls always produce schema-conforming JSON</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Here is the forced tool use pattern — extracting a typed task from natural language:</p>
+
+    <CodeBlock lang="typescript" label="extract-task.ts" code={`
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// The output schema, disguised as a tool
+const respondTool = {
+  name: 'respond',
+  description: 'Return the extracted task as structured data',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: {
+        type: 'string',
+        description: 'Short task title, max 8 words',
+      },
+      description: {
+        type: 'string',
+        description: 'Full task description in one sentence',
+      },
+      priority: {
+        type: 'string',
+        enum: ['low', 'medium', 'high'],
+        description: "Inferred urgency from the user's language",
+      },
+      dueDate: {
+        type: 'string',
+        description: 'ISO 8601 date if mentioned, otherwise null',
+        nullable: true,
+      },
+    },
+    required: ['title', 'description', 'priority'],
+  },
+};
+
+async function extractTask(userInput: string) {
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 512,
+    system: "You are a task extraction assistant. Extract the task from the user's message.",
+    tools: [respondTool],
+    tool_choice: { type: 'tool', name: 'respond' }, // ← forces the LLM to call this tool
+    messages: [{ role: 'user', content: userInput }],
+  });
+
+  // The tool call input IS the structured output — no JSON.parse needed
+  const toolCall = response.content.find(b => b.type === 'tool_use');
+  return toolCall.input; // { title, description, priority, dueDate }
+}
+
+const result = await extractTask(
+  "Hey, can you remind me to send the Q3 report to Sarah by Friday? It's pretty urgent."
+);
+
+console.log(JSON.stringify(result, null, 2));
+// {
+//   "title": "Send Q3 report to Sarah",
+//   "description": "Send the Q3 report to Sarah by Friday as it is urgent.",
+//   "priority": "high",
+//   "dueDate": "2026-06-20"
+// }
+    `} />
+
+    <LessonCallout variant="tip" title="No JSON.parse needed">
+      <p>
+        Tool calls always produce schema-conforming input — guaranteed by the API.
+        No try-catch around <code>JSON.parse</code>, no regex, no prompt retries.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Validation with Zod (TypeScript equivalent of Pydantic)</h2>
+
+    <p>
+      The API guarantees the shape matches your schema, but doesn't give you TypeScript types.
+      Use <strong>Zod</strong> to validate and get full type inference:
+    </p>
+
+    <CodeBlock lang="bash" label="terminal" code={`npm install zod`} />
+
+    <CodeBlock lang="typescript" label="validate with zod" code={`
+import { z } from 'zod';
+
+// Define the shape once with Zod
+const TaskSchema = z.object({
+  title:       z.string().max(60),
+  description: z.string(),
+  priority:    z.enum(['low', 'medium', 'high']),
+  dueDate:     z.string().nullable(),
+});
+
+type Task = z.infer<typeof TaskSchema>;
+
+// After getting toolCall.input from the API:
+const task: Task = TaskSchema.parse(toolCall.input);
+// task is now fully typed — autocomplete works, type errors caught at compile time
+    `} />
+
+    <p>
+      In a NestJS service, you'd use a Zod schema (or class-validator DTO) to validate the
+      output before passing it downstream — exactly the same pattern as validating a request body.
+    </p>
+
+    <h2 class="lesson-heading">Tool design checklist</h2>
+
+    <LessonChecklist
+      title="Before adding a tool to an agent, verify:"
+      items={[
+        '<strong>Name is a clear verb-noun</strong> — <code>send_email</code> not <code>email</code> or <code>mailer</code>',
+        '<strong>Description says what it returns</strong> — the LLM needs to know what data it gets back',
+        '<strong>Description says when <em>not</em> to use it</strong> — prevents confusion with similar tools',
+        '<strong>Every property has a description</strong> — the LLM reads these to decide argument values',
+        '<strong>Enums used for finite valid values</strong> — prevents hallucinated strings like <code>"urgent"</code>',
+        '<strong>Optional fields excluded from <code>required</code></strong> — LLM won\'t be forced to invent values',
+        '<strong>Total tools per agent ≤ 5</strong> — more tools = slower + less reliable selection',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz</h2>
+
+    <LessonQuiz questions={[
+      {
+        q: 'You have get_user and search_users. What should the get_user description explicitly include?',
+        options: [
+          'A note that says "Do NOT use this for searching — use search_users instead"',
+          'The implementation details of how it queries the database',
+          'The name of the developer who wrote it',
+          'Nothing extra — the name is self-explanatory',
+        ],
+        answer:  0,
+        explain: 'When two tools are similar, the LLM needs explicit disambiguation. "Do NOT use this for searching" directly rules out the confusion case.',
+      },
+      {
+        q: 'Why use enum in a tool input schema for a field like priority?',
+        options: [
+          'To prevent the LLM from passing invalid strings like "urgent" or "ASAP"',
+          'To make the JSON schema file smaller',
+          'Enums are required by the Anthropic API',
+          'To improve performance by reducing token count',
+        ],
+        answer:  0,
+        explain: 'Without enum, the LLM can pass any string — "urgent", "critical", "high priority". Enum constrains the LLM to values your code actually handles.',
+      },
+      {
+        q: 'What is the "forced tool use" pattern for structured output?',
+        options: [
+          'Define a "respond" tool with your output schema and pass tool_choice: { type: "tool", name: "respond" }',
+          'Telling the LLM "only respond with JSON" in the system prompt',
+          'Using JSON.parse on the LLM\'s text output',
+          'Sending the output to a second LLM to reformat it',
+        ],
+        answer:  0,
+        explain: 'Forced tool use makes the LLM produce schema-conforming JSON via the tool call mechanism — more reliable than prompt instructions which the LLM sometimes ignores.',
+      },
+      {
+        q: 'Why keep tool count to 3–5 per agent?',
+        options: [
+          'More tools increase decision complexity, raising wrong-tool selection risk',
+          'The Anthropic API hard-limits to 5 tools per request',
+          'Each tool adds $0.01 to the API cost',
+          'More than 5 tools causes the agent loop to break',
+        ],
+        answer:  0,
+        explain: 'Above 7–10 tools, LLM tool selection accuracy degrades. The LLM starts confusing similar tools. This is a hard architectural constraint — if you need more, use multiple agents.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="l1_1.6, l2_2.2, l2_2.3"
+    tensions={[
+      { a: 'Fine-grained tools (control)', b: 'Coarse-grained tools (fewer LLM decisions)' },
+      { a: 'Strict schema validation',     b: 'Deployment coordination when values change' },
+      { a: 'Tool reliability / error returns', b: 'Explicit failures (raise exceptions)' },
+      { a: 'MCP interoperability',         b: 'Direct integration (lower latency overhead)' },
+    ]}
+    questions={[
+      {
+        q:      'An LLM keeps calling the wrong tool for a specific query pattern. Walk through the systematic debugging process.',
+        hint:   'Wrong tool selection is usually a description problem or a tool similarity problem. Diagnose before prescribing.',
+        answer: '<p><strong>Step 1:</strong> Log the full context sent to the LLM when the wrong tool is selected — what did the model see?</p><p><strong>Step 2:</strong> Check if the two tools have similar descriptions. If so, make descriptions more discriminative: add "use this when X, NOT when Y."</p><p><strong>Step 3:</strong> Check if the query pattern contains words from the wrong tool\'s description. Update the right tool\'s description to address this pattern explicitly.</p><p><strong>Step 4:</strong> If the model consistently misroutes, add a few-shot example to the system prompt showing the exact query → correct tool mapping.</p><p><strong>Step 5:</strong> If the problem persists, add a routing pre-processor: a cheap LLM call that classifies query intent and filters which tools are available for this query type.</p>',
+      },
+      {
+        q:      'Design a tool permission system where different users can invoke different subsets of tools. How does this interact with agent decision-making?',
+        hint:   'Permissions live at the tool layer, not the prompt layer. The LLM should never know about tools it cannot use.',
+        answer: '<p>At request time: load the user\'s permission set, filter the full tool list to only permitted tools, pass only permitted tools to <code>messages.create()</code>.</p><p>The LLM never sees tools it cannot use — there is no prompt injection path to access forbidden tools because the schema simply isn\'t in context.</p><p>Additionally: validate at the tool execution layer that the requesting user has permission — defence in depth in case tool schema filtering has a bug. Two independent gates.</p>',
+      },
+      {
+        q:      'How do you version tool APIs so that changes don\'t break agents in production?',
+        hint:   'Tool APIs are contracts between the LLM and the implementation. Treat them like any other API contract.',
+        answer: '<p><strong>Additive changes</strong> (new optional fields) are safe. <strong>Removing or renaming</strong> parameters is a breaking change — requires versioning (<code>search_inventory_v2</code>).</p><p>Never change a tool\'s parameter names without a migration — the LLM has learned to call the tool with specific names from the description.</p><p>Deprecate, don\'t delete: run old and new versions side by side, with the old version logging a warning when called. Run LLM regression tests after any change: does the agent still call the tool correctly for the 20 most common query patterns?</p><p>Treat the docstring as part of the API contract — changes to the description can change LLM behaviour even if the code is unchanged.</p>',
+      },
+      {
+        q:      'Design a structured output schema for a classifier that needs to handle documents that don\'t fit any known category.',
+        hint:   'Closed-world schemas force the LLM to pick a wrong answer rather than admitting uncertainty.',
+        answer: '<p>Add an explicit escape hatch: <code>category: enum[\'billing\', \'technical\', \'refund\', \'other\']</code>.</p><p>When <code>other</code> is selected, require: <code>reasoning: string</code> (why no category fits), <code>suggested_category?: string</code> (what new category would fit), <code>confidence: enum[\'high\', \'medium\', \'low\']</code>.</p><p>The application layer handles "other" by routing to human review and logging for analysis — the "other" distribution tells you what new categories to add.</p><p><strong>Never ship a classifier schema without an "other" option</strong> — unknown inputs are a certainty in production.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Omitting property descriptions in input schemas — the LLM reads property descriptions to decide argument values. Without them, it guesses based on the property name alone.',
+      'Using a finite <code>string</code> field instead of <code>enum</code> for values like priority or status — the LLM will pass creative alternatives ("urgent", "ASAP", "critical") that your switch statement doesn\'t handle.',
+      'Over-exposing tools — providing 10+ tools to a single agent thinking it makes the agent more capable. Above 7–10 tools, selection accuracy degrades; split into specialist sub-agents with focused tool sets.',
+      'Relying on prompt-based JSON requests ("respond only with JSON") — the LLM sometimes adds prose regardless. Forced tool use via <code>tool_choice</code> is the only reliable structured output mechanism.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .tool-desc-list { padding-left: 1.4rem; line-height: 2; }
+</style>

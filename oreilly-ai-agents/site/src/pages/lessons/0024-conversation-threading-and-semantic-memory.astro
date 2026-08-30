@@ -1,0 +1,324 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const threadingCode = `
+import { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
+import { StateGraph, END } from '@langchain/langgraph';
+import { Annotation } from '@langchain/langgraph';
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+// Persistent checkpointer — survives process restarts
+const checkpointer = PostgresSaver.fromConnString(process.env.DATABASE_URL!);
+await checkpointer.setup(); // create checkpoint tables on first run
+
+const ThreadState = Annotation.Root({
+  messages: Annotation<Array<{ role: string; content: string }>>({
+    reducer: (prev, next) => [...prev, ...next],
+    default: () => [],
+  }),
+  // Trim to last 20 messages to avoid context overflow
+  trimmedMessages: Annotation<Array<{ role: string; content: string }>>({
+    reducer: (_, next) => next,
+    default: () => [],
+  }),
+});
+
+async function chat(state: typeof ThreadState.State) {
+  const history = state.messages;
+  const trimmed = history.slice(-20); // keep last 20 turns
+
+  const res = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 1024,
+    system: 'You are a helpful assistant. Remember the context of this conversation.',
+    messages: trimmed as any,
+  });
+
+  const reply = res.content[0].type === 'text' ? res.content[0].text : '';
+  return {
+    messages:        [{ role: 'assistant', content: reply }],
+    trimmedMessages: [...trimmed, { role: 'assistant', content: reply }],
+  };
+}
+
+const graph = new StateGraph(ThreadState)
+  .addNode('chat', chat)
+  .addEdge('__start__', 'chat')
+  .addEdge('chat', END)
+  .compile({ checkpointer });
+
+// Each user has their own thread_id — conversations are isolated
+async function handleMessage(userId: string, message: string) {
+  const config = { configurable: { thread_id: \`user-\${userId}\` } };
+  const state = await graph.invoke(
+    { messages: [{ role: 'user', content: message }] },
+    config,
+  );
+  return state.trimmedMessages.at(-1)?.content ?? '';
+}
+`.trim();
+
+const semanticMemoryCode = `
+// Semantic memory: store facts from conversations and retrieve by similarity
+
+interface Memory {
+  id:        string;
+  fact:      string;
+  userId:    string;
+  embedding: number[];
+  createdAt: Date;
+}
+
+const memories: Memory[] = []; // replace with pgvector in production
+
+// Extract facts from a conversation turn
+async function extractFacts(userId: string, message: string, reply: string) {
+  const res = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 256,
+    messages: [{
+      role: 'user',
+      content: \`Extract any personal facts about the user from this exchange.
+User: \${message}
+Assistant: \${reply}
+Return a JSON array of fact strings, or [] if none.
+Example: ["User prefers dark mode", "User is in London"]\`,
+    }],
+  });
+  const text = res.content[0].type === 'text' ? res.content[0].text : '[]';
+  const facts: string[] = JSON.parse(text);
+
+  for (const fact of facts) {
+    const embedding = await embed(fact);
+    memories.push({ id: crypto.randomUUID(), fact, userId, embedding, createdAt: new Date() });
+  }
+}
+
+// Recall relevant facts at the start of a new turn
+async function recall(userId: string, query: string, topK = 5): Promise<string[]> {
+  const qEmb = await embed(query);
+  return memories
+    .filter(m => m.userId === userId)
+    .map(m => ({ m, score: cosineSim(qEmb, m.embedding) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK)
+    .map(r => r.m.fact);
+}
+
+// In the system prompt, include recalled facts
+async function chatWithMemory(userId: string, message: string): Promise<string> {
+  const facts = await recall(userId, message);
+  const memoryBlock = facts.length
+    ? \`Known facts about this user:\\n\${facts.map(f => \`- \${f}\`).join('\\n')}\`
+    : '';
+
+  const res = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 1024,
+    system: \`You are a helpful assistant.
+\${memoryBlock}\`,
+    messages: [{ role: 'user', content: message }],
+  });
+  return res.content[0].type === 'text' ? res.content[0].text : '';
+}
+
+declare function embed(text: string): Promise<number[]>;
+declare function cosineSim(a: number[], b: number[]): number;
+declare const client: Anthropic;
+`.trim();
+
+const mindMap = `
+# Conversation Threading & Semantic Memory
+## Memory Types
+### In-context — single session
+### Thread — persisted across sessions
+### Semantic — retrieved by relevance
+## Conversation Threading
+### PostgresSaver as checkpointer
+### thread_id per user for isolation
+### Trim to last N turns
+## Thread ID Design
+### One thread per user
+### Privacy isolation critical
+### Never share across users
+## Semantic Memory
+### Extract facts via Haiku
+### Store as embeddings
+### Recall top-K by cosine similarity
+### Inject into system prompt
+## Fact Extraction Rules
+### Durable user-specific facts only
+### Preferences, names, locations
+### Skip transient context
+## Tensions
+### Full thread history vs trimmed history
+### Store all facts vs only durable facts
+## Pitfalls
+### Single global thread_id — shared history
+### No thread trim — context overflow
+### Transient context stored as memory
+### PostgresSaver schema not initialized
+### Semantic recall without userId filter
+`;
+---
+
+<LessonLayout
+  title="L24 — Conversation Threading & Semantic Memory"
+>
+  <LessonHeader
+    num="L24"
+    title="Conversation Threading & Semantic Memory"
+    subtitle="Persist conversation history across sessions with a checkpointer, and build semantic memory that recalls relevant facts from past interactions."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§3.10 — Conversation Threading</h2>
+    <p>
+      Conversation threading gives an agent persistent memory across multiple sessions.
+      Without it, every new request starts fresh — the agent has no recollection of
+      who the user is or what they discussed before.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Memory type</th><th>Scope</th><th>Mechanism</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>In-context</strong></td><td>Within one session (while process runs)</td><td>messages[] array in state</td></tr>
+          <tr><td><strong>Thread (persisted)</strong></td><td>Across sessions for one user</td><td>Checkpointer keyed by thread_id</td></tr>
+          <tr><td><strong>Semantic</strong></td><td>Across sessions, by relevance</td><td>Vector store — retrieve by similarity</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="typescript" label="threading.ts" code={threadingCode} />
+
+    <LessonCallout variant="tip" title="Thread ID = user isolation">
+      <p>
+        Each user's conversations should use a unique <code>thread_id</code> such as
+        <code>"user-&#123;userId&#125;"</code>. This ensures their history is isolated from
+        other users' — a critical privacy requirement. Never share thread IDs across users.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Trimming thread history</h3>
+    <p>
+      Long conversations eventually exceed the model's context window. Keep the last
+      N turns in the active context. For deeper history, use semantic memory (below)
+      to recall relevant facts on demand.
+    </p>
+
+    <h2 class="lesson-heading">§3.11 — Semantic Memory</h2>
+    <p>
+      Thread memory gives the model every message in order. Semantic memory is more
+      selective — it extracts <em>facts</em> from conversations, stores them as embeddings,
+      and retrieves only the most relevant facts for each new query.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  M["User message"]:::input --> A["Agent\n(chat + recall)"]:::agent
+  A --> F["Fact extractor\n(Haiku)"]:::extract
+  F --> V["Vector store\n(facts as embeddings)"]:::store
+  M --> R["Recall\n(top-K facts)"]:::recall
+  V --> R
+  R --> SYS["System prompt\n(inject facts)"]:::sys
+  SYS --> A
+
+  classDef input   fill:#f8fafc,color:#475569,stroke:#e2e8f0
+  classDef agent   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef extract fill:#fefce8,color:#713f12,stroke:#fde68a,stroke-width:2px
+  classDef store   fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef recall  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef sys     fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="semantic-memory.ts" code={semanticMemoryCode} />
+
+    <LessonCallout variant="warn" title="Extract facts selectively">
+      <p>
+        Extracting facts from every message creates noise. Only extract durable,
+        user-specific facts: preferences, stated constraints, names, locations.
+        Transient context ("I'm tired today") is not worth storing.
+      </p>
+    </LessonCallout>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Persist conversation history across sessions with <code>PostgresSaver</code>',
+        'Isolate each user\'s thread with a unique <code>thread_id</code>',
+        'Trim long thread history to avoid context window overflow',
+        'Extract and embed durable user facts from conversation turns',
+        'Recall relevant facts at query time and inject them into the system prompt',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'What does the thread_id do in a LangGraph checkpointer?',
+        options: [
+          'It sets the maximum number of messages per thread',
+          'It is the key that links multiple invocations to the same saved state',
+          'It controls which model is used for the thread',
+          'It determines the trim length of conversation history',
+        ],
+        answer:  1,
+        explain: 'The thread_id is the lookup key in the checkpointer\'s storage. All invocations with the same thread_id share the same state snapshot — that\'s how the graph "remembers" previous turns. Different thread_ids mean different, isolated conversation histories.',
+      },
+      {
+        q:       'Why use semantic memory instead of just injecting the full conversation history?',
+        options: [
+          'Full history always exceeds the context window',
+          'Semantic memory is more accurate for recent turns',
+          'Semantic memory retrieves only relevant facts, keeping the prompt focused and avoiding context overflow on long conversations',
+          'Full history cannot be stored in a vector database',
+        ],
+        answer:  2,
+        explain: 'Full conversation history grows unboundedly — a year of weekly conversations would overflow any context window. Semantic memory stores compact facts and retrieves only the ones relevant to the current query, keeping the system prompt small regardless of conversation length.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.10, §3.11"
+      tensions={[
+        { a: 'Full thread history (complete context)', b: 'Trimmed history (fits context window)' },
+        { a: 'Store all facts (high recall)',           b: 'Store only durable facts (low noise)' },
+      ]}
+      questions={[
+        {
+          q:    'Thread trimming discards old messages to fit the context window. What information do you risk losing, and how do you preserve it?',
+          hint: 'Think about what types of information are most valuable in old turns.',
+          answer: '<p>Trimming discards two types of valuable information: (1) <strong>User facts</strong> — preferences, stated constraints, names. Mitigate by running the semantic memory extractor on messages before they are trimmed. The facts persist in the vector store even after the message is gone from the thread. (2) <strong>Decisions and commitments</strong> — "I agreed to do X by Friday." Mitigate with a structured "commitments" field in state that accumulates explicit commitments separately from the raw message history. Commitments are injected into the system prompt regardless of trim. The pattern: thread provides recency context, semantic memory provides user knowledge, commitments field provides obligation tracking.</p>',
+        },
+        {
+          q:    'Two users have the same preference ("I like dark mode"). How do you ensure their semantic memories stay isolated even if the fact embeddings are identical?',
+          hint: 'Think about how you filter the vector search results.',
+          answer: '<p>Namespace by userId before retrieval: (1) <strong>Filter at retrieval time</strong> — the <code>recall()</code> function filters memories by <code>m.userId === userId</code> before computing cosine similarity. Even if the embedding is identical, the fact is only returned for the user who stated it. (2) <strong>Partition in production vector stores</strong> — pgvector supports WHERE clauses: <code>WHERE user_id = $1 ORDER BY embedding &lt;-&gt; $2 LIMIT 5</code>. Pinecone supports metadata filtering. Always include userId as a metadata field and filter on it. (3) <strong>Namespace in storage key</strong> — for key-value stores, prefix all keys with the userId: <code>user:&#123;userId&#125;:fact:&#123;factId&#125;</code>. This prevents accidental cross-user data access at the storage level.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Using a single global thread_id — all users share the same conversation history.',
+        'No thread trim — conversations grow until they hit the context window limit, causing a 400 error.',
+        'Storing transient context as semantic memory — "I\'m in a hurry today" is noise, not a durable fact.',
+        'Not setting up PostgresSaver schema — calling graph.invoke before checkpointer.setup() throws on the first run.',
+        'Retrieving semantic memories without a userId filter — users see each other\'s stored facts.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

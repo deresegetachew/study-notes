@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Agents — Full Curriculum Blueprint</title>
+  <style>
+    :root {
+      --ink:#1a1a1a; --muted:#666; --bg:#fafaf8; --border:#e5e5e0;
+      --accent:#2563eb; --done-bg:#f0fdf4; --done-border:#86efac;
+      --done-text:#166534; --todo-bg:#f8fafc; --todo-border:#e2e8f0;
+      --todo-text:#94a3b8;
+      --l1:#2563eb; --l2:#7c3aed; --l3:#d97706; --l4:#dc2626; --cb:#0891b2;
+    }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:"Georgia",serif; background:var(--bg); color:var(--ink); line-height:1.7; font-size:16px; padding:3rem 1.5rem 6rem; }
+    article { max-width:800px; margin:0 auto; }
+    header { border-bottom:2px solid var(--ink); padding-bottom:1.5rem; margin-bottom:2rem; }
+    .meta { font-family:monospace; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin-bottom:.4rem; }
+    h1 { font-size:2rem; font-weight:normal; line-height:1.2; }
+    .subtitle { color:var(--muted); font-size:.9rem; margin-top:.4rem; }
+
+    /* progress bar */
+    .progress-wrap { margin:1.5rem 0 2.5rem; }
+    .progress-label { font-family:monospace; font-size:.75rem; color:var(--muted); margin-bottom:.4rem; display:flex; justify-content:space-between; }
+    .progress-bar { height:6px; background:#e5e7eb; border-radius:3px; overflow:hidden; }
+    .progress-fill { height:100%; background:#22c55e; border-radius:3px; transition:width .3s; }
+    .legend { display:flex; gap:1.5rem; font-family:monospace; font-size:.72rem; margin-top:.6rem; color:var(--muted); flex-wrap:wrap; }
+    .leg { display:flex; align-items:center; gap:.35rem; }
+    .leg-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+
+    /* level blocks */
+    .level { margin-bottom:2.5rem; }
+    .level-header { display:flex; align-items:baseline; gap:.75rem; padding:.6rem 0; border-bottom:2px solid; margin-bottom:.75rem; }
+    .level-num { font-family:monospace; font-weight:700; font-size:.8rem; padding:.2rem .5rem; border-radius:4px; color:#fff; flex-shrink:0; }
+    .level-title { font-size:1.05rem; font-weight:bold; }
+    .level-desc { font-size:.82rem; color:var(--muted); margin-bottom:1rem; font-style:italic; }
+
+    /* section rows */
+    .section-row {
+      display:grid;
+      grid-template-columns:2rem 1fr auto;
+      gap:.75rem;
+      align-items:start;
+      padding:.6rem 0;
+      border-bottom:1px solid var(--border);
+      font-size:.9rem;
+    }
+    .section-row:last-child { border-bottom:none; }
+    .sec-num { font-family:monospace; font-size:.72rem; color:var(--muted); padding-top:.15rem; }
+    .sec-body {}
+    .sec-title { line-height:1.4; }
+    .sec-title a { color:var(--accent); text-decoration:none; }
+    .sec-title a:hover { text-decoration:underline; }
+    .sec-tags { display:flex; flex-wrap:wrap; gap:.25rem; margin-top:.25rem; }
+    .tag { font-family:monospace; font-size:.65rem; background:#f0f0ec; border:1px solid var(--border); border-radius:10px; padding:.05rem .4rem; color:var(--muted); }
+    .sec-lesson { font-family:monospace; font-size:.7rem; white-space:nowrap; }
+
+    /* status badges */
+    .badge-done { background:var(--done-bg); border:1px solid var(--done-border); color:var(--done-text); border-radius:20px; padding:.1rem .55rem; font-family:monospace; font-size:.68rem; }
+    .badge-todo { background:var(--todo-bg); border:1px solid var(--todo-border); color:var(--todo-text); border-radius:20px; padding:.1rem .55rem; font-family:monospace; font-size:.68rem; }
+    .badge-partial { background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:20px; padding:.1rem .55rem; font-family:monospace; font-size:.68rem; }
+
+    /* level colour accents */
+    .l1 .level-header { border-color:var(--l1); }
+    .l1 .level-num { background:var(--l1); }
+    .l2 .level-header { border-color:var(--l2); }
+    .l2 .level-num { background:var(--l2); }
+    .l3 .level-header { border-color:var(--l3); }
+    .l3 .level-num { background:var(--l3); }
+    .l4 .level-header { border-color:var(--l4); }
+    .l4 .level-num { background:var(--l4); }
+    .lcb .level-header { border-color:var(--cb); }
+    .lcb .level-num { background:var(--cb); }
+
+    h2 { font-family:monospace; font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:2.5rem 0 .6rem; }
+    .nav-links { display:flex; gap:1rem; flex-wrap:wrap; font-size:.85rem; margin-bottom:2rem; }
+    .nav-links a { color:var(--accent); }
+    footer { margin-top:3rem; padding-top:1.5rem; border-top:1px solid var(--border); font-size:.82rem; color:var(--muted); }
+  </style>
+</head>
+<body>
+<article>
+  <header>
+    <div class="meta">AI Agents · NestJS · Node.js · Full curriculum map</div>
+    <h1>Curriculum Blueprint</h1>
+    <p class="subtitle">All 4 course levels + Cookbook + Checklist. Green = lesson built. Grey = not yet.</p>
+  </header>
+
+  <div class="progress-wrap">
+    <div class="progress-label"><span>Coverage</span><span>7 / 47 sections have a Node.js lesson</span></div>
+    <div class="progress-bar"><div class="progress-fill" style="width:14.9%"></div></div>
+    <div class="legend">
+      <div class="leg"><div class="leg-dot" style="background:#22c55e"></div>lesson built</div>
+      <div class="leg"><div class="leg-dot" style="background:#fbbf24"></div>partially covered</div>
+      <div class="leg"><div class="leg-dot" style="background:#e2e8f0"></div>not yet built</div>
+    </div>
+  </div>
+
+  <div class="nav-links">
+    <a href="./index.html">&#8592; Lessons TOC</a>
+    <a href="../AI_Agents_Study_Hub.html" target="_blank">Study Hub</a>
+    <a href="../MISSION.md" target="_blank">MISSION.md</a>
+  </div>
+
+  <!-- ═══════════════════ LEVEL 1 ═══════════════════ -->
+  <div class="level l1">
+    <div class="level-header">
+      <span class="level-num">L1</span>
+      <span class="level-title">AI Agent Foundations</span>
+    </div>
+    <p class="level-desc">LLM reasoning engine, agent characteristics, prompt/context/agent engineering, task decomposition, spectrum of autonomy, ReAct pattern, tool use, agentic loop, memory, multi-agent, RAG, framework evaluation.</p>
+
+    <div class="section-row">
+      <span class="sec-num">1.1</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0001-what-is-an-ai-agent.html">AI Agents &amp; Core Components</a></div>
+        <div class="sec-tags"><span class="tag">foundations</span><span class="tag">loop</span><span class="tag">components</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L01</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">1.2</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0001-what-is-an-ai-agent.html">Prompt, Context &amp; Agent Engineering</a></div>
+        <div class="sec-tags"><span class="tag">prompting</span><span class="tag">system-prompt</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L01</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">1.3</span>
+      <div class="sec-body">
+        <div class="sec-title">Tackling Complex Tasks</div>
+        <div class="sec-tags"><span class="tag">decomposition</span><span class="tag">planning</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">1.4</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0007-capstone-project.html">The Spectrum of Autonomy</a></div>
+        <div class="sec-tags"><span class="tag">autonomy</span><span class="tag">risk</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-partial">~ L07</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">1.5</span>
+      <div class="sec-body">
+        <div class="sec-title">ReAct &amp; Planning Patterns</div>
+        <div class="sec-tags"><span class="tag">planning</span><span class="tag">react</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">1.6</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0003-tool-design-and-structured-output.html">Tool Use &amp; Function Calling</a></div>
+        <div class="sec-tags"><span class="tag">tools</span><span class="tag">json-schema</span><span class="tag">mcp</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L03</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">1.7</span>
+      <div class="sec-body">
+        <div class="sec-title">LangGraph Fundamentals</div>
+        <div class="sec-tags"><span class="tag">langgraph</span><span class="tag">graphs</span><span class="tag">nodes</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">1.8</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0004-memory-and-conversation-state.html">Short-Term &amp; Long-Term Memory</a></div>
+        <div class="sec-tags"><span class="tag">memory</span><span class="tag">threading</span><span class="tag">rag</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L04</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">1.9</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0006-multi-agent-systems.html">Agentic Design Patterns</a></div>
+        <div class="sec-tags"><span class="tag">patterns</span><span class="tag">supervisor</span><span class="tag">swarm</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L06</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">1.10</span>
+      <div class="sec-body">
+        <div class="sec-title">RAG — Retrieval Augmented Generation</div>
+        <div class="sec-tags"><span class="tag">rag</span><span class="tag">embeddings</span><span class="tag">vector-db</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">1.11</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0007-capstone-project.html">Evaluating Agent Frameworks</a></div>
+        <div class="sec-tags"><span class="tag">frameworks</span><span class="tag">security</span><span class="tag">evaluation</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-partial">~ L07</span></span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ LEVEL 2 ═══════════════════ -->
+  <div class="level l2">
+    <div class="level-header">
+      <span class="level-num">L2</span>
+      <span class="level-title">Building with LangGraph</span>
+    </div>
+    <p class="level-desc">Pre-built agents, structured outputs, LangGraph state/nodes, streaming, async, guardrails, testing, performance metrics. (Course uses Python/LangGraph — our lessons translate to TypeScript/NestJS.)</p>
+
+    <div class="section-row">
+      <span class="sec-num">2.1</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0005-building-a-nestjs-agent-service.html">Running Your First Pre-Built Agent</a></div>
+        <div class="sec-tags"><span class="tag">nestjs</span><span class="tag">di</span><span class="tag">production</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L05</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.2</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0003-tool-design-and-structured-output.html">Structured Outputs with Pydantic → Zod</a></div>
+        <div class="sec-tags"><span class="tag">zod</span><span class="tag">structured-output</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L03</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.3</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0003-tool-design-and-structured-output.html">Integrating External Tools</a></div>
+        <div class="sec-tags"><span class="tag">tools</span><span class="tag">error-handling</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L03</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.4</span>
+      <div class="sec-body">
+        <div class="sec-title">Multi-Step LLM Chains</div>
+        <div class="sec-tags"><span class="tag">chains</span><span class="tag">pipeline</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.5</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0002-your-first-agent-in-nodejs.html">Agent Class from Scratch → ReAct Loop</a></div>
+        <div class="sec-tags"><span class="tag">react</span><span class="tag">loop</span><span class="tag">custom</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L02</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.6</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0002-your-first-agent-in-nodejs.html">Implementing Loops</a></div>
+        <div class="sec-tags"><span class="tag">loops</span><span class="tag">stop-reason</span><span class="tag">max-turns</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L02</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.7</span>
+      <div class="sec-body">
+        <div class="sec-title">Nodes, Edges &amp; Graphs</div>
+        <div class="sec-tags"><span class="tag">langgraph</span><span class="tag">state-machine</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.8</span>
+      <div class="sec-body">
+        <div class="sec-title">State Management in LangGraph</div>
+        <div class="sec-tags"><span class="tag">state</span><span class="tag">reducers</span><span class="tag">channels</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.9</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0005-building-a-nestjs-agent-service.html">Debugging with Logging</a></div>
+        <div class="sec-tags"><span class="tag">logging</span><span class="tag">observability</span><span class="tag">langsmith</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L05</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.10</span>
+      <div class="sec-body">
+        <div class="sec-title">Troubleshooting LLM API Errors</div>
+        <div class="sec-tags"><span class="tag">errors</span><span class="tag">retries</span><span class="tag">rate-limits</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.11</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0004-memory-and-conversation-state.html">Chatbot Agent in LangGraph</a></div>
+        <div class="sec-tags"><span class="tag">chatbot</span><span class="tag">threading</span><span class="tag">stateful</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L04</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.12</span>
+      <div class="sec-body">
+        <div class="sec-title">Streaming Output</div>
+        <div class="sec-tags"><span class="tag">streaming</span><span class="tag">sse</span><span class="tag">chunks</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.13</span>
+      <div class="sec-body">
+        <div class="sec-title">Async vs Sync Execution</div>
+        <div class="sec-tags"><span class="tag">async</span><span class="tag">concurrency</span><span class="tag">performance</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.14</span>
+      <div class="sec-body">
+        <div class="sec-title">Prompt Templates</div>
+        <div class="sec-tags"><span class="tag">templates</span><span class="tag">few-shot</span><span class="tag">variables</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.15</span>
+      <div class="sec-body">
+        <div class="sec-title">Guardrails &amp; Input Validation</div>
+        <div class="sec-tags"><span class="tag">guardrails</span><span class="tag">safety</span><span class="tag">injection</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.16</span>
+      <div class="sec-body">
+        <div class="sec-title">Writing Test Cases for Agents</div>
+        <div class="sec-tags"><span class="tag">testing</span><span class="tag">evals</span><span class="tag">determinism</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">2.17</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0007-capstone-project.html">Performance Metrics &amp; Cost</a></div>
+        <div class="sec-tags"><span class="tag">metrics</span><span class="tag">cost</span><span class="tag">quality</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-partial">~ L07</span></span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ LEVEL 3 ═══════════════════ -->
+  <div class="level l3">
+    <div class="level-header">
+      <span class="level-num">L3</span>
+      <span class="level-title">Advanced Patterns &amp; RAG</span>
+    </div>
+    <p class="level-desc">Custom LangGraph workflows, deep agents, RAG with embeddings, MCP servers, plan-and-execute, human-in-the-loop, reflection, conversation threading, semantic memory, deployment.</p>
+
+    <div class="section-row">
+      <span class="sec-num">3.1</span>
+      <div class="sec-body">
+        <div class="sec-title">Implementing Conditional Edges</div>
+        <div class="sec-tags"><span class="tag">routing</span><span class="tag">conditional</span><span class="tag">langgraph</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.2</span>
+      <div class="sec-body">
+        <div class="sec-title">Custom Agentic Workflows</div>
+        <div class="sec-tags"><span class="tag">workflows</span><span class="tag">custom</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.3</span>
+      <div class="sec-body">
+        <div class="sec-title">Debugging State Transitions</div>
+        <div class="sec-tags"><span class="tag">debugging</span><span class="tag">state</span><span class="tag">tracing</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.4</span>
+      <div class="sec-body">
+        <div class="sec-title">RAG Pipeline with Embeddings</div>
+        <div class="sec-tags"><span class="tag">rag</span><span class="tag">embeddings</span><span class="tag">vector-db</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.5</span>
+      <div class="sec-body">
+        <div class="sec-title">MCP Server Tool Interoperability</div>
+        <div class="sec-tags"><span class="tag">mcp</span><span class="tag">protocol</span><span class="tag">interop</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.6</span>
+      <div class="sec-body">
+        <div class="sec-title">Plan-and-Execute Agent</div>
+        <div class="sec-tags"><span class="tag">planning</span><span class="tag">execution</span><span class="tag">tasks</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.7</span>
+      <div class="sec-body">
+        <div class="sec-title">Deep Agents</div>
+        <div class="sec-tags"><span class="tag">deep</span><span class="tag">research</span><span class="tag">long-running</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.8</span>
+      <div class="sec-body">
+        <div class="sec-title">Human-in-the-Loop Checkpoints</div>
+        <div class="sec-tags"><span class="tag">hitl</span><span class="tag">approval</span><span class="tag">interrupt</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.9</span>
+      <div class="sec-body">
+        <div class="sec-title">Reflection Pattern</div>
+        <div class="sec-tags"><span class="tag">reflection</span><span class="tag">self-critique</span><span class="tag">quality</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.10</span>
+      <div class="sec-body">
+        <div class="sec-title">Conversation Threading</div>
+        <div class="sec-tags"><span class="tag">threading</span><span class="tag">sessions</span><span class="tag">context</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.11</span>
+      <div class="sec-body">
+        <div class="sec-title">Semantic Memory</div>
+        <div class="sec-tags"><span class="tag">memory</span><span class="tag">semantic</span><span class="tag">vector</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">3.12</span>
+      <div class="sec-body">
+        <div class="sec-title">Deploying Agents with FastAPI → NestJS</div>
+        <div class="sec-tags"><span class="tag">deploy</span><span class="tag">nestjs</span><span class="tag">api</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ LEVEL 4 ═══════════════════ -->
+  <div class="level l4">
+    <div class="level-header">
+      <span class="level-num">L4</span>
+      <span class="level-title">Production AI Agents</span>
+    </div>
+    <p class="level-desc">Production-grade tools, multi-agent supervisors, evaluation pipelines, prompt optimization, and deep agents for complex real-world tasks.</p>
+
+    <div class="section-row">
+      <span class="sec-num">4.1</span>
+      <div class="sec-body">
+        <div class="sec-title">Building Robust Tools</div>
+        <div class="sec-tags"><span class="tag">production</span><span class="tag">reliability</span><span class="tag">fallbacks</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">4.2</span>
+      <div class="sec-body">
+        <div class="sec-title"><a href="./0006-multi-agent-systems.html">Multi-Agent Supervisor Systems</a></div>
+        <div class="sec-tags"><span class="tag">supervisor</span><span class="tag">routing</span><span class="tag">specialists</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-done">&#10003; L06</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">4.3</span>
+      <div class="sec-body">
+        <div class="sec-title">Evaluation Pipelines</div>
+        <div class="sec-tags"><span class="tag">evaluation</span><span class="tag">evals</span><span class="tag">ci</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">4.9</span>
+      <div class="sec-body">
+        <div class="sec-title">Optimizing Prompts &amp; Tools</div>
+        <div class="sec-tags"><span class="tag">optimization</span><span class="tag">cost</span><span class="tag">latency</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">4.17</span>
+      <div class="sec-body">
+        <div class="sec-title">Building Deep Agents</div>
+        <div class="sec-tags"><span class="tag">deep</span><span class="tag">long-horizon</span><span class="tag">research</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ COOKBOOK + CHECKLIST ═══════════════════ -->
+  <div class="level lcb">
+    <div class="level-header">
+      <span class="level-num">CB</span>
+      <span class="level-title">Cookbook &amp; Production Checklist</span>
+    </div>
+    <p class="level-desc">Step-by-step mental checklist for designing agents from scratch + every building block a production agent needs before shipping.</p>
+
+    <div class="section-row">
+      <span class="sec-num">CB</span>
+      <div class="sec-body">
+        <div class="sec-title">Agent Design Cookbook</div>
+        <div class="sec-tags"><span class="tag">design</span><span class="tag">mental-model</span><span class="tag">checklist</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+
+    <div class="section-row">
+      <span class="sec-num">CL</span>
+      <div class="sec-body">
+        <div class="sec-title">Production Readiness Checklist</div>
+        <div class="sec-tags"><span class="tag">production</span><span class="tag">shipping</span><span class="tag">ops</span></div>
+      </div>
+      <span class="sec-lesson"><span class="badge-todo">not built</span></span>
+    </div>
+  </div>
+
+  <h2>Suggested next lessons</h2>
+  <ul style="font-size:.88rem;padding-left:1.25rem;line-height:2;">
+    <li><strong>§2.12 Streaming</strong> — SSE streaming from NestJS agent service (high practical value)</li>
+    <li><strong>§3.4 RAG Pipeline</strong> — embeddings + vector search with pgvector or Pinecone</li>
+    <li><strong>§3.8 Human-in-the-Loop</strong> — approval gates, interrupt/resume pattern in NestJS</li>
+    <li><strong>§3.9 Reflection</strong> — self-critique loop: agent reviews its own output before returning</li>
+    <li><strong>§2.15 Guardrails</strong> — prompt injection defence, input validation, output sanitisation</li>
+    <li><strong>§4.3 Evaluation Pipelines</strong> — automated evals, CI integration, scoring agent quality</li>
+    <li><strong>§3.6 Plan-and-Execute</strong> — planner + executor split for long-horizon tasks</li>
+  </ul>
+
+  <footer>
+    Built with the /teach skill · Claude Code · Start: 2026-06-14 · Target: 2026-06-28
+  </footer>
+</article>
+</body>
+</html>

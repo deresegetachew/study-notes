@@ -1,0 +1,431 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+
+---
+
+<LessonLayout
+  title="CB — Agent Design Cookbook"
+>
+  <LessonHeader
+    num="CB"
+    title="Agent Design Cookbook"
+    subtitle="The engineer's mental checklist — 10 questions to answer before writing a single line of agent code."
+  />
+
+  <div class="lesson-content">
+
+    <LessonCallout variant="key" title="Use this before you code">
+      <p>
+        Every decision you skip here becomes a production bug later. Work through all 10 phases
+        in order. They take 30 minutes. Redesigning after launch takes days.
+      </p>
+    </LessonCallout>
+
+    <!-- ─── Phase 01 ──────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">01 — Do you actually need an agent?</h2>
+    <p>Answer these in order. Stop as soon as a simpler approach works.</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Question</th><th>Yes →</th><th>No →</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Can this be solved with a single, well-crafted LLM call?</td>
+            <td><strong>Use prompt engineering.</strong> A detailed prompt with examples is often enough.</td>
+            <td>Keep going ↓</td>
+          </tr>
+          <tr>
+            <td>Are all steps known upfront, fixed, and in a predictable order?</td>
+            <td><strong>Use a chain.</strong> Wire LLM calls in sequence. Example: RAG pipeline (retrieve → generate).</td>
+            <td>Keep going ↓</td>
+          </tr>
+          <tr>
+            <td>Does the task require dynamic decision-making, tool use, or an unknown number of steps?</td>
+            <td><strong>You need an agent.</strong> Continue through this cookbook.</td>
+            <td>Re-examine. You may be overcomplicating it.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="warn" title="The golden rule">
+      <p>Agents add latency, cost, and unpredictability. Only use them when a chain genuinely cannot do the job.</p>
+    </LessonCallout>
+
+    <!-- ─── Phase 02 ──────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">02 — Define the goal and the problem</h2>
+    <p>Write answers to these before designing anything. Start with the goal — the business or user outcome the agent exists to produce. Everything else (inputs, outputs, constraints) is derived from it. Without a clear goal, you cannot judge trade-offs, and you have no way to tell if the agent is actually working.</p>
+
+    <ul>
+      <li><strong>What is the goal?</strong> One sentence: what outcome does this agent produce for a user or the business? Not what it does mechanically — why anyone cares. Example: <em>"Resolve routine order queries without rep involvement, cutting response time from 4 hours to under 5 minutes."</em></li>
+      <li><strong>How will you know it's working?</strong> Name the metric that proves the goal is being met. If you cannot name it, the goal is not specific enough.</li>
+      <li><strong>What is the exact input?</strong> A string? Structured JSON? A file? From a user or another system?</li>
+      <li><strong>What is the exact output?</strong> Text response? Structured object? A side effect (email sent, record updated)? How will the caller know it succeeded?</li>
+      <li><strong>What does "done" look like?</strong> Write the termination condition now. An agent without a clear stopping condition will loop or hallucinate completion.</li>
+      <li><strong>What are the hard constraints?</strong> Max latency? Cost per run? Compliance rules? Forbidden actions?</li>
+      <li><strong>What is the acceptable failure mode?</strong> Graceful error? Escalate to human? Retry? Partial result?</li>
+    </ul>
+
+    <!-- ─── Phase 03 ──────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">03 — Choose your autonomy level</h2>
+    <p>This is the most important architectural decision. Everything else flows from it.</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>If this is true…</th><th>Choose this</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Steps known, order fixed, no branching</td><td><strong>Agentic workflow</strong></td><td>Predictable, auditable, debuggable</td></tr>
+          <tr><td>Steps known but routing is dynamic</td><td><strong>Conditional workflow</strong></td><td>LLM routes; engineer defines the paths</td></tr>
+          <tr><td>Some steps known, some depend on results</td><td><strong>Hybrid + loop</strong></td><td>Control where you can, flex where you must</td></tr>
+          <tr><td>Steps completely unknown upfront</td><td><strong>Autonomous agent</strong></td><td>Maximum flexibility, maximum unpredictability</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="Start at the lowest autonomy that works">
+      <p>You can always increase autonomy later. Reducing it after launch usually requires a full redesign.</p>
+    </LessonCallout>
+
+    <!-- ─── Phase 04 ──────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">04 — Design the tools</h2>
+    <p>Tools are the agent's hands. Every tool decision has safety and reliability implications.</p>
+
+    <ul>
+      <li><strong>List every read tool</strong> — search, databases, APIs, file reads. Relatively safe.</li>
+      <li><strong>List every write tool</strong> — create, update, delete, send. Flag each for a safety review.</li>
+      <li><strong>For each write tool: is it reversible?</strong> Sending email cannot be unsent. Irreversible writes need human approval.</li>
+      <li><strong>Does each tool do exactly ONE thing?</strong> A tool that does 10 things is a tool the LLM will misuse.</li>
+      <li><strong>Is each docstring unambiguous?</strong> The LLM reads the docstring to decide when and how to call it. Rewrite any description a new engineer could misread.</li>
+      <li><strong>Do you have 3–5 tools maximum per agent?</strong> More tools → slower decisions + higher error rate. Split into specialised sub-agents if needed.</li>
+      <li><strong>For each tool: which node or agent uses it?</strong> Draw a column per node or agent and mark which tools each needs. Use your rough decomposition from Phase 02 — the agents may not be formally named yet, but the natural groupings are already visible from the problem definition (different channels, different responsibilities). Phase 06 will formalise them. Any tool that appears in more than one column is shared — that shared set is your MCP server candidate list. Anything used by only one node stays inline.</li>
+      <li><strong>Does any tool search a large knowledge base?</strong> That is a <strong>RAG tool</strong> — not keyword search, not a full data dump. Name it explicitly and confirm the implementation uses a vector index. Use the decision framework below to verify it is the right pattern.</li>
+    </ul>
+
+    <LessonCallout variant="tip" title="Data access pattern — pick before you build">
+      <p>Choosing the wrong pattern wastes tokens or adds unnecessary complexity. For each data source, work through these options in order:</p>
+      <div class="lesson-table">
+        <table>
+          <thead><tr><th>Pattern</th><th>Use when</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Inline in context</strong></td><td>Tiny, always-needed data (today's date, current user name)</td></tr>
+            <tr><td><strong>MCP Resource</strong></td><td>Static / nightly-refreshed reference data, bounded size — same content for every call (pricing config, small product catalog)</td></tr>
+            <tr><td><strong>DB / API Tool</strong></td><td>Exact lookup by a known key, real-time data (<code>get_order_status(id)</code>, <code>check_inventory(sku)</code>)</td></tr>
+            <tr><td><strong>RAG Tool</strong></td><td>Large corpus where the user describes what they want in their own words — semantic similarity is the only reliable match (<code>search_catalog("big blue storage unit")</code>)</td></tr>
+            <tr><td><strong>RAG Pipeline</strong></td><td>Retrieval is always the first step regardless of query — no agent decision (document Q&amp;A bot, always retrieve → augment → generate)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The split between MCP Resource and RAG Tool comes down to two questions: is the corpus too large to fit in context? Does the user describe what they want rather than providing an exact key? Yes to either → RAG Tool. Full treatment in L17.</p>
+    </LessonCallout>
+
+    <LessonCallout variant="key" title="Principle of least privilege">
+      <p>Give each tool only the permissions it actually needs. A read-only search tool should not have write access, even accidentally.</p>
+    </LessonCallout>
+
+    <LessonCallout variant="tip" title="Tool sharing is the signal for an MCP server">
+      <p>
+        Once you have your tool list, mark which node or agent uses each one.
+        Any tool that appears in more than one place is a candidate to extract into an
+        MCP server — implement it once and let all consumers connect.
+        Similarly, static reference data (product catalogs, pricing config) that agents
+        read for context can be exposed as MCP Resources rather than fetched via a Tool
+        on every call. And if multiple agents share the same prompt structure, consider
+        an MCP Prompt Template so the wording can be updated in one place without
+        redeploying agents. See L26 for implementation details.
+        If you plan to use community MCP servers, read the security section of L26
+        before connecting — tool descriptions, resource content, and prompt templates
+        are all injection surfaces.
+      </p>
+    </LessonCallout>
+
+    <!-- ─── Phase 05 ──────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">05 — Design state &amp; memory</h2>
+
+    <p>
+      State belongs to the <strong>graph</strong>, not to individual nodes or agents within it.
+      Every node — whether it's an LLM agent, a plain routing function, or an idempotency check — reads
+      from and writes to the same state object. Adding more agents in Phase 06 means adding more
+      nodes that share the same state, not creating separate state objects per agent.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Short-term (in-session)</th><th>Long-term (cross-session)</th></tr></thead>
+        <tbody>
+          <tr><td>Current task progress</td><td>User preferences &amp; profile</td></tr>
+          <tr><td>Tool results from this run</td><td>Past decisions &amp; outcomes</td></tr>
+          <tr><td>Conversation messages</td><td>Learned domain knowledge</td></tr>
+          <tr><td>Working variables / retry count</td><td>Semantic memory (embeddings)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ul>
+      <li><strong>What data does the workflow need to track?</strong> List every piece of information a node will need that isn't in the input. Each one is a state field. You don't need the final agent structure yet — design state around what the workflow needs to remember.</li>
+      <li><strong>Does the agent need memory across sessions?</strong> No → MemorySaver. Yes → PostgresSaver or database-backed checkpointer.</li>
+      <li><strong>For each state field: does it accumulate or overwrite?</strong> Use the accumulate reducer for lists that grow (messages, logs). Use replace for fields that get updated (current status).</li>
+      <li><strong>Does state contain sensitive data?</strong> Encrypt at rest, mask in logs, restrict access. Never log raw state containing API keys or PII.</li>
+    </ul>
+
+    <!-- ─── Phase 06 ──────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">06 — Single agent or multi-agent?</h2>
+
+    <p>Before deciding, be clear on what these words mean in LangGraph:</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Term</th><th>What it is</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Node</strong></td>
+            <td>Any step in the graph — a function that reads from state, does work, writes back. No LLM required.</td>
+            <td>Idempotency check, router, intent decomposer, tool executor</td>
+          </tr>
+          <tr>
+            <td><strong>Agent</strong></td>
+            <td>A node that uses an LLM to reason, decide, and (optionally) call tools. Has a system prompt.</td>
+            <td>Chat Specialist, Email Specialist, Supervisor</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Every agent is a node, but not every node is an agent. When you draw your graph in Phase 06b,
+      most nodes will be plain functions — only the ones that need to reason and decide require an LLM.
+      "Multi-agent" means multiple LLM-powered nodes, typically with different system prompts and tool sets.
+    </p>
+
+    <p>This is also where you identify which agents your system needs: list the distinct responsibilities from your Phase 02 goal and problem definition, then ask the split questions below. Each responsibility that justifies its own system prompt becomes a separate agent.</p>
+
+    <p>Start with one agent. Only split when you hit a specific limitation.</p>
+
+    <ul>
+      <li><strong>Is the context window being overwhelmed?</strong> Split — sub-agents get isolated contexts, return only conclusions to the orchestrator.</li>
+      <li><strong>Are there conflicting responsibilities in one system prompt?</strong> Split — each agent gets a focused role. Conflicting instructions cause erratic behaviour.</li>
+      <li><strong>Do parts of the task need true parallelism?</strong> Split — parallel sub-agents with a supervisor (map-reduce pattern).</li>
+    </ul>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Pattern</th><th>Best for</th></tr></thead>
+        <tbody>
+          <tr><td><strong>ReAct (single agent loop)</strong></td><td>Tasks where the next step depends on the previous result — debugging, research, conversational agents. Short horizon (≤ 5 tool calls).</td></tr>
+          <tr><td><strong>Plan-and-Execute</strong></td><td>Tasks with a knowable set of steps before the first tool call, where steps can run in parallel or the horizon is long (10+ calls). Separate planning model from cheap executor. See L23 for the decision framework.</td></tr>
+          <tr><td><strong>Supervisor + specialists</strong></td><td>Dynamic routing to specialists, quality control, task delegation</td></tr>
+          <tr><td><strong>Sequential pipeline</strong></td><td>Multi-stage workflows — research → write → review</td></tr>
+          <tr><td><strong>Network / Swarm</strong></td><td>Collaborative problem solving, adaptive workflows</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="ReAct vs Plan-and-Execute — the four-question test">
+      <p>
+        Phase 06 is where you commit to an execution pattern, not just an agent count.
+        Before choosing, ask: (1) Can you enumerate all steps before the first tool call?
+        (2) Does each step's input depend unpredictably on the prior result?
+        (3) Can any steps run in parallel? (4) Is this more than ~5 tool calls?
+        The answers lead directly to ReAct or Plan-and-Execute. Full decision framework in L23.
+      </p>
+    </LessonCallout>
+
+    <!-- ─── Workflow map ─────────────────────────────────────────── -->
+    <h2 class="lesson-heading">06b — Sketch the workflow map before writing any code</h2>
+    <p>
+      §3.2: <em>"Sketch out the flow and design the state structure before coding. Identify
+      decision points and loops."</em> This step sits between knowing your architecture (Phase 06)
+      and writing the system prompt (Phase 07). If you cannot draw it, you do not understand it
+      well enough to code it.
+    </p>
+
+    <h3 class="lesson-heading">Linear — fixed steps, known order</h3>
+    <p><strong>Use when:</strong> steps are fixed and must run in order. Each step depends on the previous result. No branching, no loops.</p>
+    <p><strong>Example:</strong> email idempotency check → decompose → resolve → execute</p>
+    <LessonDiagram definition={`
+flowchart LR
+  S([START]):::e --> A[Step A]:::s --> B[Step B]:::s --> C[Step C]:::s --> E([END]):::d
+  classDef e fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef s fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef d fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+    `} />
+
+    <h3 class="lesson-heading">Cyclic — iterative refinement with a quality gate</h3>
+    <p><strong>Use when:</strong> output quality must be checked and the agent may need to retry. Always cap with <code>max_turns</code>.</p>
+    <p><strong>Example:</strong> reflection pattern, plan-and-execute re-plan loop, conversational agent loop</p>
+    <LessonDiagram definition={`
+flowchart LR
+  S([START]):::e --> G[Generate]:::s --> Q{Quality\ncheck}:::dec
+  Q -->|pass| E([END]):::d
+  Q -->|retry| G
+  Q -->|max turns| F[Best\npartial]:::w --> E
+  classDef e   fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef s   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef dec fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef d   fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+  classDef w   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+    `} />
+
+    <h3 class="lesson-heading">Branching — dynamic routing by input type or intent</h3>
+    <p><strong>Use when:</strong> different inputs need different processing paths. A router function reads state and returns a key.</p>
+    <p><strong>Example:</strong> supervisor routing chat vs. email, triage agent routing by intent</p>
+    <LessonDiagram definition={`
+flowchart TD
+  S([START]):::e --> R[Router]:::dec
+  R -->|A| SA[Specialist A]:::s
+  R -->|B| SB[Specialist B]:::s
+  R -->|C| SC[Specialist C]:::s
+  SA & SB & SC --> E([END]):::d
+  classDef e   fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef dec fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef s   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef d   fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+    `} />
+
+    <h3 class="lesson-heading">Fan-out / Fan-in — N independent tasks in parallel</h3>
+    <p><strong>Use when:</strong> N independent tasks can run simultaneously and results need to be merged. Requires a reducer on the state field collecting results.</p>
+    <p><strong>Example:</strong> searching 5 sources in parallel, evaluating a response against multiple criteria simultaneously</p>
+    <LessonDiagram definition={`
+flowchart TD
+  S([START]):::e --> R[Dispatch]:::dec
+  R -->|Send API| W1[Worker 1]:::s
+  R -->|Send API| W2[Worker 2]:::s
+  R -->|Send API| W3[Worker 3]:::s
+  W1 & W2 & W3 --> M[Merge\nresults]:::s --> E([END]):::d
+  classDef e   fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef dec fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef s   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef d   fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+    `} />
+
+    <h3 class="lesson-heading">Pattern selection guide</h3>
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Situation</th><th>Pattern</th><th>Key signal</th></tr></thead>
+        <tbody>
+          <tr><td>Steps fixed, always the same order</td><td>Linear</td><td>No branching, no loops</td></tr>
+          <tr><td>Output must meet a quality bar before proceeding</td><td>Cyclic</td><td>A check node that can send you back</td></tr>
+          <tr><td>Input type or intent determines the path</td><td>Branching</td><td>Router node returning a route key</td></tr>
+          <tr><td>N independent tasks, want them fast</td><td>Fan-out / Fan-in</td><td>Tasks have no dependency on each other</td></tr>
+          <tr><td>Complex system with distinct phases</td><td>Subgraph composition</td><td>Natural conceptual boundary between phases</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="lesson-heading">Parallelism decision guide (§4.5)</h3>
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Question</th><th>Use</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Does each item need its own graph node with state updates?</td><td><strong>Send API</strong></td><td>Each branch gets full LangGraph features — state, checkpointing, error handling</td></tr>
+          <tr><td>Simple I/O that can all be gathered in one place?</td><td><strong>Promise.all()</strong></td><td>Lightweight — no extra nodes or state overhead. Best for batching API calls.</td></tr>
+          <tr><td>CPU-bound work, or need precise thread pool control?</td><td><strong>ThreadPoolExecutor</strong></td><td>True parallelism for CPU-bound tasks; explicit control over concurrency limits</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="key" title="Sequential vs. parallel: the one question that decides it">
+      <p>
+        Do sub-tasks <strong>depend on each other's results?</strong> If yes → sequential (each waits for
+        the previous). If no → parallel (all run at once). For the Sales Order Agent, email
+        operations are sequential (op[0] approval may affect op[1]); inventory lookups for
+        a quote are parallel (each SKU check is independent).
+      </p>
+    </LessonCallout>
+
+    <!-- ─── Phase 07 ──────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">07 — Write the system prompt</h2>
+    <p>A bad system prompt causes more production failures than bad code. Write it like documentation.</p>
+
+    <ul>
+      <li><strong>One system prompt per LLM-powered node.</strong> If you decided in Phase 06 to split into multiple agents, each one gets its own focused prompt. A single prompt trying to cover all agents mixes responsibilities and produces exactly the erratic behaviour Phase 06 was designed to prevent. The supervisor, the decomposition node, the Chat Specialist, and the Email Specialist are four different jobs — they need four different prompts.</li>
+      <li><strong>Define the role precisely.</strong> Not "helpful assistant". Instead: "You are the Chat Sales Specialist for XYZ Corp. Your ONLY job is to resolve order queries in real time via chat."</li>
+      <li><strong>Specify when to use each tool.</strong> Write explicit decision rules: "Use <code>check_inventory</code> when asked about stock. Use <code>create_order</code> only when the customer explicitly confirms the quote."</li>
+      <li><strong>Describe the exact output format by example.</strong> The LLM replicates patterns far better than following abstract format descriptions.</li>
+      <li><strong>List what NOT to do.</strong> "Do not discuss competitors. Do not modify orders without confirmation. If unsure, ask for clarification."</li>
+      <li><strong>Handle ambiguous inputs.</strong> Tell the agent what to do when intent is unclear: ask for clarification, make a stated assumption, or fail with a helpful message.</li>
+    </ul>
+
+    <LessonCallout variant="warn" title="Anti-pattern: fixing architecture problems with prompt hacks">
+      <p>If you are adding paragraph after paragraph to handle edge cases, step back and fix the system design first.</p>
+    </LessonCallout>
+
+    <!-- ─── Phase 08 ──────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">08 — Add safety &amp; guardrails</h2>
+    <p>Run cheap checks first. Only escalate to expensive ones when needed.</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Layer</th><th>Cost</th><th>What it catches</th></tr></thead>
+        <tbody>
+          <tr><td><strong>L1 Input validation</strong> ~0ms</td><td>Free</td><td>Empty input, length limits, wrong format — catch before spending any tokens</td></tr>
+          <tr><td><strong>L2 Injection detection</strong> ~1ms</td><td>Free</td><td>Pattern match for "ignore previous instructions", "you are now", "forget everything"</td></tr>
+          <tr><td><strong>L3 PII / content</strong> ~5ms</td><td>Cheap</td><td>Regex for emails, SSNs, card numbers — block or redact before the LLM sees them</td></tr>
+          <tr><td><strong>L4 LLM safety classifier</strong> ~500ms</td><td>Expensive</td><td>Semantic intent — only run when L1–L3 pass</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ul>
+      <li><strong>All irreversible write operations require human approval.</strong> Use <code>interrupt()</code> for: sending emails, deleting records, making payments.</li>
+      <li><strong>Every tool call has input validation.</strong> Validate types, ranges, and formats before executing. Return error strings, not exceptions.</li>
+      <li><strong>max_turns set on every loop.</strong> Typical: 5–15 turns. Log a WARNING when hit — it usually signals a prompt or tool problem.</li>
+    </ul>
+
+    <!-- ─── Phase 09 ──────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">09 — Error handling &amp; resilience</h2>
+
+    <ul>
+      <li><strong>Tool call fails?</strong> Return an error string the LLM can reason about. The agent reads "Error: item not found" and tries a different approach.</li>
+      <li><strong>429 rate limit?</strong> Exponential backoff with jitter: 1s, 2s, 4s, 8s… Cap at 30s. Jitter prevents thundering-herd when multiple clients hit the limit together.</li>
+      <li><strong>5xx server error?</strong> Try a fallback model or provider. Never expose raw API errors to users. Log full error internally; show "service unavailable" externally.</li>
+      <li><strong>max_turns hit without completing?</strong> Return the best partial result with a clear explanation of what completed and what did not. Never silently return nothing.</li>
+      <li><strong>Mid-task failure?</strong> Use LangGraph checkpointing. If the agent fails at step 7 of 10, it should resume from step 7, not restart.</li>
+    </ul>
+
+    <!-- ─── Phase 10 ──────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">10 — Observability &amp; testing</h2>
+
+    <ul>
+      <li><strong>Log every tool call</strong> with: tool name, input args, result status, <code>latency_ms</code>. You must be able to reconstruct any run.</li>
+      <li><strong>Track P50 / P95 / P99 latency</strong> — not just average. Average hides your worst cases.</li>
+      <li><strong>Test tool selection</strong> — given query X, the agent calls tool Y. This is deterministic and repeatable. Test tool choice, not exact wording.</li>
+      <li><strong>Test with realistic messy inputs</strong> — typos, ambiguous phrasing, multi-part questions. Test suites that use only clean inputs test a world that doesn't exist.</li>
+      <li><strong>Regression suite</strong> — every production bug adds a new test case. Otherwise every fix breaks something else.</li>
+    </ul>
+
+    <!-- ─── 10-question summary ───────────────────────────────────── -->
+    <h2 class="lesson-heading">The 10 questions — summary</h2>
+    <LessonChecklist
+      title="Answer all 10 before writing any agent code"
+      items={[
+        'Do I actually need an agent, or will a chain work?',
+        'What is the exact input, output, and termination condition?',
+        'What autonomy level matches my risk and predictability requirements?',
+        'What tools does the agent need, and are write tools protected?',
+        'What state must be preserved in-session vs across sessions?',
+        'Can one agent do this, or do I need to split?',
+        'Does my system prompt define role, tools, output format, and boundaries?',
+        'What are my guardrail layers, and are irreversible actions protected?',
+        'How does the agent fail gracefully at each known failure point?',
+        'How will I observe, test, and measure performance in production?',
+      ]}
+    />
+
+
+    <!-- ─── Worked example ─────────────────────────────────────── -->
+    <LessonCallout variant="key" title="Worked example — Sales Order Agent">
+      <p>
+        See the companion exercise page where all 10 phases are applied to a real
+        multi-channel sales agent (chat + email): tool design, state schema,
+        multi-agent architecture, system prompts, guardrails, and a staff-level design review.
+      </p>
+      <p><a href="/lessons/0039-sales-order-agent-exercise">Open: Sales Order Agent — Design Exercise →</a></p>
+    </LessonCallout>
+
+  </div>
+</LessonLayout>

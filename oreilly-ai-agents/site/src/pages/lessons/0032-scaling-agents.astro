@@ -1,0 +1,464 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+
+const statelessWorkerCode = `
+// Stateless worker pattern — no local state, everything in Redis/Postgres
+//
+// Anti-pattern: storing state on the worker
+class BadAgentWorker {
+  private sessions = new Map<string, AgentSession>();  // ❌ dies on restart
+
+  async process(jobId: string) {
+    const session = this.sessions.get(jobId);          // ❌ only works on THIS worker
+    // ...
+  }
+}
+
+// Correct: externalise all state
+class StatelessAgentWorker {
+  constructor(
+    private redis:    RedisClient,
+    private postgres: PostgresClient,
+  ) {}
+
+  async process(job: { id: string; threadId: string; input: string }) {
+    // Fetch context from shared store — works on any worker
+    const context = await this.redis.get(\`session:\${job.threadId}\`);
+    const history = await this.postgres.query(
+      'SELECT * FROM checkpoints WHERE thread_id = $1 ORDER BY created_at',
+      [job.threadId],
+    );
+
+    // Run agent
+    const result = await runAgent(job.input, context, history);
+
+    // Save back — next step can run on any worker
+    await this.redis.set(\`session:\${job.threadId}\`, result.context, 'EX', 3600);
+    await this.postgres.query(
+      'INSERT INTO checkpoints (thread_id, state, created_at) VALUES ($1, $2, NOW())',
+      [job.threadId, result.state],
+    );
+
+    return result.output;
+  }
+}
+`.trim();
+
+const costControlCode = `
+// Token budget enforcement — hard cap per user per time window
+class TokenBudgetGuard {
+  constructor(private redis: RedisClient) {}
+
+  async checkBudget(
+    userId:    string,
+    estimated: number,
+    limit:     number = 100_000,   // tokens per day
+  ): Promise<void> {
+    const key   = \`tokens:\${userId}:\${today()}\`;
+    const used  = parseInt((await this.redis.get(key)) ?? '0', 10);
+
+    if (used + estimated > limit) {
+      throw new Error(\`Token budget exceeded for \${userId}: \${used}/\${limit} used today\`);
+    }
+  }
+
+  async recordUsage(userId: string, tokensUsed: number): Promise<void> {
+    const key = \`tokens:\${userId}:\${today()}\`;
+    await this.redis.incrby(key, tokensUsed);
+    await this.redis.expire(key, 86_400);   // TTL: 24 hours
+  }
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Concurrency limiter — max parallel tasks per tenant
+async function acquireConcurrencySlot(
+  redis: RedisClient,
+  tenantId: string,
+  maxConcurrent: number = 5,
+): Promise<boolean> {
+  const key     = \`concurrency:\${tenantId}\`;
+  const current = parseInt((await redis.get(key)) ?? '0', 10);
+  if (current >= maxConcurrent) return false;
+  await redis.incr(key);
+  await redis.expire(key, 300);   // safety TTL
+  return true;
+}
+`.trim();
+
+const mindMap = `
+# Scaling Agents
+## Horizontal vs Vertical
+### I/O-bound workload
+### No local state
+### Redundant by design
+## Stateless Worker Pattern
+### Fetch context from shared store
+### Act and save results
+### Any worker picks up any job
+## Three-Tier State Storage
+### Hot: Redis (ephemeral session)
+### Warm: Postgres (durable results)
+### Cold: S3 (large artifacts)
+## Message Queues
+### Backpressure buffer
+### Cost control via worker count
+### Priority lanes
+### Dead letter queues
+## Cost & Fairness
+### Token budgets per tenant
+### Concurrency limits
+### Fair scheduling
+## Tensions
+### More workers (throughput) vs More workers (LLM cost)
+### Short TTLs (cost control) vs TTLs too short (loses session)
+### Fair scheduling (equality) vs Priority lanes (SLA)
+## Pitfalls
+### Sticky sessions defeat horizontal scaling
+### No connection pooling at scale
+### Worker count set to traffic peak
+### Large blobs in Redis
+### No drain timeout on shutdown
+`;
+---
+
+<LessonLayout
+  title="L32 — Scaling Agents"
+>
+
+  <LessonHeader
+    num="L32"
+    title="Scaling Agents"
+    subtitle="Why agent workloads demand horizontal scaling, the stateless worker architecture, message queues as backpressure buffers, three-tier state storage, and cost control under multi-tenant load."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      L24 covered deploying a single-instance NestJS agent with BullMQ queues. This lesson
+      addresses what happens when one instance isn't enough — how to scale to many workers
+      while keeping agent state consistent, costs controlled, and no single worker becoming
+      a bottleneck or single point of failure.
+    </p>
+
+    <h2 class="lesson-heading">Horizontal vs Vertical Scaling</h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Vertical (Scale Up)</th><th>Horizontal (Scale Out)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>How</td><td>Bigger machine (more CPU, RAM)</td><td>More machines running in parallel</td></tr>
+          <tr><td>Ceiling</td><td>Hard — hits hardware limits</td><td>None in theory — keep adding instances</td></tr>
+          <tr><td>Failure mode</td><td>Single point of failure</td><td>Redundant — one node down, others continue</td></tr>
+          <tr><td>State</td><td>Can keep state locally</td><td>Requires externalised, shared state</td></tr>
+          <tr><td>Cost model</td><td>Expensive premium hardware</td><td>Many cheap commodity instances</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="key" title="Why agents must scale horizontally">
+      <p>
+        Agent workloads are <strong>I/O-bound</strong>: most wall-clock time is spent waiting
+        on LLM inference and tool API calls. A faster CPU doesn't make LLMs generate tokens
+        faster. You need <em>more workers running in parallel</em>, not a bigger single machine.
+        The architecture of resilience follows directly: stateless workers, decoupled state,
+        fault tolerance by re-queuing.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">The Stateless Worker Pattern</h2>
+
+    <p>
+      The core constraint: any worker must be able to handle any step of any agent task.
+      This means <strong>zero local state</strong> — all context lives in a shared external store.
+    </p>
+
+    <div class="principle-grid">
+      <div class="prin-card">
+        <div class="prin-title">Stateless Workers</div>
+        <p>Workers fetch context, act, save results, and terminate. Any worker can pick up where another left off — including after a crash.</p>
+      </div>
+      <div class="prin-card">
+        <div class="prin-title">Externalised State</div>
+        <p>No "sticky sessions" that lock a user to a specific server. Context lives in Redis/Postgres — fully shared across the pool.</p>
+      </div>
+      <div class="prin-card">
+        <div class="prin-title">Fault Tolerance</div>
+        <p>If a worker crashes mid-thought, the job is re-queued and picked up by another worker. No work is lost.</p>
+      </div>
+    </div>
+
+    <CodeBlock lang="typescript" label="stateless-worker.ts" code={statelessWorkerCode} />
+
+    <h2 class="lesson-heading">Three-Tier State Storage</h2>
+
+    <LessonDiagram definition={`
+flowchart LR
+  W1[Worker A]:::worker --> H[(Hot Storage\\nRedis\\nSession context)]:::hot
+  W2[Worker B]:::worker --> H
+  W3[Worker C]:::worker --> H
+  H --> WM[(Warm Storage\\nPostgres\\nDurable results)]:::warm
+  WM --> C[(Cold Storage\\nS3\\nLarge artifacts)]:::cold
+
+  classDef worker fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef hot    fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+  classDef warm   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef cold   fill:#f0fdf4,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Tier</th><th>Technology</th><th>What goes here</th><th>Characteristics</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Hot</strong></td>
+            <td>Redis (cluster mode)</td>
+            <td>Ephemeral session context, in-flight reasoning state</td>
+            <td>Sub-millisecond reads; use TTLs to auto-clean abandoned sessions; cluster for horizontal scale</td>
+          </tr>
+          <tr>
+            <td><strong>Warm</strong></td>
+            <td>Postgres / NoSQL</td>
+            <td>Durable user data, final results, checkpoint history</td>
+            <td>Reliable; heavy read load → replicas; use PgBouncer for connection pooling (workers exhaust DB connections fast)</td>
+          </tr>
+          <tr>
+            <td><strong>Cold</strong></td>
+            <td>S3 / Object store</td>
+            <td>Large artifacts: PDFs, images, long tool outputs</td>
+            <td>Keeps DB lean; reference by URL in warm storage; very cheap at scale</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="warn" title="Connection pooling is not optional">
+      <p>
+        Each worker opens database connections. At 50 workers × 10 concurrent tasks each,
+        that is 500 simultaneous Postgres connections — far exceeding the default limit.
+        <strong>PgBouncer</strong> (or equivalent) is mandatory before you scale beyond a
+        handful of workers.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Message Queues as Backpressure Buffers</h2>
+
+    <p>
+      Queues decouple rapid user input from slow, expensive agent execution. They are your
+      main tool for absorbing traffic spikes without crashing workers or over-scaling
+      infrastructure.
+    </p>
+
+    <div class="queue-features">
+      <div class="qf-row">
+        <div class="qf-name">Backpressure</div>
+        <p>Absorbs traffic spikes — tasks queue up while workers drain at their own pace. No worker overload.</p>
+      </div>
+      <div class="qf-row">
+        <div class="qf-name">Cost control</div>
+        <p>Worker count directly limits max concurrent LLM calls. Set workers = your API rate limit budget, not your traffic peak.</p>
+      </div>
+      <div class="qf-row">
+        <div class="qf-name">Priority lanes</div>
+        <p>Separate queues for paid vs. free tiers. Premium users never wait behind free-tier spikes.</p>
+      </div>
+      <div class="qf-row">
+        <div class="qf-name">Dead letter queues</div>
+        <p>Failed jobs after N retries move to a dead letter queue — inspectable and retryable without blocking the main queue.</p>
+      </div>
+    </div>
+
+    <h2 class="lesson-heading">Cost Control &amp; Fairness at Scale</h2>
+
+    <p>
+      LLM costs scale linearly with token usage. One runaway loop or one heavy tenant can
+      drain the budget for everyone. These controls must be in place before you scale.
+    </p>
+
+    <CodeBlock lang="typescript" label="cost-control.ts" code={costControlCode} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Control</th><th>Mechanism</th><th>Protects against</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Token budgets</strong></td><td>Hard cap per tenant/user per time window, tracked in Redis</td><td>Runaway loops, unexpectedly expensive queries</td></tr>
+          <tr><td><strong>Concurrency limits</strong></td><td>Max parallel tasks per tenant (Redis counter)</td><td>One tenant monopolising all workers</td></tr>
+          <tr><td><strong>Fair scheduling</strong></td><td>Round-robin across tenants before starting new tasks</td><td>Noisy-neighbour effect</td></tr>
+          <tr><td><strong>Throttling</strong></td><td>Return 429 or queue position instead of over-scaling</td><td>Cost spikes from traffic bursts</td></tr>
+          <tr><td><strong>Tiering</strong></td><td>High-throughput infrastructure reserved for premium</td><td>Free tier degrading paid tier performance</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Scaling Best Practices</h2>
+
+    <div class="bp-list">
+      <div class="bp-row"><span class="bp-tag">Assume failure</span><p>LLMs time out, tools break. Design for automatic retry at the queue level — don't expect workers to be reliable.</p></div>
+      <div class="bp-row"><span class="bp-tag">Graceful shutdowns</span><p>Workers must finish their current task before terminating. Sending SIGKILL to a thinking agent loses that task. Use SIGTERM + drain logic.</p></div>
+      <div class="bp-row"><span class="bp-tag">Scale on queue metrics</span><p>Monitor queue depth and queue latency, not CPU. Agent workers idle on CPU while waiting on I/O — CPU is the wrong signal for scaling decisions.</p></div>
+      <div class="bp-row"><span class="bp-tag">Externalise everything</span><p>Logs, state, and secrets must live outside the container. Any container that holds unique state is a single point of failure.</p></div>
+      <div class="bp-row"><span class="bp-tag">Incremental rollout</span><p>Test scaling behaviour (and costs) under synthetic load before exposing real traffic. Surprises at scale are expensive surprises.</p></div>
+    </div>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Why do agent workloads specifically benefit from horizontal rather than vertical scaling?',
+        options: [
+          'Agent code is too complex to run on a single machine',
+          'LLM inference is I/O-bound — more machines in parallel matters more than a faster single machine',
+          'Horizontal scaling is always cheaper regardless of workload type',
+          'Vertical scaling is not supported by cloud providers for AI workloads',
+        ],
+        answer:  1,
+        explain: 'Agents spend most of their time waiting on LLM inference and external API calls — I/O-bound work. A faster CPU doesn\'t speed up a remote LLM call. More workers running in parallel (horizontal) directly increases throughput. Vertical scaling only helps for CPU-bound work.',
+      },
+      {
+        q:       'You scale to 100 workers, each opening 5 Postgres connections. What problem do you encounter, and how do you fix it?',
+        options: [
+          'Workers run out of memory — add more RAM to each worker',
+          'Postgres connection limit exceeded — add a connection pooler like PgBouncer',
+          'Redis becomes a bottleneck — switch to a faster cache',
+          'Workers conflict on writes — add database transactions',
+        ],
+        answer:  1,
+        explain: '100 workers × 5 connections = 500 simultaneous Postgres connections, which typically exceeds the default limit (100). PgBouncer sits in front of Postgres and multiplexes many application connections into a smaller pool of real database connections, solving this without changing application code.',
+      },
+      {
+        q:       'Which metric should you monitor to decide when to scale agent workers, and why is CPU a poor choice?',
+        options: [
+          'CPU utilisation — high CPU means workers are overloaded',
+          'Memory usage — memory exhaustion causes crashes',
+          'Queue depth and queue latency — these directly measure how much work is waiting',
+          'Network bandwidth — agents transfer lots of data',
+        ],
+        answer:  2,
+        explain: 'Agent workers idle on CPU while waiting on LLM and API calls — CPU will look low even when workers are completely saturated with I/O. Queue depth (how many tasks are waiting) and queue latency (how long tasks wait before starting) directly measure whether you need more workers.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§4.15"
+      tensions={[
+        { a: 'More workers = higher throughput', b: 'More workers = higher LLM cost' },
+        { a: 'TTLs on session state (cost control)', b: 'TTLs too short (loses long-running session context)' },
+        { a: 'Fair scheduling (equality)', b: 'Priority lanes (premium tier SLA)' },
+      ]}
+      questions={[
+        {
+          q:      'A tenant is running a legitimate bulk processing job that is consuming 80% of your worker pool, slowing everyone else down. You have concurrency limits in place, but they are set per-task, not per-tenant. How do you fix this without rejecting the legitimate work?',
+          hint:   'Think about shaping traffic rather than blocking it.',
+          answer: '<p>The issue is per-task concurrency limits don\'t account for tenant-level total usage. Solutions: (1) <strong>Per-tenant concurrency limit</strong> — a Redis counter that caps how many tasks this specific tenant can run simultaneously (e.g. 5), regardless of total pool size; (2) <strong>Weighted fair queuing</strong> — instead of round-robin per task, rotate per-tenant: give each active tenant a turn before any tenant gets a second slot; (3) <strong>Priority lanes</strong> — the bulk job goes into a lower-priority queue that only workers with nothing else to do will pick up; premium/interactive tasks have a higher-priority queue that workers always prefer. The bulk work completes, just more slowly, without starving other tenants. Do not reject the work — that breaks the user\'s legitimate use case and erodes trust.</p>',
+        },
+        {
+          q:      'You want to use TTLs on Redis session state to auto-clean abandoned sessions. What are the risks of setting TTLs too short or too long, and how do you choose the right value?',
+          hint:   'Consider the range of legitimate agent task durations in your system.',
+          answer: '<p>Too short: a session actively running a long task (research agent, multi-step planning) gets evicted while mid-execution. The next worker fetches null context and either crashes or starts over from scratch — wasted work and a bad user experience. Too long: abandoned sessions (user closed the browser, network disconnected) accumulate indefinitely, consuming Redis memory without ever being accessed again. Choosing the right TTL: (1) Profile your p99 task duration — if 99% of tasks finish in under 30 minutes, a 60-minute TTL is safe; (2) Implement a "heartbeat" pattern — the worker writes a keep-alive to the key every 30 seconds, extending the TTL as long as the task is active; abandoned sessions naturally expire when heartbeats stop; (3) Use separate TTLs by task type — quick chatbot sessions (5 minutes) vs. deep research agents (4 hours).</p>',
+        },
+      ]}
+      pitfalls={[
+        'Sticky sessions — routing a user to the same worker every time creates a single point of failure and defeats horizontal scaling.',
+        'Scaling workers without scaling the database connection pool — Postgres will start refusing connections long before your workers feel the squeeze.',
+        'Setting worker count to match peak traffic rather than rate-limit budget — you end up spending 10× on LLM calls during a traffic spike.',
+        'Storing large tool outputs (PDFs, scraped pages) in Redis — hot storage is for fast-access ephemeral context, not large blobs; use S3 references instead.',
+        'Graceful shutdown without a drain timeout — workers that accept SIGTERM immediately drop in-flight tasks; always complete the current step before terminating.',
+      ]}
+    />
+
+  </div>
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .principle-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .prin-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    background: #dbeafe;
+  }
+  .prin-title {
+    font-weight: 700;
+    font-size: .88rem;
+    margin-bottom: .4rem;
+    color: #1e3a8a;
+  }
+  .prin-card p {
+    font-size: .8rem;
+    color: #1e40af;
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  .queue-features {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 1.25rem 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .qf-row {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 1rem;
+    align-items: start;
+    padding: .85rem 1.1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .qf-row:last-child { border-bottom: none; }
+  .qf-row:nth-child(even) { background: #f8fafc; }
+  .qf-name { font-weight: 700; font-size: .85rem; padding-top: .05rem; }
+  .qf-row p { font-size: .82rem; color: var(--muted); margin: 0; line-height: 1.55; }
+
+  .bp-list {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+    margin: 1.25rem 0;
+  }
+  .bp-row {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 1rem;
+    align-items: start;
+    padding: .75rem 1rem;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .bp-tag {
+    font-family: monospace;
+    font-size: .72rem;
+    font-weight: 700;
+    background: #1a1a2e;
+    color: #a5b4fc;
+    border-radius: 4px;
+    padding: .15rem .4rem;
+    white-space: nowrap;
+    align-self: start;
+  }
+  .bp-row p { font-size: .82rem; color: var(--muted); margin: 0; line-height: 1.55; }
+</style>

@@ -1,0 +1,438 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const embedCode = `
+import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai'; // OpenAI embeddings are cheaper + widely supported
+
+// Two embedding providers — pick one
+const openai = new OpenAI();
+
+async function embed(text: string): Promise<number[]> {
+  const res = await openai.embeddings.create({
+    model: 'text-embedding-3-small',  // 1536-dim, fast, cheap
+    input: text,
+  });
+  return res.data[0].embedding;
+}
+
+// Cosine similarity — measures how "parallel" two vectors are
+// Returns 1.0 for identical meaning, 0.0 for orthogonal, -1.0 for opposite
+function cosineSim(a: number[], b: number[]): number {
+  const dot = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+  const magA = Math.sqrt(a.reduce((s, ai) => s + ai * ai, 0));
+  const magB = Math.sqrt(b.reduce((s, bi) => s + bi * bi, 0));
+  return dot / (magA * magB);
+}
+
+// In-memory vector store (replace with pgvector or Pinecone in production)
+interface Doc { id: string; text: string; embedding: number[]; }
+const store: Doc[] = [];
+
+async function ingest(docs: Array<{ id: string; text: string }>) {
+  for (const doc of docs) {
+    const embedding = await embed(doc.text);
+    store.push({ ...doc, embedding });
+  }
+}
+
+async function retrieve(query: string, topK = 3): Promise<string[]> {
+  const qEmb = await embed(query);
+  return store
+    .map(doc => ({ doc, score: cosineSim(qEmb, doc.embedding) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK)
+    .map(r => r.doc.text);
+}
+`.trim();
+
+const ragCode = `
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+// Full RAG pipeline: retrieve context, then generate answer
+async function rag(question: string): Promise<string> {
+  // 1. Retrieve the most relevant document chunks
+  const chunks = await retrieve(question, 3);
+
+  // 2. Build a grounded prompt — context comes BEFORE the question
+  const context = chunks
+    .map((chunk, i) => \`[Source \${i + 1}]\\n\${chunk}\`)
+    .join('\\n\\n
+---\\n\\n');
+
+  // 3. Generate with retrieved context
+  const res = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 1024,
+    system: \`You are a helpful assistant. Answer the user's question using ONLY
+the provided context. If the answer is not in the context, say so explicitly.
+Do not make up information.
+
+Context:
+\${context}\`,
+    messages: [{ role: 'user', content: question }],
+  });
+
+  return res.content[0].type === 'text' ? res.content[0].text : '';
+}
+
+// Example usage
+await ingest([
+  { id: '1', text: 'Our return policy: items may be returned within 30 days of purchase.' },
+  { id: '2', text: 'Shipping takes 3-5 business days for standard delivery.' },
+  { id: '3', text: 'Contact support at help@example.com for account issues.' },
+]);
+
+const answer = await rag('How long do I have to return an item?');
+console.log(answer);
+// "According to the provided context, items may be returned within 30 days of purchase."
+`.trim();
+const mindMap = `
+# RAG Pipeline
+## What RAG Solves
+### Knowledge cut-off problem
+### Private data grounding
+### Citable answers with sources
+## Ingest Phase
+### Chunk and clean documents
+### Embed text to vectors
+### Store in vector database
+## Query Phase
+### Embed user question
+### Cosine similarity top-K
+### Grounded generation prompt
+## Chunking Strategies
+### Fixed-size with overlap
+### Sentence or paragraph
+### Document as unit
+## Pipeline vs Agentic RAG
+### Pipeline — always retrieves first
+### Agentic — LLM decides when to retrieve
+### Tool-based for multi-tool agents
+## Data Access Pattern Framework
+### Inline context (tiny, always needed)
+### MCP Resource (static, bounded)
+### DB or API tool (exact key lookup)
+### RAG tool (semantic search, large corpus)
+## Tensions
+### Large chunks (more context) vs small chunks (precise retrieval)
+### Retrieve more docs (recall) vs fewer docs (less noise)
+## Pitfalls
+### No I-don-t-know instruction given
+### Overlapping chunks without deduplication
+### Full document as one embedding unit
+### Splitting mid-sentence breaks meaning
+### Cosine similarity alone without metadata filtering
+`;;
+
+---
+
+<LessonLayout
+  title="L17 — RAG Pipeline"
+>
+  <LessonHeader
+    num="L17"
+    title="RAG Pipeline"
+    subtitle="Embed documents into a vector store, retrieve the most relevant chunks at query time, and ground the model's answer in real context."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§1.10 — What is RAG?</h2>
+    <p>
+      Retrieval Augmented Generation (RAG) solves the <strong>knowledge cut-off problem</strong>:
+      LLMs are frozen at their training date and know nothing about your private data.
+      RAG retrieves relevant documents at query time and injects them into the prompt,
+      grounding the model's answer in up-to-date, domain-specific content.
+    </p>
+
+    <div class="rag-compare">
+      <div class="rag-col">
+        <div class="rag-col-label rag-without">Without RAG</div>
+        <ul>
+          <li>Model answers from training data only</li>
+          <li>Hallucinations about private/recent facts</li>
+          <li>No citations, hard to audit</li>
+          <li>Fine-tuning required to add new knowledge</li>
+        </ul>
+      </div>
+      <div class="rag-col">
+        <div class="rag-col-label rag-with">With RAG</div>
+        <ul>
+          <li>Model answers from retrieved documents</li>
+          <li>Grounded in source text, citable</li>
+          <li>Knowledge updates = re-index documents</li>
+          <li>Works with any model, no fine-tuning</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2 class="lesson-heading">§3.4 — RAG Pipeline with Embeddings</h2>
+
+    <LessonDiagram definition={`
+flowchart TB
+  subgraph Ingest ["Ingest (one-time)"]
+    D["Documents"]:::data --> C["Chunk\n& clean"]:::proc
+    C --> E1["Embed\n(text → vector)"]:::embed
+    E1 --> V["Vector store\n(pgvector / Pinecone)"]:::store
+  end
+  subgraph Query ["Query (per request)"]
+    Q["User question"]:::input --> E2["Embed\nquery"]:::embed
+    E2 --> S["Similarity\nsearch (top-K)"]:::search
+    V --> S
+    S --> R["Retrieved\nchunks"]:::chunks
+    R --> G["LLM\n(grounded generation)"]:::llm
+    Q --> G
+    G --> A["Answer\n+ citations"]:::output
+  end
+
+  classDef data   fill:#f8fafc,color:#475569,stroke:#e2e8f0
+  classDef proc   fill:#fefce8,color:#713f12,stroke:#fde68a,stroke-width:2px
+  classDef embed  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef store  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef input  fill:#f8fafc,color:#475569,stroke:#e2e8f0
+  classDef search fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef chunks fill:#fefce8,color:#713f12,stroke:#fde68a,stroke-width:2px
+  classDef llm    fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef output fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="embed-store.ts" code={embedCode} />
+    <CodeBlock lang="typescript" label="rag.ts" code={ragCode} />
+
+    <LessonCallout variant="tip" title="Context before question">
+      <p>
+        In the system prompt, always put retrieved context <em>before</em> the user question.
+        Models attend more strongly to early content — putting context first reduces the
+        chance the model ignores it in favour of its parametric (training) knowledge.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Chunking strategy</h3>
+    <p>
+      How you split documents into chunks is as important as the retrieval step.
+      Too large and the chunk overwhelms the context window; too small and you lose
+      the surrounding context the model needs to answer correctly.
+    </p>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Strategy</th><th>Chunk size</th><th>Best for</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Fixed-size with overlap</td><td>512 tokens, 64-token overlap</td><td>General prose documents</td></tr>
+          <tr><td>Sentence / paragraph</td><td>1–3 paragraphs</td><td>Articles, FAQs with natural structure</td></tr>
+          <tr><td>Recursive character split</td><td>Adaptive</td><td>Mixed content types</td></tr>
+          <tr><td>Document as unit</td><td>Full document</td><td>Short structured docs (product specs)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="warn" title="RAG is not a hallucination cure">
+      <p>
+        RAG reduces hallucinations about factual content in your documents, but the model
+        can still hallucinate if the retrieved chunks are ambiguous or if it synthesises
+        across chunks incorrectly. Always instruct the model to say "I don't know" when
+        the answer is not in context, and test this boundary explicitly.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Production vector stores</h3>
+    <p>
+      The in-memory store above is fine for development. For production, use a persistent
+      vector database:
+    </p>
+    <ul>
+      <li><strong>pgvector</strong> — Postgres extension; free, self-hosted, SQL-queryable. Best default for most apps.</li>
+      <li><strong>Pinecone</strong> — Managed cloud; scales to billions of vectors, simple API.</li>
+      <li><strong>Weaviate / Qdrant</strong> — Open-source, self-hosted, advanced filtering.</li>
+    </ul>
+
+    <!-- ── RAG in an agent ─────────────────────────────────────── -->
+    <h2 class="lesson-heading">RAG in an agent: pipeline vs tool</h2>
+    <p>
+      Everything above is <strong>pipeline RAG</strong> — retrieval always happens first,
+      then generation. The flow is fixed: retrieve → augment → generate. There is no
+      decision to make at runtime.
+    </p>
+    <p>
+      When you embed RAG inside an agent, the pattern changes. The LLM decides
+      <em>whether</em> to retrieve, <em>what</em> to search for, and <em>when</em> to call
+      the retrieval tool based on the user's message. This is <strong>agentic RAG</strong>
+      — retrieval becomes a tool call, not a pipeline step.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th></th><th>Pipeline RAG</th><th>Agentic RAG</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Who decides to retrieve?</strong></td><td>Always — fixed first step</td><td>The LLM — based on the query</td></tr>
+          <tr><td><strong>What to search for?</strong></td><td>The user's query, verbatim</td><td>LLM extracts the key descriptor first</td></tr>
+          <tr><td><strong>When to skip retrieval?</strong></td><td>Never</td><td>When the answer is already in state</td></tr>
+          <tr><td><strong>Best for</strong></td><td>Document Q&amp;A, customer support bots</td><td>Sales agents, research assistants, multi-tool agents</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Decision framework — choosing a data access pattern</h2>
+    <p>
+      RAG is one of several ways an agent can access external data. Choosing the wrong pattern
+      means either wasting tokens (dumping too much into context) or adding unnecessary
+      complexity (a vector index where a simple query would do). Use this framework when
+      designing any tool or data source in an agent.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Pattern</th><th>Use when</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Inline in context</strong></td>
+            <td>Data is tiny and always needed — injecting it every call costs almost nothing</td>
+            <td>Today's date, current user's name, a 3-item config flag</td>
+          </tr>
+          <tr>
+            <td><strong>MCP Resource</strong></td>
+            <td>Static or nightly-refreshed reference data, bounded in size, same content for every call</td>
+            <td>Pricing rules, shipping zone map, product catalog (small — under ~500 items)</td>
+          </tr>
+          <tr>
+            <td><strong>DB / API Tool</strong></td>
+            <td>Exact lookup by a known key — you know precisely what you're fetching and the result is real-time</td>
+            <td><code>get_order_status(order_id)</code>, <code>check_inventory(sku)</code></td>
+          </tr>
+          <tr>
+            <td><strong>RAG Tool</strong></td>
+            <td>Large corpus, user describes what they want rather than providing an exact key — semantic similarity is the only way to find the right items</td>
+            <td><code>search_product_catalog("the large blue storage unit")</code>, knowledge base Q&amp;A</td>
+          </tr>
+          <tr>
+            <td><strong>RAG Pipeline</strong></td>
+            <td>Retrieval is always the first step — there is no agent decision, just a fixed retrieve → augment → generate flow</td>
+            <td>Customer support bot that always grabs the relevant FAQ before answering</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="MCP Resource vs RAG Tool — the size and search boundary">
+      <p>
+        Both MCP Resources and RAG tools can expose a product catalog. The right choice
+        depends on two things:
+      </p>
+      <ul>
+        <li><strong>Size</strong> — if the full catalog fits comfortably in the LLM's context window (hundreds of items, not thousands), an MCP Resource works — the agent reads the whole thing. If it's too large, you need a RAG tool so you only retrieve what's relevant.</li>
+        <li><strong>Search type</strong> — if users will describe products in their own words ("the big blue storage thing"), you need semantic similarity search. MCP Resources return the whole document; they don't do semantic retrieval. That requires a vector index and a RAG tool.</li>
+      </ul>
+    </LessonCallout>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Embed text into vectors with <code>text-embedding-3-small</code>',
+        'Retrieve top-K relevant chunks using cosine similarity',
+        'Build a grounded generation prompt with context + question',
+        'Instruct the model to refuse when the answer is not in context',
+        'Explain the trade-offs between chunking strategies',
+        'Choose between pipeline RAG and agentic RAG (tool-based)',
+        'Apply the data access pattern framework to decide between inline context, MCP Resource, DB tool, RAG tool, and RAG pipeline',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'What problem does RAG primarily solve?',
+        options: [
+          'It makes LLMs faster by caching responses',
+          'It grounds answers in retrieved documents, reducing reliance on training data',
+          'It removes the need for a system prompt',
+          'It reduces the number of tokens used per request',
+        ],
+        answer:  1,
+        explain: 'RAG injects retrieved documents into the prompt context, allowing the model to answer questions about private or recent data it was never trained on. It does not speed up inference, eliminate the system prompt, or reduce tokens.',
+      },
+      {
+        q:       'In the RAG pipeline, why does retrieved context go in the system prompt rather than the user message?',
+        options: [
+          'System prompts are never truncated by the model',
+          'Models attend more strongly to earlier content — putting context first reduces it being ignored',
+          'The Anthropic API does not allow context in user messages',
+          'System prompts are cheaper in tokens',
+        ],
+        answer:  1,
+        explain: 'Models have a positional bias — content earlier in the prompt receives more attention. Injecting retrieved context into the system prompt (which appears before the user message) increases the probability the model grounds its answer in that context rather than falling back to parametric knowledge.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§1.10, §3.4"
+      tensions={[
+        { a: 'Large chunks (more context per result)', b: 'Small chunks (more precise retrieval)' },
+        { a: 'Retrieve more docs (higher recall)',      b: 'Retrieve fewer docs (less context noise)' },
+      ]}
+      questions={[
+        {
+          q:    'A user asks a question that requires synthesising information from 5 different documents. Simple top-K retrieval returns only 3. How do you improve recall without flooding the context?',
+          hint: 'Think about retrieval strategies beyond single-shot top-K.',
+          answer: '<p>Several techniques: (1) <strong>Query decomposition</strong> — split the question into sub-questions, retrieve top-K for each, deduplicate. A question like "compare shipping and return policies" becomes two separate retrieval queries. (2) <strong>HyDE (Hypothetical Document Embeddings)</strong> — ask the model to generate a hypothetical answer, embed that answer, and use it as the query vector. The hypothetical answer is semantically closer to the right documents than the question alone. (3) <strong>Parent-child chunking</strong> — store small chunks for retrieval but inject the full parent paragraph into the prompt. Better precision without context loss. (4) <strong>Re-ranking</strong> — retrieve top-20 with fast vector search, then re-rank the 20 with a cross-encoder model to pick the best 3-5.</p>',
+        },
+        {
+          q:    'Users report that the RAG agent sometimes ignores the retrieved context and answers from its training knowledge. What is happening and how do you fix it?',
+          hint: 'Think about prompt structure and model instruction following.',
+          answer: '<p>This is parametric knowledge bleed — the model\'s training data is strong enough to override the retrieved context when they conflict. Fixes: (1) <strong>Explicit instruction</strong>: add "IMPORTANT: Answer ONLY from the context below. If you cannot find the answer in the context, respond with: I don\'t have that information." — the word ONLY matters. (2) <strong>Context framing</strong>: label the context as authoritative: "The following is the official, current policy. It supersedes any prior knowledge you have." (3) <strong>Eval the failure cases</strong>: identify which question types trigger bleed (usually recent events or highly-trained facts). Add a confidence check: ask the model to quote the source sentence that supports its answer — if it can\'t, it\'s hallucinating.</p>',
+        },
+      ]}
+      pitfalls={[
+        'No "I don\'t know" instruction — model hallucinates when retrieved chunks don\'t contain the answer.',
+        'Overlapping chunks without deduplication — the same sentence appears 3 times in context, wasting tokens.',
+        'Embedding the full document as one unit — retrieval scores get diluted across topics in the same doc.',
+        'Not chunking by semantic boundary — splitting mid-sentence breaks the meaning the embedding was trying to capture.',
+        'Using cosine similarity alone in production — add metadata filtering (date, category) to narrow the search space before vector comparison.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .rag-compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin: 0.75rem 0;
+  }
+  .rag-col {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.85rem 1rem;
+    font-size: 0.88rem;
+  }
+  .rag-col ul { margin-top: 0.5rem; }
+  .rag-col-label {
+    font-family: monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.4rem;
+  }
+  .rag-without { color: #dc2626; }
+  .rag-with    { color: #16a34a; }
+  @media (max-width: 640px) {
+    .rag-compare { grid-template-columns: 1fr; }
+  }
+</style>

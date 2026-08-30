@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lesson 5 — Building a NestJS Agent Service</title>
+  <style>
+    :root {
+      --ink: #1a1a1a; --muted: #555; --accent: #2563eb;
+      --bg: #fafaf8; --card: #ffffff; --border: #e5e5e0;
+      --correct: #16a34a; --wrong: #dc2626; --highlight: #fef9c3;
+      --code-bg: #1e1e2e; --code-fg: #cdd6f4;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Georgia", serif; background: var(--bg); color: var(--ink); line-height: 1.75; font-size: 18px; padding: 2rem 1rem 6rem; }
+    article { max-width: 720px; margin: 0 auto; }
+    header { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 2.5rem; }
+    .lesson-meta { font-family: monospace; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
+    h1 { font-size: 2rem; font-weight: normal; line-height: 1.25; }
+    h2 { font-size: 1.25rem; font-weight: bold; margin: 2.5rem 0 0.75rem; }
+    h3 { font-size: 1rem; font-weight: bold; margin: 1.5rem 0 0.5rem; }
+    p { margin-bottom: 1rem; }
+    ul, ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+    li { margin-bottom: 0.35rem; }
+    a { color: var(--accent); }
+    .sidenote { float: right; clear: right; width: 190px; margin: 0 -210px 1rem 1rem; font-size: 13px; color: var(--muted); line-height: 1.5; border-left: 2px solid var(--border); padding-left: 0.75rem; }
+    @media (max-width: 940px) { .sidenote { float: none; width: 100%; margin: 0 0 1rem; } }
+    .callout { background: var(--highlight); border-left: 3px solid #ca8a04; padding: 0.75rem 1rem; margin: 1.5rem 0; font-size: 0.95rem; }
+    .callout strong { display: block; margin-bottom: 0.25rem; }
+    .arch-diagram { display: flex; flex-direction: column; gap: 0; margin: 1.5rem 0; font-family: monospace; font-size: 0.82rem; }
+    .arch-row { display: flex; align-items: stretch; }
+    .arch-box { flex: 1; border: 1px solid var(--border); padding: 0.6rem 1rem; text-align: center; background: var(--card); }
+    .arch-box.highlight { background: #eff6ff; border-color: #93c5fd; font-weight: bold; }
+    .arch-arrow { display: flex; align-items: center; justify-content: center; padding: 0 0.5rem; color: var(--muted); font-size: 1.1rem; }
+    .arch-down { text-align: center; color: var(--muted); padding: 0.25rem 0; font-size: 1.1rem; }
+    .file-label { font-family: monospace; font-size: 0.8rem; color: var(--muted); background: #f0f0ec; padding: 0.2rem 0.5rem; border-radius: 3px; margin-bottom: 0.35rem; display: inline-block; }
+    pre { background: var(--code-bg); color: var(--code-fg); padding: 1.25rem 1.5rem; border-radius: 6px; overflow-x: auto; font-family: "Menlo","Monaco","Fira Code",monospace; font-size: 0.82rem; line-height: 1.6; margin: 1rem 0; position: relative; }
+    .copy-btn { position: absolute; top: 0.6rem; right: 0.6rem; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #cdd6f4; padding: 0.25rem 0.65rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; font-family: monospace; }
+    .copy-btn:hover { background: rgba(255,255,255,0.2); }
+    code { font-family: "Menlo","Monaco","Fira Code",monospace; font-size: 0.85em; }
+    p code, li code { background: #f0f0ec; padding: 0.1em 0.35em; border-radius: 3px; }
+    .kw { color: #cba6f7; } .fn { color: #89b4fa; } .str { color: #a6e3a1; }
+    .num { color: #fab387; } .cmt { color: #6c7086; font-style: italic; }
+    .dec { color: #f38ba8; } .type { color: #94e2d5; }
+    .output-label { font-family: monospace; font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.25rem; }
+    .output-block { background: #0d1117; color: #58a6ff; padding: 1rem 1.5rem; border-radius: 6px; font-family: monospace; font-size: 0.82rem; line-height: 1.7; margin: 1rem 0; }
+    .quiz { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 1.5rem; margin: 2.5rem 0; }
+    .quiz h2 { margin-top: 0; }
+    .question { margin-bottom: 2rem; }
+    .question p { font-weight: bold; margin-bottom: 0.75rem; }
+    .options { display: flex; flex-direction: column; gap: 0.5rem; }
+    .option { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; user-select: none; font-size: 0.95rem; background: white; }
+    .option:hover { background: #f0f4ff; }
+    .option.correct { background: #dcfce7; border-color: var(--correct); }
+    .option.wrong { background: #fee2e2; border-color: var(--wrong); }
+    .option input { margin-top: 3px; flex-shrink: 0; }
+    .feedback { margin-top: 0.75rem; font-size: 0.9rem; min-height: 1.2em; color: var(--muted); }
+    .feedback.correct { color: var(--correct); font-weight: bold; }
+    .feedback.wrong { color: var(--wrong); }
+    .check-btn { margin-top: 1.25rem; background: var(--accent); color: white; border: none; padding: 0.6rem 1.5rem; border-radius: 4px; font-size: 0.95rem; cursor: pointer; font-family: inherit; }
+    .check-btn:hover { opacity: 0.9; }
+    .score { margin-top: 1rem; font-size: 1rem; font-weight: bold; text-align: center; display: none; }
+    .lesson-nav { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); font-size: 0.9rem; color: var(--muted); }
+    .teacher-prompt { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 1rem 1.25rem; margin-top: 2rem; font-size: 0.9rem; }
+    .breadcrumb { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+    .breadcrumb a { color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.9rem; }
+    th { background: var(--ink); color: white; padding: 0.5rem 0.75rem; text-align: left; font-family: monospace; font-weight: normal; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: #f5f5f3; }
+  
+/* ── Deep Dive ───────────────────────────────────────────────── */
+.dd-wrap {
+  border: 1px solid #e5e5e0;
+  border-radius: 8px;
+  margin: 2.5rem 0;
+  overflow: hidden;
+}
+.dd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  background: #1a1a2e;
+  cursor: pointer;
+  user-select: none;
+  gap: 1rem;
+}
+.dd-header:hover { background: #1e1e38; }
+.dd-header-left { display: flex; flex-direction: column; gap: 0.15rem; }
+.dd-label {
+  font-family: monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.dd-sub { font-size: 0.78rem; color: #6c7086; }
+.dd-chevron { color: #6c7086; font-size: 1.1rem; transition: transform .2s; }
+.dd-wrap.open .dd-chevron { transform: rotate(90deg); }
+.dd-body { display: none; padding: 1.25rem 1.5rem; background: #fafaf8; }
+.dd-wrap.open .dd-body { display: block; }
+.dd-block { margin-bottom: 1.75rem; }
+.dd-block:last-child { margin-bottom: 0; }
+.dd-block-title {
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e5e5e0;
+}
+.dd-tension {
+  display: grid;
+  grid-template-columns: 210px 1.5rem 1fr;
+  gap: 0.25rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f0f0ec;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  align-items: baseline;
+}
+.dd-tension:last-child { border-bottom: none; }
+.dd-tension-label { font-weight: bold; color: #1a1a1a; }
+.dd-tension-sep { color: #aaa; text-align: center; }
+.dd-tension-body { color: #555; }
+.dd-q {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 0.75rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid #f0f0ec;
+}
+.dd-q:last-child { border-bottom: none; }
+.dd-q-num {
+  font-family: monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  background: #1a1a2e;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.6rem;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+}
+.dd-q-text { font-size: 0.9rem; font-weight: bold; color: #1a1a1a; margin-bottom: 0.35rem; line-height: 1.5; }
+.dd-hint { font-size: 0.82rem; color: #555; margin-bottom: 0.5rem; font-style: italic; }
+.dd-hint strong { font-style: normal; color: #2563eb; }
+.dd-ans-btn {
+  font-size: 0.8rem;
+  font-family: monospace;
+  background: none;
+  border: 1px solid #e5e5e0;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  color: #555;
+  margin-bottom: 0.5rem;
+}
+.dd-ans-btn:hover { background: #f0f4ff; color: #2563eb; border-color: #93c5fd; }
+.dd-ans {
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: #333;
+  background: #eff6ff;
+  border-left: 3px solid #2563eb;
+  padding: 0.75rem 1rem;
+  border-radius: 0 4px 4px 0;
+}
+.dd-pitfall {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f0f0ec;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  align-items: baseline;
+}
+.dd-pitfall:last-child { border-bottom: none; }
+.dd-pitfall-title { font-weight: bold; color: #dc2626; }
+.dd-pitfall-body { color: #555; }
+@media (max-width: 640px) {
+  .dd-tension, .dd-pitfall { grid-template-columns: 1fr; }
+  .dd-tension-sep { display: none; }
+}
+
+</style>
+</head>
+<body>
+<article>
+  <header>
+    <div class="breadcrumb">
+      <a href="./0001-what-is-an-ai-agent.html">L1</a> ·
+      <a href="./0002-your-first-agent-in-nodejs.html">L2</a> ·
+      <a href="./0003-tool-design-and-structured-output.html">L3</a> ·
+      <a href="./0004-memory-and-conversation-state.html">L4</a>
+    </div>
+    <div class="lesson-meta">Lesson 05 · AI Agents · ~30 min</div>
+    <h1>Building a NestJS Agent Service</h1>
+    <p style="color:var(--muted);font-size:0.95rem;margin-top:0.5rem;">
+      Everything from lessons 1–4 assembled into a real API. Agent loop, tool use, thread
+      persistence — all wired through NestJS dependency injection with an HTTP endpoint you
+      can call from any client.
+    </p>
+  </header>
+
+  <h2>Why expose an agent as an HTTP service</h2>
+
+  <div class="sidenote">
+    Course ref: <em>Level 3, §3.12 — Deploying Agents with FastAPI.</em>
+    NestJS plays the same role as FastAPI here — it is just the HTTP layer.
+    The agent logic underneath is identical.
+  </div>
+
+  <p>
+    The scripts you built in lessons 2–4 run on your machine, called from your terminal.
+    An HTTP service means:
+  </p>
+
+  <ul>
+    <li>Any client — web app, mobile, Slack bot, another service — can talk to your agent</li>
+    <li>Multiple users concurrently, each with their own thread</li>
+    <li>NestJS handles request parsing, validation, error serialisation, and DI for free</li>
+  </ul>
+
+  <h2>Module structure</h2>
+
+  <p>Four files, clear separation of concerns:</p>
+
+  <div class="arch-diagram">
+    <div class="arch-row">
+      <div class="arch-box" style="background:#f0f4ff;border-color:#93c5fd;">
+        <strong>POST /agent/chat</strong><br>
+        <span style="font-size:0.78rem;color:var(--muted)">HTTP client</span>
+      </div>
+    </div>
+    <div class="arch-down">&#8595;</div>
+    <div class="arch-row">
+      <div class="arch-box highlight">AgentController<br><span style="font-size:0.78rem;font-weight:normal">validates DTO, calls service</span></div>
+    </div>
+    <div class="arch-down">&#8595;</div>
+    <div class="arch-row">
+      <div class="arch-box highlight">AgentService<br><span style="font-size:0.78rem;font-weight:normal">agent loop + tool execution</span></div>
+      <div class="arch-arrow">&#8596;</div>
+      <div class="arch-box" style="background:#f0fdf4;border-color:#86efac;">ThreadRepository<br><span style="font-size:0.78rem;color:var(--muted)">load / save messages</span></div>
+    </div>
+    <div class="arch-down">&#8595;</div>
+    <div class="arch-row">
+      <div class="arch-box" style="font-size:0.82rem;">Anthropic SDK &nbsp;|&nbsp; Tools (your services)</div>
+    </div>
+  </div>
+
+  <table>
+    <thead><tr><th>File</th><th>Responsibility</th></tr></thead>
+    <tbody>
+      <tr><td><code>chat.dto.ts</code></td><td>Request/response shape + validation</td></tr>
+      <tr><td><code>thread.repository.ts</code></td><td>Load and save message history (swappable)</td></tr>
+      <tr><td><code>agent.service.ts</code></td><td>Agent loop — pure orchestration, no HTTP concerns</td></tr>
+      <tr><td><code>agent.controller.ts</code></td><td>HTTP endpoint — delegates immediately to service</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Setup</h2>
+
+  <pre><code>nest new agent-api --package-manager npm
+cd agent-api
+npm install @anthropic-ai/sdk @nestjs/config class-validator class-transformer
+nest g module agent
+nest g controller agent --no-spec
+nest g service agent --no-spec</code></pre>
+
+  <p>Add to <code>main.ts</code> to enable validation:</p>
+
+  <div style="position:relative">
+  <pre id="code-main"><code><span class="cmt">// src/main.ts</span>
+<span class="kw">import</span> { NestFactory } <span class="kw">from</span> <span class="str">'@nestjs/core'</span>;
+<span class="kw">import</span> { ValidationPipe } <span class="kw">from</span> <span class="str">'@nestjs/common'</span>;
+<span class="kw">import</span> { AppModule } <span class="kw">from</span> <span class="str">'./app.module'</span>;
+
+<span class="kw">async function</span> <span class="fn">bootstrap</span>() {
+  <span class="kw">const</span> app = <span class="kw">await</span> NestFactory.<span class="fn">create</span>(AppModule);
+  app.<span class="fn">useGlobalPipes</span>(<span class="kw">new</span> <span class="fn">ValidationPipe</span>({ whitelist: <span class="kw">true</span> }));
+  <span class="kw">await</span> app.<span class="fn">listen</span>(<span class="num">3000</span>);
+}
+<span class="fn">bootstrap</span>();</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-main',this)">copy</button>
+  </div>
+
+  <h2>1 — The DTO</h2>
+
+  <p>
+    This is the NestJS equivalent of a Pydantic model. It validates the request body before
+    it ever reaches your service — bad input gets rejected at the boundary with a clear error.
+  </p>
+
+  <div class="file-label">src/agent/chat.dto.ts</div>
+  <div style="position:relative">
+  <pre id="code-dto"><code><span class="kw">import</span> { IsString, IsNotEmpty, IsOptional, MaxLength } <span class="kw">from</span> <span class="str">'class-validator'</span>;
+
+<span class="kw">export class</span> <span class="type">ChatRequestDto</span> {
+  <span class="dec">@IsString()</span>
+  <span class="dec">@IsNotEmpty()</span>
+  <span class="dec">@MaxLength</span>(<span class="num">4000</span>)
+  message: <span class="type">string</span>;
+
+  <span class="dec">@IsString()</span>
+  <span class="dec">@IsOptional()</span>
+  threadId?: <span class="type">string</span>;  <span class="cmt">// omit to start a new thread</span>
+}
+
+<span class="kw">export class</span> <span class="type">ChatResponseDto</span> {
+  reply: <span class="type">string</span>;
+  threadId: <span class="type">string</span>;
+}</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-dto',this)">copy</button>
+  </div>
+
+  <h2>2 — The thread repository</h2>
+
+  <p>
+    In-memory for now. To swap to Postgres, replace the <code>Map</code> with a TypeORM
+    or Prisma repository — the service code does not change.
+  </p>
+
+  <div class="file-label">src/agent/thread.repository.ts</div>
+  <div style="position:relative">
+  <pre id="code-repo"><code><span class="kw">import</span> { Injectable } <span class="kw">from</span> <span class="str">'@nestjs/common'</span>;
+
+<span class="kw">export type</span> <span class="type">Message</span> = { role: <span class="str">'user'</span> | <span class="str">'assistant'</span>; content: <span class="type">string</span> };
+
+<span class="dec">@Injectable()</span>
+<span class="kw">export class</span> <span class="type">ThreadRepository</span> {
+  <span class="kw">private readonly</span> store = <span class="kw">new</span> Map&lt;<span class="type">string</span>, <span class="type">Message</span>[]&gt;();
+
+  <span class="fn">load</span>(threadId: <span class="type">string</span>): <span class="type">Message</span>[] {
+    <span class="kw">return</span> <span class="kw">this</span>.store.<span class="fn">get</span>(threadId) ?? [];
+  }
+
+  <span class="fn">save</span>(threadId: <span class="type">string</span>, messages: <span class="type">Message</span>[]): <span class="kw">void</span> {
+    <span class="kw">this</span>.store.<span class="fn">set</span>(threadId, messages);
+  }
+}</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-repo',this)">copy</button>
+  </div>
+
+  <h2>3 — The agent service</h2>
+
+  <p>
+    This is the core. It contains the agent loop from lesson 2, the tool execution from
+    lesson 3, and the thread persistence from lesson 4 — assembled into one injectable service.
+  </p>
+
+  <div class="file-label">src/agent/agent.service.ts</div>
+  <div style="position:relative">
+  <pre id="code-service"><code><span class="kw">import</span> { Injectable } <span class="kw">from</span> <span class="str">'@nestjs/common'</span>;
+<span class="kw">import</span> Anthropic <span class="kw">from</span> <span class="str">'@anthropic-ai/sdk'</span>;
+<span class="kw">import</span> { randomUUID } <span class="kw">from</span> <span class="str">'crypto'</span>;
+<span class="kw">import</span> { <span class="type">ThreadRepository</span>, <span class="type">Message</span> } <span class="kw">from</span> <span class="str">'./thread.repository'</span>;
+<span class="kw">import</span> { <span class="type">ChatResponseDto</span> } <span class="kw">from</span> <span class="str">'./chat.dto'</span>;
+
+<span class="dec">@Injectable()</span>
+<span class="kw">export class</span> <span class="type">AgentService</span> {
+  <span class="kw">private readonly</span> client: <span class="type">Anthropic</span>;
+
+  <span class="cmt">// ── TOOL DEFINITIONS ──────────────────────────────────────────────────────</span>
+  <span class="kw">private readonly</span> tools: Anthropic.Tool[] = [
+    {
+      name: <span class="str">'get_current_time'</span>,
+      description: <span class="str">'Returns the current UTC date and time as an ISO 8601 string. Use when the user asks about the current time or date.'</span>,
+      input_schema: { type: <span class="str">'object'</span>, properties: {}, required: [] },
+    },
+    {
+      name: <span class="str">'calculate'</span>,
+      description: <span class="str">'Evaluate a simple mathematical expression and return the numeric result. Use for arithmetic. Do NOT use for anything non-numeric.'</span>,
+      input_schema: {
+        type: <span class="str">'object'</span>,
+        properties: {
+          expression: {
+            type: <span class="str">'string'</span>,
+            description: <span class="str">'A safe mathematical expression, e.g. "12 * 4 + 7"'</span>,
+          },
+        },
+        required: [<span class="str">'expression'</span>],
+      },
+    },
+  ];
+
+  <span class="kw">constructor</span>(<span class="kw">private readonly</span> threads: <span class="type">ThreadRepository</span>) {
+    <span class="kw">this</span>.client = <span class="kw">new</span> <span class="fn">Anthropic</span>({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+
+  <span class="cmt">// ── TOOL EXECUTION ────────────────────────────────────────────────────────</span>
+  <span class="kw">private</span> <span class="fn">executeTool</span>(name: <span class="type">string</span>, input: <span class="type">Record</span>&lt;<span class="type">string</span>, <span class="type">unknown</span>&gt;): <span class="type">string</span> {
+    <span class="kw">switch</span> (name) {
+      <span class="kw">case</span> <span class="str">'get_current_time'</span>:
+        <span class="kw">return new</span> <span class="fn">Date</span>().<span class="fn">toISOString</span>();
+      <span class="kw">case</span> <span class="str">'calculate'</span>: {
+        <span class="kw">try</span> {
+          <span class="cmt">// Safe eval: only allow digits and math operators</span>
+          <span class="kw">const</span> expr = (<span class="type">string</span>)(input.expression).<span class="fn">replace</span>(/[^0-9+\-*/.() ]/g, <span class="str">''</span>);
+          <span class="kw">return</span> <span class="type">String</span>(<span class="fn">Function</span>(<span class="str">'"use strict"; return ('</span> + expr + <span class="str">')'</span>)());
+        } <span class="kw">catch</span> {
+          <span class="kw">return</span> <span class="str">'Error: invalid expression'</span>;
+        }
+      }
+      <span class="kw">default</span>:
+        <span class="kw">return</span> <span class="str">'Unknown tool'</span>;
+    }
+  }
+
+  <span class="cmt">// ── AGENT LOOP ────────────────────────────────────────────────────────────</span>
+  <span class="kw">async</span> <span class="fn">chat</span>(userMessage: <span class="type">string</span>, threadId?: <span class="type">string</span>): <span class="type">Promise</span>&lt;<span class="type">ChatResponseDto</span>&gt; {
+    <span class="kw">const</span> tid = threadId ?? <span class="fn">randomUUID</span>();
+    <span class="kw">const</span> history = <span class="kw">this</span>.threads.<span class="fn">load</span>(tid);
+
+    <span class="kw">const</span> messages: Anthropic.MessageParam[] = [
+      ...history,
+      { role: <span class="str">'user'</span>, content: userMessage },
+    ];
+
+    <span class="kw">let</span> reply = <span class="str">''</span>;
+
+    <span class="kw">while</span> (<span class="kw">true</span>) {
+      <span class="kw">const</span> response = <span class="kw">await this</span>.client.messages.<span class="fn">create</span>({
+        model: <span class="str">'claude-haiku-4-5-20251001'</span>,
+        max_tokens: <span class="num">1024</span>,
+        system: <span class="str">'You are a helpful assistant. You have access to tools for time and arithmetic.'</span>,
+        tools: <span class="kw">this</span>.tools,
+        messages,
+      });
+
+      <span class="kw">if</span> (response.stop_reason === <span class="str">'end_turn'</span>) {
+        reply = response.content
+          .<span class="fn">filter</span>(b => b.type === <span class="str">'text'</span>)
+          .<span class="fn">map</span>(b => b.text)
+          .<span class="fn">join</span>(<span class="str">''</span>);
+        <span class="kw">break</span>;
+      }
+
+      <span class="kw">if</span> (response.stop_reason === <span class="str">'tool_use'</span>) {
+        messages.<span class="fn">push</span>({ role: <span class="str">'assistant'</span>, content: response.content });
+
+        <span class="kw">const</span> results = response.content
+          .<span class="fn">filter</span>(b => b.type === <span class="str">'tool_use'</span>)
+          .<span class="fn">map</span>(t => ({
+            type: <span class="str">'tool_result'</span> <span class="kw">as const</span>,
+            tool_use_id: t.id,
+            content: <span class="kw">this</span>.<span class="fn">executeTool</span>(t.name, t.input <span class="kw">as</span> <span class="type">Record</span>&lt;<span class="type">string</span>, <span class="type">unknown</span>&gt;),
+          }));
+
+        messages.<span class="fn">push</span>({ role: <span class="str">'user'</span>, content: results });
+      }
+    }
+
+    <span class="cmt">// Persist the updated thread</span>
+    <span class="kw">this</span>.threads.<span class="fn">save</span>(tid, [
+      ...history,
+      { role: <span class="str">'user'</span>, content: userMessage },
+      { role: <span class="str">'assistant'</span>, content: reply },
+    ]);
+
+    <span class="kw">return</span> { reply, threadId: tid };
+  }
+}</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-service',this)">copy</button>
+  </div>
+
+  <h2>4 — The controller</h2>
+
+  <p>
+    Thin by design. It validates input (via the DTO + <code>ValidationPipe</code>),
+    calls the service, and returns the response. No agent logic lives here.
+  </p>
+
+  <div class="file-label">src/agent/agent.controller.ts</div>
+  <div style="position:relative">
+  <pre id="code-controller"><code><span class="kw">import</span> { Body, Controller, Post } <span class="kw">from</span> <span class="str">'@nestjs/common'</span>;
+<span class="kw">import</span> { <span class="type">AgentService</span> } <span class="kw">from</span> <span class="str">'./agent.service'</span>;
+<span class="kw">import</span> { <span class="type">ChatRequestDto</span>, <span class="type">ChatResponseDto</span> } <span class="kw">from</span> <span class="str">'./chat.dto'</span>;
+
+<span class="dec">@Controller</span>(<span class="str">'agent'</span>)
+<span class="kw">export class</span> <span class="type">AgentController</span> {
+  <span class="kw">constructor</span>(<span class="kw">private readonly</span> agent: <span class="type">AgentService</span>) {}
+
+  <span class="dec">@Post</span>(<span class="str">'chat'</span>)
+  <span class="fn">chat</span>(<span class="dec">@Body</span>() dto: <span class="type">ChatRequestDto</span>): <span class="type">Promise</span>&lt;<span class="type">ChatResponseDto</span>&gt; {
+    <span class="kw">return this</span>.agent.<span class="fn">chat</span>(dto.message, dto.threadId);
+  }
+}</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-controller',this)">copy</button>
+  </div>
+
+  <h2>5 — Wire it in the module</h2>
+
+  <div class="file-label">src/agent/agent.module.ts</div>
+  <div style="position:relative">
+  <pre id="code-module"><code><span class="kw">import</span> { Module } <span class="kw">from</span> <span class="str">'@nestjs/common'</span>;
+<span class="kw">import</span> { <span class="type">AgentController</span> } <span class="kw">from</span> <span class="str">'./agent.controller'</span>;
+<span class="kw">import</span> { <span class="type">AgentService</span> } <span class="kw">from</span> <span class="str">'./agent.service'</span>;
+<span class="kw">import</span> { <span class="type">ThreadRepository</span> } <span class="kw">from</span> <span class="str">'./thread.repository'</span>;
+
+<span class="dec">@Module</span>({
+  controllers: [<span class="type">AgentController</span>],
+  providers: [<span class="type">AgentService</span>, <span class="type">ThreadRepository</span>],
+})
+<span class="kw">export class</span> <span class="type">AgentModule</span> {}
+</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-module',this)">copy</button>
+  </div>
+
+  <p>Import <code>AgentModule</code> into <code>AppModule</code> and set <code>ANTHROPIC_API_KEY</code> in your environment.</p>
+
+  <h2>Test it</h2>
+
+  <pre><code>npm run start:dev</code></pre>
+
+  <pre><code># First message — no threadId, server creates one
+curl -s -X POST http://localhost:3000/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What time is it, and what is 144 divided by 12?"}' | jq
+
+# Continue the thread — paste the threadId from above
+curl -s -X POST http://localhost:3000/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What was my first question?", "threadId": "PASTE-ID-HERE"}' | jq</code></pre>
+
+  <div class="output-label">Expected (first call)</div>
+  <div class="output-block">{
+  "reply": "The current UTC time is 2026-06-15T08:42:11.000Z. And 144 divided by 12 is 12.",
+  "threadId": "f3a9c2b1-..."
+}</div>
+
+  <div class="callout">
+    <strong>The loop works exactly as before</strong> — the LLM calls both tools in the same turn,
+    your code executes them, the results go back in, and the LLM synthesises one answer.
+    NestJS just gave you the HTTP envelope around it.
+  </div>
+
+  <h2>Swapping the thread store for Postgres</h2>
+
+  <p>
+    When you are ready for persistence across server restarts, replace <code>ThreadRepository</code>
+    internals only. The service and controller do not change at all:
+  </p>
+
+  <pre><code>// thread.repository.ts — Postgres version (TypeORM sketch)
+@Injectable()
+export class ThreadRepository {
+  constructor(@InjectRepository(ThreadEntity) private repo: Repository&lt;ThreadEntity&gt;) {}
+
+  async load(threadId: string): Promise&lt;Message[]&gt; {
+    const thread = await this.repo.findOne({ where: { id: threadId } });
+    return thread?.messages ?? [];
+  }
+
+  async save(threadId: string, messages: Message[]): Promise&lt;void&gt; {
+    await this.repo.upsert({ id: threadId, messages }, ['id']);
+  }
+}</code></pre>
+
+  <div class="quiz">
+    <h2>Check your understanding</h2>
+    <p style="font-weight:normal;color:var(--muted);margin-bottom:1.5rem;font-size:0.9rem;">From memory.</p>
+
+    <div class="question" id="q1">
+      <p>1. A new request arrives with no <code>threadId</code> in the body. What should the service do?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q1" value="a" /><span>Return a 400 error — threadId is required</span></label>
+        <label class="option"><input type="radio" name="q1" value="b" /><span>Generate a new UUID and start a fresh thread</span></label>
+        <label class="option"><input type="radio" name="q1" value="c" /><span>Reuse the last thread ID seen by the server</span></label>
+        <label class="option"><input type="radio" name="q1" value="d" /><span>Send the message without any thread context</span></label>
+      </div>
+      <div class="feedback" id="f1"></div>
+    </div>
+
+    <div class="question" id="q2">
+      <p>2. The controller calls <code>this.agent.chat(dto.message, dto.threadId)</code> and returns the result. Where should you NOT put agent loop logic?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q2" value="a" /><span>In the service — it already has too much</span></label>
+        <label class="option"><input type="radio" name="q2" value="b" /><span>In the controller — it should stay thin and delegate</span></label>
+        <label class="option"><input type="radio" name="q2" value="c" /><span>In the repository — persistence and logic can be combined</span></label>
+        <label class="option"><input type="radio" name="q2" value="d" /><span>Anywhere is fine — NestJS doesn't enforce separation</span></label>
+      </div>
+      <div class="feedback" id="f2"></div>
+    </div>
+
+    <div class="question" id="q3">
+      <p>3. You want to swap the in-memory thread store for Postgres. Which files need to change?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q3" value="a" /><span>agent.service.ts, agent.controller.ts, and thread.repository.ts</span></label>
+        <label class="option"><input type="radio" name="q3" value="b" /><span>thread.repository.ts only — service and controller are decoupled from the storage layer</span></label>
+        <label class="option"><input type="radio" name="q3" value="c" /><span>agent.controller.ts only — it is closest to the request</span></label>
+        <label class="option"><input type="radio" name="q3" value="d" /><span>All files — the storage type affects the whole stack</span></label>
+      </div>
+      <div class="feedback" id="f3"></div>
+    </div>
+
+    <div class="question" id="q4">
+      <p>4. <code>ValidationPipe({ whitelist: true })</code> is configured globally. A request arrives with <code>{ message: "hi", threadId: "abc", isAdmin: true }</code>. What happens to <code>isAdmin</code>?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q4" value="a" /><span>It is passed through to the service as an extra field</span></label>
+        <label class="option"><input type="radio" name="q4" value="b" /><span>It is silently stripped — only DTO-defined fields are allowed</span></label>
+        <label class="option"><input type="radio" name="q4" value="c" /><span>The request is rejected with a 400 error</span></label>
+        <label class="option"><input type="radio" name="q4" value="d" /><span>It is logged and then passed through</span></label>
+      </div>
+      <div class="feedback" id="f4"></div>
+    </div>
+
+    <button class="check-btn" onclick="checkAll()">Check answers</button>
+    <div class="score" id="score"></div>
+  </div>
+
+  <h2>Primary source for this lesson</h2>
+  <p>
+    <strong>Course slides: Level 3, §3.12 — Deploying Agents with FastAPI.</strong>
+    Open <code>resources/AI_Agents_Course_Slides/AI_Agents_Slides_Level3.pdf</code>.
+    The FastAPI patterns (request model, endpoint, invoke agent, return response) map
+    directly to NestJS DTO → controller → service. The agent logic inside is identical.
+  </p>
+
+  
+  <!-- ── DEEP DIVE ─────────────────────────────────────────────────────────── -->
+  <div class="dd-wrap" id="dd-l2_2.1">
+    <div class="dd-header" onclick="toggleDD('l2_2.1')">
+      <div class="dd-header-left">
+        <span class="dd-label">&#9650; Senior &amp; Staff Deep Dive</span>
+        <span class="dd-sub">Engineering tensions &bull; staff-level questions with answers &bull; production pitfalls</span>
+      </div>
+      <span class="dd-chevron">&#9654;</span>
+    </div>
+    <div class="dd-body">
+      <div class="dd-block">
+<div class="dd-block-title">&#9889; Engineering tensions</div>
+<div class="dd-tension"><span class="dd-tension-label">Speed to prototype vs. production readiness</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">create_agent() gives you a working agent in minutes with zero infrastructure. But you're building on abstractions you don't control. When something goes wrong in production, that magic becomes a debugging obstacle.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Model selection vs. cost</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">gpt-4o produces better routing decisions than gpt-4o-mini but costs 10–20× more per token. For agents calling the LLM at every step, model choice is your largest cost lever. Most production systems use cheaper models for simple routing and more capable models for complex reasoning.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Log verbosity vs. cost</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">Full trace logging (every prompt, every response) can produce 100× more data than the agent's actual output. Log structure, not content: tool name + type + latency + result status, not the full prompt text.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">LangSmith convenience vs. data privacy</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">LangSmith makes debugging beautiful but sends full prompts and responses to LangChain's servers. For enterprise customers with data residency requirements, this may be unacceptable.</span></div>
+</div>
+<div class="dd-block">
+<div class="dd-block-title">&#128172; Staff-level questions</div>
+<div class="dd-q">
+<div class="dd-q-num">Q1</div>
+<div class="dd-q-body">
+<div class="dd-q-text">You prototyped with create_agent() and it works. How do you decide whether to ship the prototype or rebuild before production?</div>
+<div class="dd-hint"><strong>Steer:</strong> The question is: what does production require that the prototype doesn't have?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.1-l2_2.9-0')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.1-l2_2.9-0" style="display:none">Evaluate against the production checklist: (1) Does create_agent() give you the observability you need? Can you log every tool call with input/output/latency? If not, rebuild with a custom loop that adds logging. (2) Can you add guardrails and input validation in front of create_agent()? Usually yes — wrap it. (3) Is the error handling sufficient? create_agent() will propagate exceptions; you need to catch them and return clean responses. Wrap the invocation in try/except. (4) Is the state management sufficient for your use case? If you need cross-session persistence, create_agent() needs a checkpointer — add one. Decision: ship if you can add the missing production components as wrappers without touching the core. Rebuild if the fundamental loop logic needs modification.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q2</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Your pre-built agent starts hallucinating tool call arguments for a specific query pattern. Walk through the debugging process.</div>
+<div class="dd-hint"><strong>Steer:</strong> The tool call arguments come from the LLM's output. The LLM generates what it was instructed to generate.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.1-l2_2.9-1')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.1-l2_2.9-1" style="display:none">Step 1: Log the exact prompt and response at the point of hallucination. What did the LLM receive? Step 2: Check the tool schema — is the parameter type or name ambiguous? A parameter called 'id' could be a product ID, order ID, or user ID. Make it specific. Step 3: Check if the query pattern contains words that could confuse the argument generation — 'search for order 1234' might generate order_id='order 1234' (including the word 'order'). Add examples to the docstring: 'order_id: the numeric ID only, e.g., 1234 not order-1234.' Step 4: Check if similar tool calls work correctly. If the same tool works for other queries, the issue is the specific query pattern interacting with the parameter generation. Add a few-shot example for this query pattern in the system prompt. Step 5: Add output validation — before executing the tool, validate that the arguments match expected types and formats.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q3</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Design a cost optimization strategy for an agent handling both simple and complex queries.</div>
+<div class="dd-hint"><strong>Steer:</strong> Not all queries need the same model. Route to the cheapest model that can handle the task correctly.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.1-l2_2.9-2')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.1-l2_2.9-2" style="display:none">Two-tier routing: classify query complexity first (cheap, fast operation). Simple queries (single-fact lookup, standard templates) → route to gpt-4o-mini or equivalent. Complex queries (multi-step reasoning, ambiguous intent, synthesis) → route to gpt-4o. Complexity classifier: a fast, cheap LLM call or a heuristic (query length, presence of conjunctions, number of entities). Track quality by tier: measure output quality for both tiers to verify the cheap model handles simple queries adequately. Additional optimizations: (1) Cache responses for repeated identical queries. (2) Reduce context for simple queries — don't send full conversation history if the query is clearly self-contained. (3) Set max_tokens per query complexity tier — simple queries rarely need 1000 token responses.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q4</div>
+<div class="dd-q-body">
+<div class="dd-q-text">What temperature should you set for each component of your agent, and why do different components need different temperatures?</div>
+<div class="dd-hint"><strong>Steer:</strong> Temperature controls randomness. Different components need different levels of randomness.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.1-l2_2.9-3')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.1-l2_2.9-3" style="display:none">Temperature 0: routing decisions, tool selection, structured output generation, classification. These need deterministic, reproducible behavior. The same input must produce the same routing decision. Temperature 0.1–0.3: factual question answering, code generation, data extraction. Slight randomness allows finding slightly different phrasings, but answers should remain stable. Temperature 0.7–1.0: creative tasks, writing assistance, brainstorming. High variance is desired here. In practice: most agent components (routing, tool calling, structured extraction) run at temperature 0. Only the final response generation step, if it involves natural language synthesis, might benefit from temperature 0.2–0.5. Never use the default temperature (often 0.7–1.0) for agent decision-making — it makes behavior non-reproducible and hard to test.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q5</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you pin a model version in production, and what is your upgrade process when a new model version is released?</div>
+<div class="dd-hint"><strong>Steer:</strong> Model upgrades can silently change agent behavior. You need a deliberate upgrade process.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.1-l2_2.9-4')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.1-l2_2.9-4" style="display:none">Pinning: always specify the exact model version string in code or config: 'gpt-4o-2024-05-13' not 'gpt-4o'. Store the model version in config, not hardcoded — makes it configurable per environment. Upgrade process: (1) New version announced — run your full test suite against the new version in a dev environment. (2) Run behavior comparison: for 100 production queries, compare outputs between old and new version using LLM-as-judge. Flag any responses where quality degrades or behavior changes. (3) If tests pass: deploy to 5% of traffic (canary). Monitor error rates, quality scores, and latency. (4) If canary passes for 48 hours: full rollout. (5) Keep old version pinned as rollback target for 2 weeks post-upgrade. Maintain a model version changelog: when did you upgrade, what changed, what tests were run.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q6</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Design a logging schema that lets you replay any production run and compute cost per successful run without logging PII.</div>
+<div class="dd-hint"><strong>Steer:</strong> You need enough to reconstruct the run without capturing sensitive content.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.1-l2_2.9-5')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.1-l2_2.9-5" style="display:none">Schema: {run_id, timestamp, level, node_name, tool_name, tool_input_schema (not values), tool_output_status, input_tokens, output_tokens, latency_ms, customer_id_hash (hashed, not raw)}. For replay: log every state field that the agent writes, but mask any field tagged as PII (user_name → '[REDACTED]', email → '[REDACTED]'). For cost: input_tokens × input_price + output_tokens × output_price per event, summed by run_id. For replay: log state snapshots at each node transition — the sequence of {node, state_snapshot} is sufficient to reconstruct the run's logic path. Test: run 10 production cases, delete the agent, attempt replay from logs. If replay succeeds for all 10, your logging is sufficient.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q7</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Your observability shows P95 latency spiked 3× for 20 minutes. Walk through the debugging process using only logs.</div>
+<div class="dd-hint"><strong>Steer:</strong> The 20-minute window is the diagnostic frame. What changed in that window?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.1-l2_2.9-6')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.1-l2_2.9-6" style="display:none">Step 1: Filter logs to the 20-minute window. Step 2: Check error rates — did errors spike alongside latency? If yes, failing retries are adding latency. If no, the work is taking longer (not failing more). Step 3: Check tool latency in that window — sort by tool latency P95. Did any specific tool's latency spike? External dependency issue. Step 4: Check turn count distribution — did the average turns per run increase? Model behavior change or new query types arriving. Step 5: Check which new deployments happened before the spike (correlation, not causation). Step 6: Check LLM API status page for that time window — provider incidents cause exactly this pattern. Step 7: Sample 5 slow runs from the spike window. Trace their tool call sequences. What were they doing? This usually identifies the root cause within 15 minutes.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q8</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you build a logging system that captures enough for debugging but stays within budget on log storage costs?</div>
+<div class="dd-hint"><strong>Steer:</strong> Different events need different retention periods and verbosity levels.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.1-l2_2.9-7')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.1-l2_2.9-7" style="display:none">Tiered logging: (1) Always log (90-day retention): run_id, customer_id_hash, status, total_latency_ms, total_cost, node_sequence. Minimal footprint, enables all aggregate metrics. (2) On error or anomaly (30-day retention): full node sequence with state snapshots (PII-masked), all tool calls with input schemas and output statuses, error details. Only stored for ~5% of runs that have issues. (3) Debug mode (7-day retention, sampling): full verbose logs for 1% of traffic — enables sampling-based analysis. (4) Never log: raw user messages (PII risk), full tool outputs (volume), full LLM prompts (volume). Estimate: tier 1 at 500 bytes/run × 1M runs/day × 90 days = 45GB. Tier 2 at 50KB/error × 50K errors/day × 30 days = 75GB. Total: ~120GB — manageable at any cloud logging price.</div>
+</div>
+</div>
+</div>
+</div>
+<div class="dd-block">
+<div class="dd-block-title">&#128308; Production pitfalls</div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Temperature 1.0 on agents</span><span class="dd-pitfall-body">Default temperature on most SDKs is 0.7–1.0. An agent with high temperature makes different routing decisions for identical inputs, making behavior non-deterministic. Always set temperature=0 for agent decision-making.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">No observability wrapper around create_agent()</span><span class="dd-pitfall-body">create_agent() is a black box. Before shipping, wrap every invocation in a logging decorator that records: input message, output message, all tool calls made, total latency, total tokens. Without this you're flying blind in production.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">PII in logs</span><span class="dd-pitfall-body">An agent that processes customer data will have PII in its state, prompts, and tool results. Implement log sanitization at the source — mask PII fields before writing to logs.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Logging full prompts in production</span><span class="dd-pitfall-body">Full prompts at every call create enormous log volume and expose sensitive instructions. Log the event (which node ran, which tool was called) not the content.</span></div>
+</div>
+
+    </div>
+  </div>
+
+  <div class="lesson-nav">
+    <div><a href="./0004-memory-and-conversation-state.html">← Lesson 4 — Memory &amp; Conversation State</a></div>
+    <div style="margin-top:0.5rem;">
+      <strong>Next:</strong>
+      <a href="./0006-multi-agent-systems.html">Lesson 6 — Multi-Agent Systems</a>
+      — supervisor agents, parallel sub-agents, and when one agent is not enough.
+    </div>
+  </div>
+
+  <div class="teacher-prompt">
+    <strong>Ask your teacher.</strong> Ask how to add rate limiting per user, how to stream the
+    response with SSE, or how to wire in a real TypeORM repository. Open Claude Code and ask.
+  </div>
+</article>
+
+<script>
+  const answers = { q1:'b', q2:'b', q3:'b', q4:'b' };
+  const explanations = {
+    q1: {
+      b: 'Correct. No threadId means a new conversation. Generate a UUID, start with empty history, and return the new threadId so the client can continue the thread.',
+      wrong: 'Not quite. A missing threadId just means a new thread — generate a UUID and start fresh. It is optional by design.'
+    },
+    q2: {
+      b: 'Correct. Controllers should be thin — validate, delegate, return. Agent loop logic belongs in the service where it can be tested independently of HTTP.',
+      wrong: 'Not quite. The controller is the HTTP boundary. Putting agent logic there couples it to HTTP concerns and makes it harder to test.'
+    },
+    q3: {
+      b: 'Correct. The repository is the only storage-aware layer. The service calls load() and save() — it does not know or care whether those hit a Map or Postgres.',
+      wrong: 'Not quite. Dependency injection + the repository pattern exist precisely so you can swap storage without touching the agent or controller.'
+    },
+    q4: {
+      b: 'Correct. whitelist: true strips any property not decorated in the DTO. isAdmin is silently removed before the DTO reaches the service — a useful security default.',
+      wrong: 'Not quite. whitelist: true strips unknown properties silently. Add forbidNonWhitelisted: true if you want a 400 error instead.'
+    }
+  };
+
+  function checkAll() {
+    let correct = 0;
+    const total = Object.keys(answers).length;
+    Object.entries(answers).forEach(([qid, correctVal]) => {
+      const selected = document.querySelector(`input[name="${qid}"]:checked`);
+      const feedback = document.getElementById('f' + qid.slice(1));
+      const options = document.querySelectorAll(`input[name="${qid}"]`);
+      options.forEach(opt => {
+        const label = opt.parentElement;
+        label.classList.remove('correct','wrong');
+        if (opt.value === correctVal) label.classList.add('correct');
+        else if (opt.checked) label.classList.add('wrong');
+      });
+      if (!selected) { feedback.textContent = 'No answer selected.'; feedback.className = 'feedback'; return; }
+      const isCorrect = selected.value === correctVal;
+      if (isCorrect) { correct++; feedback.textContent = explanations[qid][correctVal]; feedback.className = 'feedback correct'; }
+      else { feedback.textContent = explanations[qid].wrong; feedback.className = 'feedback wrong'; }
+    });
+    const scoreEl = document.getElementById('score');
+    scoreEl.style.display = 'block';
+    if (correct === total) { scoreEl.style.color = 'var(--correct)'; scoreEl.textContent = `${correct}/${total} — Build it, curl it, then move to Lesson 6.`; }
+    else { scoreEl.style.color = correct >= 2 ? '#92400e' : 'var(--wrong)'; scoreEl.textContent = `${correct}/${total} — Re-read the architecture diagram, then try again.`; }
+  }
+
+  function copyCode(id, btn) {
+    navigator.clipboard.writeText(document.getElementById(id).innerText).then(() => {
+      btn.textContent = 'copied!';
+      setTimeout(() => btn.textContent = 'copy', 1500);
+    });
+  }
+</script>
+<script>
+
+function toggleDD(id) {
+  const w = document.getElementById('dd-' + id);
+  if (w) w.classList.toggle('open');
+}
+function toggleAns(id) {
+  const el = document.getElementById(id);
+  const btn = el?.previousElementSibling;
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (btn) btn.textContent = open ? '▶ Show answer' : '▼ Hide answer';
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,413 @@
+---
+import LessonLayout from '@/layouts/LessonLayout.astro';
+import LessonHeader from '@/components/LessonHeader.astro';
+
+interface CheckItem {
+  id:   string;
+  text: string;
+  why:  string;
+  refs: string[];
+}
+interface Category {
+  id:    string;
+  icon:  string;
+  title: string;
+  items: CheckItem[];
+}
+
+const categories: Category[] = [
+  {
+    id: 'prompts', icon: '📋', title: 'System Prompts & LLM Configuration',
+    items: [
+      { id: 'p1', text: 'Role defined precisely — not "helpful assistant", but exactly what the agent is and is not allowed to do',      why: 'Vague roles produce unpredictable behaviour at edge cases.',                                refs: ['§1.2', '§2.14'] },
+      { id: 'p2', text: 'Tool usage rules written explicitly — when to use each tool, and when NOT to',                                  why: 'Without explicit rules the LLM guesses, which leads to wrong tool calls.',                refs: ['§2.14'] },
+      { id: 'p3', text: 'Output format shown by example, not just described',                                                            why: 'LLMs replicate patterns far better than they follow abstract format instructions.',        refs: ['§2.14'] },
+      { id: 'p4', text: 'Forbidden actions listed explicitly',                                                                           why: '"Do not modify orders without confirmation. Do not discuss competitors."',                  refs: ['§1.2'] },
+      { id: 'p5', text: 'Ambiguity handling specified — ask for clarification vs make a stated assumption vs fail gracefully',           why: 'Every unhandled ambiguity becomes a production incident.',                                refs: ['§2.14'] },
+      { id: 'p6', text: 'Temperature set appropriately — low (0–0.2) for agents making decisions, higher only for creative tasks',       why: 'High temperature = inconsistent tool selection and routing decisions.',                    refs: ['§2.1'] },
+      { id: 'p7', text: 'Model version pinned — not "latest", a specific version string',                                                why: 'Model updates can silently change behaviour. Pin and upgrade deliberately.',               refs: ['§2.14'] },
+      { id: 'p8', text: 'max_tokens set on every LLM call',                                                                             why: 'Without a ceiling, runaway responses cost money and break downstream parsing.',           refs: ['§2.17'] },
+      { id: 'p9', text: 'Prompts version-controlled alongside code',                                                                     why: 'You must be able to reproduce past behaviour and roll back breaking changes.',            refs: ['§2.14'] },
+    ],
+  },
+  {
+    id: 'tools', icon: '🔨', title: 'Tool Design & Integration',
+    items: [
+      { id: 't1', text: 'Every tool has a clear, unambiguous docstring the LLM can use to decide when to call it',                      why: 'The docstring is the instruction. Vague docstrings = wrong tool calls.',                  refs: ['§1.6', '§2.3'] },
+      { id: 't2', text: 'Read tools and write tools are clearly separated',                                                              why: 'Read tools are safe to call freely. Write tools need guards and approvals.',              refs: ['§1.6', '§3.8'] },
+      { id: 't3', text: 'Every write tool has input validation before execution',                                                        why: 'Never trust LLM-generated parameters. Validate types, ranges, required fields.',          refs: ['§2.3'] },
+      { id: 't4', text: 'Every write tool returns a structured result with status + message, never raises exceptions',                   why: 'Unhandled exceptions crash the agent loop. Error strings let the LLM reason about failures.', refs: ['§2.10'] },
+      { id: 't5', text: 'Irreversible write operations (send, delete, pay, publish) require human approval via interrupt()',             why: 'You cannot unsend an email. Design for reversibility or require confirmation.',           refs: ['§3.8'] },
+      { id: 't6', text: 'Each agent has 3–5 tools maximum',                                                                             why: 'More tools = slower routing, higher error rate. Split into multiple agents if you need more.', refs: ['§1.6'] },
+      { id: 't7', text: 'Principle of least privilege — each tool has only the permissions it actually needs',                           why: 'A read-only search tool should not have write access to the database.',                  refs: ['§1.11'] },
+      { id: 't8', text: 'Tool timeouts configured — no tool call blocks indefinitely',                                                   why: 'A hanging API call stalls the entire agent. Set a timeout and handle TimeoutError.',      refs: ['§2.10'] },
+    ],
+  },
+  {
+    id: 'state', icon: '💾', title: 'State Management',
+    items: [
+      { id: 's1', text: 'State schema fully typed — every field named with an explicit type',                                           why: 'Untyped state means silent bugs when a field is missing or has the wrong type.',          refs: ['§2.8'] },
+      { id: 's2', text: 'Accumulating fields use the accumulate reducer, overwriting fields use the replace reducer',                    why: 'Without the right reducer, nodes silently erase each other\'s work.',                    refs: ['§2.8'] },
+      { id: 's3', text: 'Conversation history uses add_messages or equivalent (not a plain array overwrite)',                            why: 'add_messages deduplicates by message ID and handles LangGraph\'s message format.',       refs: ['§2.11'] },
+      { id: 's4', text: 'Sensitive fields (API keys, PII) masked in logs and traces',                                                   why: 'State is often logged in full. Credentials and user data must never appear in logs.',     refs: ['§1.11'] },
+      { id: 's5', text: 'Checkpointer configured — MemorySaver for dev, PostgresSaver for production',                                  why: 'MemorySaver loses everything on restart. Production agents need durable checkpoints.',   refs: ['§3.10'] },
+      { id: 's6', text: 'Thread ID scheme designed — unique per user+session, never shared across users',                               why: 'A wrong thread ID gives one user another user\'s conversation history.',               refs: ['§3.10'] },
+    ],
+  },
+  {
+    id: 'guardrails', icon: '🔒', title: 'Guardrails & Input Validation',
+    items: [
+      { id: 'g1', text: 'L1 — basic validation first: empty input, length limits, required fields',                                     why: 'Free to run. Catches the most common bad inputs before spending any tokens.',            refs: ['§2.15'] },
+      { id: 'g2', text: 'L2 — prompt injection detection: pattern match for "ignore instructions", "you are now", "forget"',           why: 'Catches most injection attempts at near-zero cost. Run on every input channel.',         refs: ['§1.11', '§2.15'] },
+      { id: 'g3', text: 'L3 — PII detection: regex for emails, phone numbers, SSNs, card numbers',                                     why: 'Prevents sensitive data from entering the LLM context or being logged.',               refs: ['§2.15'] },
+      { id: 'g4', text: 'L4 — LLM safety classifier for semantic intent (run only when L1–L3 pass)',                                    why: 'Expensive (~500ms). Only escalate here when cheaper layers don\'t catch the issue.',    refs: ['§2.15'] },
+      { id: 'g5', text: 'Output validation — agent response checked for PII leakage before returning to caller',                        why: 'The agent might retrieve a document with sensitive data and inadvertently include it.',  refs: ['§2.15'] },
+      { id: 'g6', text: 'max_turns set on every agent loop — with WARNING log when limit is hit',                                       why: 'No limit = infinite loop = infinite cost. The WARNING signals something is broken.',    refs: ['§2.6'] },
+      { id: 'g7', text: 'Fail fast, fail safe — invalid input returns immediately, not passed deeper',                                  why: 'The earlier you catch bad input, the less damage it can do.',                          refs: ['§2.15'] },
+    ],
+  },
+  {
+    id: 'errors', icon: '🔴', title: 'Error Handling & Resilience',
+    items: [
+      { id: 'e1', text: 'Exponential backoff with jitter on every LLM API call (handles 429 rate limits)',                              why: 'Retry immediately = hit the limit again. Backoff: 1s, 2s, 4s, 8s + jitter. Cap at 30s.', refs: ['§2.10'] },
+      { id: 'e2', text: 'Fallback model configured for 5xx server errors',                                                              why: 'If primary model is down, route to a fallback. Never show raw API errors to users.',    refs: ['§2.10'] },
+      { id: 'e3', text: 'Every tool call wrapped in try/catch — returns error object, never propagates exception',                      why: 'An unhandled tool exception kills the agent. A returned error lets the LLM recover.',   refs: ['§2.10'] },
+      { id: 'e4', text: 'Graceful degradation when optional tools fail — agent continues with what it has',                             why: 'If the inventory API is down, the agent can still create a quote with a caveat.',      refs: ['§2.10'] },
+      { id: 'e5', text: 'Partial results returned with explanation when max_turns is hit',                                              why: 'Never silently return nothing. Tell the user what was completed and what was not.',     refs: ['§2.10'] },
+      { id: 'e6', text: 'User-facing error messages are clean — raw stack traces and API errors never shown',                           why: 'Stack traces expose internals. Log full error internally, show a clean message.',      refs: ['§2.10'] },
+      { id: 'e7', text: 'Idempotency implemented for any external trigger (webhooks, email, queued messages)',                           why: 'The same event can arrive twice. A second identical trigger must produce no duplicate actions.', refs: ['§3.10'] },
+    ],
+  },
+  {
+    id: 'streaming', icon: '⚡', title: 'Streaming & Async',
+    items: [
+      { id: 'st1', text: 'Streaming enabled for any response longer than ~2 sentences',                                                 why: 'Perceived latency drops dramatically. Users see tokens appear instead of waiting.',      refs: ['§2.12'] },
+      { id: 'st2', text: 'Stream mode chosen deliberately — "messages" for UX, "updates" for debugging, "values" for state',           why: 'Each mode has a different performance and data profile. Know which you need.',          refs: ['§2.12'] },
+      { id: 'st3', text: 'Async used for all concurrent LLM calls',                                                                     why: '6 sequential 2s calls = 12s. 6 concurrent = ~2s. Use ainvoke() not invoke() for batches.', refs: ['§2.13'] },
+      { id: 'st4', text: 'Async used in web-serving contexts (NestJS async handlers)',                                                   why: 'Sync LLM calls in an async web handler block the event loop and kill concurrency.',     refs: ['§2.13'] },
+      { id: 'st5', text: 'Stream error handling in place — partial streams cleaned up on connection drop',                               why: 'If a user closes the connection mid-stream, the generator must be properly closed.',     refs: ['§2.12'] },
+    ],
+  },
+  {
+    id: 'logging', icon: '🔍', title: 'Logging & Observability',
+    items: [
+      { id: 'l1', text: 'Structured logging — every log line is JSON with consistent fields',                                           why: 'Plain text logs are unsearchable at scale. JSON logs can be queried, filtered, alerted on.', refs: ['§2.9'] },
+      { id: 'l2', text: 'Every tool call logged with: tool name, input args, result status, latency_ms',                                why: 'This is your audit trail. Reconstruct exactly what the agent did on any run.',          refs: ['§2.9'] },
+      { id: 'l3', text: 'Every LLM call logged with: model, prompt_tokens, completion_tokens, latency_ms, cost',                        why: 'Token counts are how you track cost. Without them you have no cost visibility.',        refs: ['§2.9', '§2.17'] },
+      { id: 'l4', text: 'Node transitions logged — which node ran, what state changed',                                                  why: 'In production, log node name + changed fields for every graph step.',                  refs: ['§2.9'] },
+      { id: 'l5', text: 'Correlation ID on every request — traces all logs for one agent run together',                                 why: 'Without a request ID you cannot link tool, LLM, and error logs for the same run.',     refs: ['§2.9'] },
+      { id: 'l6', text: 'Sensitive data masked in all logs — PII, API keys, credentials redacted',                                      why: 'Logs often go to third-party services. Never log raw state containing keys or user data.', refs: ['§1.11'] },
+      { id: 'l7', text: 'Observability platform configured — LangSmith, Langfuse, or equivalent',                                       why: 'Visual trace trees make debugging 10x faster than reading raw logs.',                  refs: ['§2.9'] },
+      { id: 'l8', text: 'Alerts configured for: error rate spike, P95 latency breach, cost per run anomaly',                            why: 'You should hear about production problems before your users do.',                      refs: ['§2.17'] },
+    ],
+  },
+  {
+    id: 'perf', icon: '📈', title: 'Performance & Cost',
+    items: [
+      { id: 'pf1', text: 'Latency targets defined: P50, P95, P99 — not just average',                                                  why: 'Average hides tail latency. 5% of requests at 30s with 95% at 1s is a bad P99.',       refs: ['§2.17'] },
+      { id: 'pf2', text: 'Cost per run estimated before launch: (input_tokens/1K × price) + (output_tokens/1K × price)',               why: 'Know your unit economics before you scale. $0.05/run at 1M runs = $50K/month.',        refs: ['§2.17'] },
+      { id: 'pf3', text: 'Budget alert configured — triggers when cost per run or daily spend exceeds threshold',                        why: 'Without alerts a broken agent can burn through budget in hours.',                      refs: ['§2.17'] },
+      { id: 'pf4', text: 'Output tokens minimised where quality allows — concise prompts, length constraints',                           why: 'Output tokens cost 4× more than input tokens on most models. Every token counts.',      refs: ['§2.17'] },
+      { id: 'pf5', text: 'Caching implemented for identical or near-identical queries',                                                  why: 'If 30% of queries are "what are your hours?", a cache makes them essentially free.',    refs: ['§2.17'] },
+      { id: 'pf6', text: 'Context window usage monitored — alert when approaching limits',                                              why: 'Silent truncation at the context limit causes confusing behaviour.',                   refs: ['§2.17'] },
+      { id: 'pf7', text: 'Rate limit headroom planned — stay below 80% of TPM/RPM limits',                                             why: 'Operating at 100% means any spike causes 429 errors.',                                refs: ['§2.10'] },
+    ],
+  },
+  {
+    id: 'testing', icon: '🎯', title: 'Testing',
+    items: [
+      { id: 'te1', text: 'Tool unit tests — deterministic functions tested with exact expected outputs',                                 why: 'Tool logic is deterministic. Test it exactly.',                                        refs: ['§2.16'] },
+      { id: 'te2', text: 'Tool selection tests — given query X, agent must call tool Y',                                                why: 'The most reliable agent test. Check which tool was called, not what the agent said.',  refs: ['§2.16'] },
+      { id: 'te3', text: 'HITL enforcement tests — irreversible actions must always pause at interrupt()',                               why: 'Test that send_email is NEVER called without an interrupt first.',                    refs: ['§2.16', '§3.8'] },
+      { id: 'te4', text: 'Guardrail tests — known injection strings must be blocked at L2',                                             why: 'Test that "ignore previous instructions" returns a rejection, not a response.',       refs: ['§2.15'] },
+      { id: 'te5', text: 'Edge case tests — empty input, max-length input, missing required fields, wrong types',                        why: 'These are the inputs real users send that your happy-path tests miss.',               refs: ['§2.16'] },
+      { id: 'te6', text: 'Regression suite — every production bug becomes a test case',                                                  why: 'Without regression tests, every fix breaks something else.',                          refs: ['§2.16'] },
+      { id: 'te7', text: 'Load test run before launch — verify behaviour under concurrent requests',                                     why: 'An agent that works for 1 user may fail or become expensive under 100 concurrent.',   refs: ['§2.17'] },
+      { id: 'te8', text: 'Test with realistic messy inputs — typos, multi-part questions, ambiguous phrasing',                          why: 'Test suites using only clean formatted inputs test a world that doesn\'t exist.',     refs: ['§2.16'] },
+    ],
+  },
+  {
+    id: 'security', icon: '🛡', title: 'Security',
+    items: [
+      { id: 'sec1', text: 'Threat model documented — list every input surface and what an attacker could do',                           why: 'Think through attacks before launch. Every LLM input is an attack surface.',           refs: ['§1.11'] },
+      { id: 'sec2', text: 'API keys and credentials in environment variables — never in code or prompts',                                why: 'Source code gets committed. Prompts get logged. Neither is safe for credentials.',    refs: ['§1.11'] },
+      { id: 'sec3', text: 'User inputs sanitised before being included in prompts',                                                      why: 'Treat LLM prompt injection like SQL injection. Never concatenate raw input into prompts.', refs: ['§1.11', '§2.15'] },
+      { id: 'sec4', text: 'Tool permissions follow least-privilege — no tool has more access than it needs',                             why: 'If a read tool has write access, a prompt injection can exploit it.',                  refs: ['§1.11'] },
+      { id: 'sec5', text: 'Rate limiting on your agent endpoint — prevent abuse and DoS',                                               why: 'Without rate limiting one bad actor can exhaust your LLM API budget.',                refs: ['§2.10'] },
+      { id: 'sec6', text: 'Audit log of all agent actions retained — especially write operations',                                       why: 'Compliance and incident response both require a record of what the agent did and when.', refs: ['§2.9'] },
+      { id: 'sec7', text: 'Output filtered for PII and secrets before returning to caller',                                              why: 'RAG can retrieve documents containing credentials or personal data. Filter before sending.', refs: ['§2.15'] },
+    ],
+  },
+  {
+    id: 'hitl', icon: '👤', title: 'Human-in-the-Loop',
+    items: [
+      { id: 'h1', text: 'Every irreversible action uses interrupt() — email, order, payment, delete, publish',                          why: 'Cannot unsend. Cannot unpay. Design the pause before you build the action.',           refs: ['§3.8'] },
+      { id: 'h2', text: 'interrupt() payload contains full context — what will happen, what will change',                               why: 'The human must understand the action from the payload alone, without digging into state.', refs: ['§3.8'] },
+      { id: 'h3', text: 'Order mutations show a diff — current state vs proposed change',                                               why: '"Change qty from 50 to 30" is safe. "Modify order" is not enough.',                   refs: ['§3.8'] },
+      { id: 'h4', text: 'Resume path handles both approve AND reject with feedback',                                                     why: 'Rejection must feed back into the agent so it can regenerate with the feedback.',      refs: ['§3.8'] },
+      { id: 'h5', text: 'Max retry limit on HITL loops — prevent infinite approve/reject cycles',                                       why: 'If an agent keeps regenerating bad outputs, stop and escalate to a human supervisor.', refs: ['§3.8'] },
+      { id: 'h6', text: 'Checkpointer configured for all HITL graphs — required for interrupt/resume',                                  why: 'Without a checkpointer the state is lost between interrupt and resume.',              refs: ['§3.8', '§3.10'] },
+    ],
+  },
+  {
+    id: 'mcp', icon: '🔌', title: 'MCP Server Integration',
+    items: [
+      { id: 'mcp1', text: 'One MCP client created per server at graph init — not one per node',                                         why: 'Each connection spawns a process (stdio) or opens a network session (HTTP+SSE). Creating per node wastes resources and reconnects on every invocation.',          refs: ['§3.5', 'L26'] },
+      { id: 'mcp2', text: 'Tools discovered once at graph init, cached as allTools, filtered per node before each LLM call',            why: 'Each tool description ≈ 300 tokens in context. Passing 14 tools to a node that needs 2 wastes ~3 600 tokens per call and degrades decision quality.',         refs: ['§3.5', 'L26'] },
+      { id: 'mcp3', text: 'Tool handlers return isError: true content — never throw unhandled exceptions',                              why: 'An unhandled throw sends a protocol-level error to the client; the agent loop crashes instead of reasoning about the failure.',                              refs: ['§3.5', 'L26'] },
+      { id: 'mcp4', text: 'Every Tool inputSchema includes a required array listing all non-optional fields',                            why: 'Without required, every parameter is optional — the LLM calls the tool with missing fields, producing silent errors with no useful message.',               refs: ['§3.5', 'L26'] },
+      { id: 'mcp5', text: 'Roots handler registered for every filesystem MCP server — even if returning empty list',                    why: 'Without Roots, a filesystem server can read or write any path on the machine. Empty list = block all access. No handler = undefined behaviour.',            refs: ['§3.5', 'L26'] },
+      { id: 'mcp6', text: 'Sampling: client picks model and caps tokens — never forwards server modelPreferences',                      why: 'If you use the server\'s preferred model, an adversarial server can route inference to expensive models or exploit model-specific behaviours.',              refs: ['§3.5', 'L26'] },
+      { id: 'mcp7', text: 'Sampling not exposed to untrusted community servers — rejected explicitly via McpError',                     why: 'Sampling lets the server inject arbitrary messages into your LLM context, trigger unbounded inference at your cost, and exfiltrate agent state.',            refs: ['§3.5', 'L26'] },
+      { id: 'mcp8', text: 'HTTP+SSE transport used in production multi-instance deployments — not stdio per agent process',             why: 'Stdio spawns a separate server process per agent instance. HTTP+SSE deploys one server; all instances connect to it — no duplication, shared state.',        refs: ['§3.5', 'L26'] },
+      { id: 'mcp9', text: 'Community MCP servers vetted before use: manifest read, source reviewed, version pinned to exact tag',       why: 'Community servers execute on your infrastructure. "npm install @org/server@latest" in production means any future publish can inject malicious code.',        refs: ['§3.5', 'L26'] },
+      { id: 'mcp10', text: 'All MCP clients closed gracefully on agent shutdown — no orphaned child processes or open HTTP sessions',   why: 'Orphaned stdio child processes accumulate and exhaust resources. Open SSE sessions hold server memory until the server restarts or times out.',              refs: ['§3.5', 'L26'] },
+      { id: 'mcp11', text: 'MCP server unavailability handled per-server — optional servers degrade gracefully, required ones alert',   why: 'A single unavailable server must not crash the whole agent. Classify each server as mandatory (fail fast, alert) or optional (log, continue).',            refs: ['§3.5', 'L26'] },
+      { id: 'mcp12', text: 'All MCP interactions audit-logged: tool name, args (sanitised), result status, latency, session ID',       why: 'MCP tools touch real systems. You must be able to reconstruct exactly what the agent called, with what params, and what came back, for any production run.', refs: ['§3.5', 'L26'] },
+    ],
+  },
+  {
+    id: 'memory', icon: '🧠', title: 'Memory & Context',
+    items: [
+      { id: 'm1', text: 'Context window budget planned — system prompt + tools + history + response fits within limit',                  why: 'Exceeding the context window causes silent truncation. Calculate before deploying.',     refs: ['§1.8'] },
+      { id: 'm2', text: 'Conversation history trimmed or summarised for long sessions',                                                  why: 'Unbounded message history will eventually overflow the context window.',               refs: ['§1.8', '§2.11'] },
+      { id: 'm3', text: 'Long-term memory storage type chosen for the use case',                                                         why: 'Vector store for semantic search. Key-value for fast exact lookup. SQL for structured queries.', refs: ['§1.8', '§3.11'] },
+      { id: 'm4', text: 'Memory write strategy chosen — hotpath (immediate) or background (async)',                                      why: 'Hotpath adds latency. Background means memory is not instantly available. Choose deliberately.', refs: ['§1.8'] },
+      { id: 'm5', text: 'RAG retrieval validated — retrieved chunks are actually relevant to the query',                                 why: 'Bad retrieval is worse than no retrieval. Validate that top-K chunks answer the question.', refs: ['§1.10', '§3.4'] },
+    ],
+  },
+];
+
+const totalItems = categories.reduce((a, c) => a + c.items.length, 0);
+---
+
+<LessonLayout
+  title="CL — Production Readiness Checklist"
+>
+  <LessonHeader
+    num="CL"
+    title="Production Readiness Checklist"
+    subtitle="Every building block a production AI agent needs. Check these off before you ship. Each item links to the course section that teaches it."
+  />
+
+  <div class="lesson-content">
+
+    <div class="pcl-progress-wrap">
+      <div class="pcl-progress-row">
+        <span class="pcl-progress-label">
+          <span id="pcl-done">0</span> / {totalItems} completed
+        </span>
+        <span id="pcl-pct" class="pcl-pct">0%</span>
+        <button class="pcl-reset" id="pcl-reset-btn">Reset</button>
+      </div>
+      <div class="pcl-bar-track">
+        <div class="pcl-bar-fill" id="pcl-bar"></div>
+      </div>
+    </div>
+
+    <nav class="pcl-nav">
+      {categories.map(cat => (
+        <a href={`#cat-${cat.id}`} class="pcl-nav-btn">
+          {cat.icon} {cat.title.split('&')[0].trim()}
+          <span class="pcl-nav-count" id={`nav-count-${cat.id}`}>0/{cat.items.length}</span>
+        </a>
+      ))}
+    </nav>
+
+    {categories.map(cat => (
+      <section class="pcl-category" id={`cat-${cat.id}`}>
+        <div class="pcl-cat-header">
+          <span class="pcl-cat-icon">{cat.icon}</span>
+          <span class="pcl-cat-title">{cat.title}</span>
+          <span class="pcl-cat-count" id={`count-${cat.id}`}>0 / {cat.items.length}</span>
+        </div>
+
+        {cat.items.map(item => (
+          <label class="pcl-item" id={`wrap-${item.id}`}>
+            <input type="checkbox" class="pcl-cb" id={item.id} data-cat={cat.id} />
+            <span class="pcl-check-icon">✓</span>
+            <div class="pcl-item-body">
+              <div class="pcl-item-text">{item.text}</div>
+              <div class="pcl-item-why">{item.why}</div>
+              <div class="pcl-item-refs">
+                {item.refs.map(ref => <span class="pcl-ref">{ref}</span>)}
+              </div>
+            </div>
+          </label>
+        ))}
+      </section>
+    ))}
+
+  </div>
+</LessonLayout>
+
+<script>
+  const STORAGE_KEY = 'pcl_state_v2';
+  const total = document.querySelectorAll('.pcl-cb').length;
+
+  function save() {
+    const state: Record<string, boolean> = {};
+    document.querySelectorAll<HTMLInputElement>('.pcl-cb').forEach(cb => {
+      if (cb.checked) state[cb.id] = true;
+    });
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+  }
+
+  function update() {
+    const checked = document.querySelectorAll<HTMLInputElement>('.pcl-cb:checked').length;
+    const pct = Math.round(checked / total * 100);
+    document.getElementById('pcl-done')!.textContent   = String(checked);
+    document.getElementById('pcl-pct')!.textContent    = `${pct}%`;
+    (document.getElementById('pcl-bar') as HTMLElement).style.width = `${pct}%`;
+
+    // per-category counts
+    document.querySelectorAll<HTMLElement>('.pcl-category').forEach(sec => {
+      const catId = sec.id.replace('cat-', '');
+      const total  = sec.querySelectorAll('.pcl-cb').length;
+      const done   = sec.querySelectorAll<HTMLInputElement>('.pcl-cb:checked').length;
+      const count  = document.getElementById(`count-${catId}`);
+      const navCount = document.getElementById(`nav-count-${catId}`);
+      if (count)    count.textContent    = `${done} / ${total}`;
+      if (navCount) navCount.textContent = `${done}/${total}`;
+      sec.classList.toggle('pcl-complete', done === total);
+    });
+
+    // per-item done class
+    document.querySelectorAll<HTMLInputElement>('.pcl-cb').forEach(cb => {
+      document.getElementById(`wrap-${cb.id}`)?.classList.toggle('pcl-item--done', cb.checked);
+    });
+
+    save();
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const state = JSON.parse(raw) as Record<string, boolean>;
+      document.querySelectorAll<HTMLInputElement>('.pcl-cb').forEach(cb => {
+        if (state[cb.id]) cb.checked = true;
+      });
+    } catch {}
+    update();
+  }
+
+  document.querySelectorAll('.pcl-cb').forEach(cb => {
+    cb.addEventListener('change', update);
+  });
+
+  document.getElementById('pcl-reset-btn')?.addEventListener('click', () => {
+    if (!confirm('Reset all checkboxes?')) return;
+    document.querySelectorAll<HTMLInputElement>('.pcl-cb').forEach(cb => { cb.checked = false; });
+    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+    update();
+  });
+
+  load();
+</script>
+
+<style>
+  /* Progress bar */
+  .pcl-progress-wrap {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .pcl-progress-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: .5rem;
+  }
+  .pcl-progress-label { font-family: monospace; font-size: .8rem; color: var(--muted); flex: 1; }
+  .pcl-pct  { font-family: monospace; font-size: .8rem; font-weight: 700; color: var(--accent); }
+  .pcl-reset {
+    font-family: monospace; font-size: .7rem;
+    background: none; border: 1px solid var(--border);
+    border-radius: 4px; padding: .2rem .55rem;
+    color: var(--muted); cursor: pointer;
+  }
+  .pcl-reset:hover { border-color: #dc2626; color: #dc2626; }
+  .pcl-bar-track { height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; }
+  .pcl-bar-fill  { height: 100%; background: #22c55e; border-radius: 3px; transition: width .3s; width: 0; }
+
+  /* Category nav */
+  .pcl-nav {
+    display: flex; flex-wrap: wrap; gap: .4rem;
+    margin-bottom: 2rem;
+  }
+  .pcl-nav-btn {
+    display: flex; align-items: center; gap: .4rem;
+    font-family: monospace; font-size: .7rem;
+    padding: .3rem .65rem;
+    background: #f8fafc; border: 1px solid var(--border);
+    border-radius: 20px; text-decoration: none; color: var(--muted);
+    transition: border-color .15s, color .15s;
+  }
+  .pcl-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .pcl-nav-count {
+    background: var(--border); border-radius: 10px;
+    padding: .05rem .35rem; font-size: .62rem; color: var(--muted);
+  }
+
+  /* Category section */
+  .pcl-category { margin-bottom: 2.5rem; }
+  .pcl-cat-header {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .6rem 0; border-bottom: 2px solid var(--border);
+    margin-bottom: .5rem;
+  }
+  .pcl-cat-icon  { font-size: 1.1rem; }
+  .pcl-cat-title { font-weight: 700; font-size: .95rem; flex: 1; }
+  .pcl-cat-count { font-family: monospace; font-size: .7rem; color: var(--muted); }
+
+  .pcl-complete .pcl-cat-header { border-bottom-color: #22c55e; }
+  .pcl-complete .pcl-cat-title  { color: #16a34a; }
+
+  /* Checklist items */
+  .pcl-item {
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+    padding: .75rem 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background .1s;
+  }
+  .pcl-item:hover { background: #f8fafc; }
+
+  .pcl-cb { display: none; }
+
+  .pcl-check-icon {
+    width: 1.4rem; height: 1.4rem; flex-shrink: 0;
+    border: 2px solid var(--border); border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .75rem; color: transparent; margin-top: .1rem;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .pcl-item--done .pcl-check-icon {
+    background: #22c55e; border-color: #22c55e; color: #fff;
+  }
+
+  .pcl-item-body { flex: 1; min-width: 0; }
+  .pcl-item-text {
+    font-size: .88rem; line-height: 1.5; margin-bottom: .25rem;
+    transition: color .15s;
+  }
+  .pcl-item--done .pcl-item-text { color: var(--muted); text-decoration: line-through; }
+
+  .pcl-item-why {
+    font-size: .78rem; color: var(--muted); font-style: italic;
+    line-height: 1.5; margin-bottom: .3rem;
+  }
+  .pcl-item--done .pcl-item-why { opacity: .6; }
+
+  .pcl-item-refs { display: flex; gap: .3rem; flex-wrap: wrap; }
+  .pcl-ref {
+    font-family: monospace; font-size: .63rem;
+    background: #f1f5f9; border: 1px solid #e2e8f0;
+    border-radius: 4px; padding: .05rem .3rem; color: var(--muted);
+  }
+</style>

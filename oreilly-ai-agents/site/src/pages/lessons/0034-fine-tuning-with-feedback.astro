@@ -1,0 +1,411 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const feedbackCollectionCode = `
+// Collect structured feedback signals from multiple sources
+interface FeedbackRecord {
+  sessionId:    string;
+  query:        string;
+  agentOutput:  string;
+  toolsUsed:    string[];
+  rating:       1 | 2 | 3 | 4 | 5;   // explicit user rating
+  comment?:     string;               // optional free text
+  implicit: {
+    thumbsUp:      boolean;
+    copiedOutput:  boolean;           // user copied the response
+    followUpQuery: boolean;           // user immediately asked again (dissatisfied)
+    sessionAbandoned: boolean;        // user left without using the answer
+  };
+  tags: ('tone' | 'accuracy' | 'helpfulness' | 'hallucination' | 'tool-error')[];
+  createdAt:    Date;
+}
+
+// Aggregate to find systematic patterns — not individual data points
+async function analyzeFeedbackTrends(
+  db: Database,
+  days = 30,
+): Promise<{ category: string; count: number; avgRating: number }[]> {
+  return db.query(\`
+    SELECT
+      unnest(tags)      AS category,
+      COUNT(*)          AS count,
+      AVG(rating)       AS avg_rating
+    FROM feedback_records
+    WHERE created_at > NOW() - INTERVAL '\${days} days'
+    GROUP BY unnest(tags)
+    ORDER BY count DESC
+  \`);
+}
+`.trim();
+
+const abTestCode = `
+// A/B test framework — control vs. treatment prompt
+interface Experiment {
+  id:            string;
+  control:       string;   // current system prompt
+  treatment:     string;   // proposed improvement
+  trafficSplit:  number;   // 0-1, e.g. 0.1 for 10% treatment
+  metrics: {
+    primary:     'satisfaction_rating';
+    guardrails:  ('latency_p95' | 'cost_per_query' | 'error_rate')[];
+  };
+  minSampleSize: number;   // required before declaring winner
+}
+
+function assignVariant(experiment: Experiment, userId: string): 'control' | 'treatment' {
+  // Deterministic assignment — same user always gets same variant
+  const hash = hashString(\`\${experiment.id}:\${userId}\`);
+  return (hash % 100) < (experiment.trafficSplit * 100) ? 'treatment' : 'control';
+}
+
+// Auto-rollback if treatment violates guardrail thresholds
+async function checkGuardrails(
+  experiment: Experiment,
+  results: { variant: string; latencyP95: number; errorRate: number }[],
+): Promise<'continue' | 'rollback'> {
+  const treatment = results.find(r => r.variant === 'treatment');
+  if (!treatment) return 'continue';
+
+  if (treatment.latencyP95 > 5000 || treatment.errorRate > 0.05) {
+    console.error(\`Guardrail violated — rolling back experiment \${experiment.id}\`);
+    return 'rollback';
+  }
+  return 'continue';
+}
+`.trim();
+
+const mindMap = `
+# Fine-Tuning with Feedback
+## Feedback Signals
+### Explicit (ratings, comments)
+### Implicit positive (copied, built upon)
+### Implicit negative (abandoned, regenerated)
+### Automated (eval regressions, alerts)
+## Human-Driven Analysis
+### Review low-rated clusters
+### Identify critique themes
+### Extract user phrasing
+### Compare failed vs successful
+## Issue-to-Fix Mapping
+### Prompt clarity — fast fix
+### Tool selection errors — fast fix
+### Knowledge gaps — medium fix
+### Reasoning failures — slow fix
+### Systematic hallucination — architecture change
+## A/B Testing Process
+### Small traffic split (5-10%)
+### Guardrails (latency, errors, cost)
+### Statistical significance first
+### Auto-rollback on violation
+## Tensions
+### Automated improvement (speed) vs Human approval (safety)
+### Frequent improvements (responsive) vs Version overhead
+### Small A/B split (safety) vs Longer time to significance
+## Pitfalls
+### Optimising on individual scores not clusters
+### Shipping changes without versioning
+### Using same model to evaluate itself
+### Statistical but not practical significance
+### Not updating golden dataset after production failures
+`;
+---
+
+<LessonLayout
+  title="L34 — Fine-Tuning with Feedback"
+>
+
+  <LessonHeader
+    num="L34"
+    title="Fine-Tuning with Feedback"
+    subtitle="Collecting production feedback signals, analysing failure patterns, A/B testing prompt improvements safely, and mapping issue types to the right fix strategy."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      This lesson closes the production loop. L30 (EDD) covered pre-deployment evaluation.
+      L35 covered cost control. Now: how to use what production teaches you — user ratings,
+      implicit signals, failure patterns — to improve your agent systematically rather than
+      by instinct.
+    </p>
+
+    <LessonCallout variant="key" title="Track trends, not individual scores">
+      <p>
+        A single 1-star rating tells you nothing. The pattern of 1-star ratings on
+        <em>tone-related</em> queries over 30 days tells you exactly what to fix.
+        Aggregate before acting.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Feedback Signals to Collect</h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Signal type</th><th>Examples</th><th>What it reveals</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Explicit</strong></td>
+            <td>Star rating, thumbs up/down, written comment</td>
+            <td>Direct user sentiment; expensive to collect at scale</td>
+          </tr>
+          <tr>
+            <td><strong>Implicit positive</strong></td>
+            <td>User copied the output, session ended after response, follow-up question built on the answer</td>
+            <td>User acted on the output — high-confidence success signal</td>
+          </tr>
+          <tr>
+            <td><strong>Implicit negative</strong></td>
+            <td>Immediate follow-up with "that's wrong", session abandoned, user regenerated the answer</td>
+            <td>User didn't trust or use the output</td>
+          </tr>
+          <tr>
+            <td><strong>Automated</strong></td>
+            <td>Quality regression alerts from EDD eval runs (L30), error rate spikes, latency anomalies</td>
+            <td>Catch regressions before users do</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="typescript" label="feedback-collection.ts" code={feedbackCollectionCode} />
+
+    <h2 class="lesson-heading">Human-Driven Analysis</h2>
+
+    <p>
+      Automated metrics tell you <em>where</em> the problem is. Human review of low-rated
+      interactions tells you <em>why</em>. The combination is what produces actionable fixes.
+    </p>
+
+    <div class="analysis-steps">
+      <div class="as-step">
+        <div class="as-num">1</div>
+        <div>
+          <strong>Review low-rated interactions with user comments</strong>
+          <p>Read 20–30 examples from each failure cluster. Look for patterns in what users found wrong.</p>
+        </div>
+      </div>
+      <div class="as-step">
+        <div class="as-num">2</div>
+        <div>
+          <strong>Identify common critique themes</strong>
+          <p>Group by: tone, accuracy, helpfulness, wrong tool used, hallucination, missing context.</p>
+        </div>
+      </div>
+      <div class="as-step">
+        <div class="as-num">3</div>
+        <div>
+          <strong>Extract exact user phrasing</strong>
+          <p>The phrases users used when the agent failed become candidates for few-shot examples in the improved prompt.</p>
+        </div>
+      </div>
+      <div class="as-step">
+        <div class="as-num">4</div>
+        <div>
+          <strong>Compare failed vs. successful responses for the same query type</strong>
+          <p>What did the successful responses do differently? That difference is your fix hypothesis.</p>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="lesson-heading">Mapping Issue Types to Fix Strategies</h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Issue type</th><th>Fix strategy</th><th>Speed</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Prompt clarity — agent misunderstands the task</td><td>Refine instructions; add few-shot examples of the correct behaviour</td><td>Fast</td></tr>
+          <tr><td>Tool selection errors — wrong tool called</td><td>Improve tool descriptions; add decision criteria to system prompt</td><td>Fast</td></tr>
+          <tr><td>Tone/style mismatches — users find responses cold or verbose</td><td>Adjust persona definition in system prompt; add style examples</td><td>Fast</td></tr>
+          <tr><td>Knowledge gaps — agent doesn't know the answer</td><td>Update retrieval sources; add relevant documents to RAG index</td><td>Medium</td></tr>
+          <tr><td>Reasoning failures — correct tools, wrong conclusions</td><td>Restructure thinking steps; upgrade to a more capable model</td><td>Slow</td></tr>
+          <tr><td>Systematic hallucination — invents facts in a domain</td><td>Architecture change: add mandatory RAG retrieval node for that domain</td><td>Slow</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">A/B Testing Prompt Improvements</h2>
+
+    <p>
+      Never deploy a prompt change to 100% of traffic based on gut feel or a handful of
+      test cases. Use an A/B test with a small traffic split, clear success metrics, and
+      automatic rollback guards.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart TD
+  A([New prompt candidate]) --> B[Add to golden dataset\\nfrom L30]:::step
+  B --> C{Eval passes?}:::decision
+  C -->|No| D[Revise prompt]:::warn
+  D --> B
+  C -->|Yes| E[A/B test\\n5-10% traffic split]:::step
+  E --> F{Guardrails OK?\\nlatency, errors, cost}:::decision
+  F -->|Violated| G[Auto-rollback]:::abort
+  F -->|OK| H{Statistical\\nsignificance\\np less than 0.05}:::decision
+  H -->|Not yet| E
+  H -->|Winner found| I[Promote to 100%]:::done
+  I --> J[Add failures to\\ngolden dataset]:::step
+
+  classDef step     fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef decision fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done     fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn     fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef abort    fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <CodeBlock lang="typescript" label="ab-test.ts" code={abTestCode} />
+
+    <h2 class="lesson-heading">Production Fine-Tuning Best Practices</h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Practice</th><th>Why it matters</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Version every change</strong></td>
+            <td>Tag each prompt/config version in monitoring. Without versioning, you can't correlate feedback with what changed.</td>
+          </tr>
+          <tr>
+            <td><strong>Validate before deploying</strong></td>
+            <td>Run the improved prompt against your golden dataset (L30) and production failure cases before any A/B test.</td>
+          </tr>
+          <tr>
+            <td><strong>Start small (5–10% traffic)</strong></td>
+            <td>Limit blast radius if the change makes things worse. Include auto-rollback on guardrail violations.</td>
+          </tr>
+          <tr>
+            <td><strong>Automate analysis, human-approve changes</strong></td>
+            <td>Let automation surface candidates; require a human to approve before production changes ship.</td>
+          </tr>
+          <tr>
+            <td><strong>Close the feedback loop</strong></td>
+            <td>Feed production failures back into the golden dataset. Every failure you encounter in production is a test case that will prevent the next regression.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="Quick wins first, systemic changes second">
+      <p>
+        Prompt clarity fixes take minutes to write and deploy. Architecture changes
+        (adding a RAG node, swapping models) take days. Sequence your work: ship the quick
+        wins to reduce user pain now while you plan the structural fixes.
+      </p>
+    </LessonCallout>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Users consistently rate responses low on "tone" queries. What is the correct first fix?',
+        options: [
+          'Switch to a more capable model',
+          'Add a mandatory RAG retrieval step for all queries',
+          'Adjust persona definition in the system prompt and add style examples',
+          'Collect more feedback before making any changes',
+        ],
+        answer:  2,
+        explain: 'Tone/style mismatches are a prompt clarity issue — the agent is not behaving in the style your users want. The fix is adjusting the persona definition in the system prompt and adding few-shot examples that demonstrate the desired tone. Switching models or adding RAG doesn\'t address a tone issue.',
+      },
+      {
+        q:       'You deploy a new prompt to 100% of traffic based on passing 5 manual test cases. Two days later, support tickets spike. What went wrong?',
+        options: [
+          'The golden dataset was too large',
+          'The prompt change was not tested against a representative dataset, and no A/B guardrails were in place to catch regressions',
+          'The model version changed during the deployment',
+          'Users do not like prompt changes in general',
+        ],
+        answer:  1,
+        explain: '5 manual test cases is not statistically representative. A proper process: validate against a golden dataset (L30), run a small A/B test (5-10% traffic), monitor guardrail metrics, and only promote to 100% when statistical significance is reached. The A/B guardrail would have caught the regression before it reached all users.',
+      },
+      {
+        q:       'An agent consistently invents facts in a specific domain, even when the correct answer is in your knowledge base. Which fix strategy is appropriate?',
+        options: [
+          'Fast: refine the system prompt to say "don\'t hallucinate"',
+          'Fast: add few-shot examples showing correct domain answers',
+          'Slow: architecture change — add mandatory RAG retrieval for that domain',
+          'Medium: update retrieval sources with more documents',
+        ],
+        answer:  2,
+        explain: 'Systematic hallucination in a domain where the knowledge exists means the agent is not reliably consulting the knowledge base. "Don\'t hallucinate" instructions rarely work — the agent doesn\'t know it\'s hallucinating. The structural fix is a mandatory RAG retrieval node for that domain, so the agent cannot answer without first looking up the ground truth.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§4.12"
+      tensions={[
+        { a: 'Automated improvement generation (speed)', b: 'Human approval for production (safety)' },
+        { a: 'Frequent small improvements (responsiveness)', b: 'Version management overhead (complexity)' },
+        { a: 'A/B test small split (safety)', b: 'Small split takes longer to reach significance' },
+      ]}
+      questions={[
+        {
+          q:      'Your automated feedback analysis identifies 3 separate improvement candidates to fix 3 different failure patterns. Should you run them as a single combined A/B test or as three separate tests? What are the implications of each approach?',
+          hint:   'Think about what you learn from each approach, not just which is faster.',
+          answer: '<p><strong>Three separate tests is almost always correct.</strong> Combined test (single experiment with all 3 changes): faster to a result, but if the combined treatment wins or loses, you cannot attribute the outcome to any specific change. If one change was harmful and two were helpful, the net result may look neutral and you\'d ship all three — including the bad one. You also can\'t roll back selectively. Separate tests: takes longer (sequential or parallel with disjoint user sets), but you learn which specific change drives the improvement. You can ship winners independently and skip losers. The only exception: if the three changes are deeply interdependent (e.g., changing the system prompt, few-shot examples, and tool descriptions that all reference each other), they must be tested together — testing one without the others gives a misleading signal.</p>',
+        },
+        {
+          q:      'After 6 months of production feedback and continuous improvement, you notice your golden dataset has drifted — test pass rates are still high but user satisfaction is declining. What is happening, and how do you fix it?',
+          hint:   'Think about what the golden dataset is measuring vs. what current users need.',
+          answer: '<p>The golden dataset reflects what users asked 6 months ago. User behavior, vocabulary, use cases, and expectations have shifted — but the tests haven\'t. The agent is still good at the old patterns but failing at new ones that aren\'t in the test suite. This is golden dataset staleness (also covered in L30). Fix: (1) Mine the last 30 days of low-rated production interactions for new failure patterns; (2) Add 20+ cases from these new patterns to the golden dataset; (3) Version the dataset (v1.0 → v2.0) so you can track how agent performance on old vs. new patterns changes over time; (4) Establish a cadence — refresh the golden dataset quarterly, or after any significant product change that affects user behavior. The satisfaction decline is your signal that the feedback loop broke. Re-closing it requires treating the golden dataset as a living document, not a one-time artifact.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Optimising based on individual low-rated responses rather than clustered patterns — one bad interaction is noise; 50 bad interactions on the same query type is signal.',
+        'Shipping prompt changes without versioning — you cannot correlate future feedback with specific changes if you don\'t know which prompt was active at which time.',
+        'Using the same model to generate improvement candidates as the one being evaluated — meta-LLM analysis works best with a different model than the one you are fixing.',
+        'Statistical significance without practical significance — a 3% improvement in ratings that is statistically significant may not be worth the ongoing maintenance cost of a more complex prompt.',
+        'Forgetting to update the golden dataset after finding production failures — every failure you handle manually but don\'t capture as a test case will recur.',
+      ]}
+    />
+
+  </div>
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .analysis-steps {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+    margin: 1.25rem 0;
+  }
+  .as-step {
+    display: flex;
+    gap: .9rem;
+    align-items: flex-start;
+    padding: .85rem 1rem;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .as-num {
+    font-family: monospace;
+    font-size: .72rem;
+    font-weight: 700;
+    background: #7c3aed;
+    color: #fff;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: .1rem;
+  }
+  .as-step strong { font-size: .9rem; display: block; margin-bottom: .2rem; }
+  .as-step p { font-size: .8rem; color: var(--muted); margin: 0; line-height: 1.5; }
+</style>

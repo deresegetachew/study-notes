@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lesson 4 — Memory &amp; Conversation State</title>
+  <style>
+    :root {
+      --ink: #1a1a1a; --muted: #555; --accent: #2563eb;
+      --bg: #fafaf8; --card: #ffffff; --border: #e5e5e0;
+      --correct: #16a34a; --wrong: #dc2626; --highlight: #fef9c3;
+      --code-bg: #1e1e2e; --code-fg: #cdd6f4;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Georgia", serif; background: var(--bg); color: var(--ink); line-height: 1.75; font-size: 18px; padding: 2rem 1rem 6rem; }
+    article { max-width: 720px; margin: 0 auto; }
+    header { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 2.5rem; }
+    .lesson-meta { font-family: monospace; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
+    h1 { font-size: 2rem; font-weight: normal; line-height: 1.25; }
+    h2 { font-size: 1.25rem; font-weight: bold; margin: 2.5rem 0 0.75rem; }
+    h3 { font-size: 1rem; font-weight: bold; margin: 1.5rem 0 0.5rem; }
+    p { margin-bottom: 1rem; }
+    ul, ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+    li { margin-bottom: 0.35rem; }
+    a { color: var(--accent); }
+    .sidenote { float: right; clear: right; width: 190px; margin: 0 -210px 1rem 1rem; font-size: 13px; color: var(--muted); line-height: 1.5; border-left: 2px solid var(--border); padding-left: 0.75rem; }
+    @media (max-width: 940px) { .sidenote { float: none; width: 100%; margin: 0 0 1rem; } }
+    .callout { background: var(--highlight); border-left: 3px solid #ca8a04; padding: 0.75rem 1rem; margin: 1.5rem 0; font-size: 0.95rem; }
+    .callout strong { display: block; margin-bottom: 0.25rem; }
+    .memory-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1.5rem 0; }
+    @media (max-width: 600px) { .memory-grid { grid-template-columns: 1fr; } }
+    .memory-card { border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
+    .memory-card .mc-label { font-family: monospace; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.4rem; }
+    .memory-card .mc-name { font-weight: bold; font-size: 1rem; margin-bottom: 0.5rem; }
+    .memory-card .mc-body { font-size: 0.85rem; color: var(--muted); line-height: 1.5; }
+    .memory-card.type1 { border-top: 3px solid #2563eb; }
+    .memory-card.type2 { border-top: 3px solid #16a34a; }
+    .memory-card.type3 { border-top: 3px solid #9333ea; }
+    .flow { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin: 1.5rem 0; font-family: monospace; font-size: 0.82rem; }
+    .flow-box { background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.75rem; white-space: nowrap; }
+    .flow-arrow { color: var(--muted); font-size: 1.1rem; }
+    pre { background: var(--code-bg); color: var(--code-fg); padding: 1.25rem 1.5rem; border-radius: 6px; overflow-x: auto; font-family: "Menlo","Monaco","Fira Code",monospace; font-size: 0.82rem; line-height: 1.6; margin: 1rem 0; position: relative; }
+    .copy-btn { position: absolute; top: 0.6rem; right: 0.6rem; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #cdd6f4; padding: 0.25rem 0.65rem; border-radius: 4px; font-size: 0.75rem; cursor: pointer; font-family: monospace; }
+    .copy-btn:hover { background: rgba(255,255,255,0.2); }
+    code { font-family: "Menlo","Monaco","Fira Code",monospace; font-size: 0.85em; }
+    p code, li code { background: #f0f0ec; padding: 0.1em 0.35em; border-radius: 3px; }
+    .kw { color: #cba6f7; } .fn { color: #89b4fa; } .str { color: #a6e3a1; }
+    .num { color: #fab387; } .cmt { color: #6c7086; font-style: italic; }
+    table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.9rem; }
+    th { background: var(--ink); color: white; padding: 0.5rem 0.75rem; text-align: left; font-family: monospace; font-weight: normal; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: #f5f5f3; }
+    .output-label { font-family: monospace; font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.25rem; }
+    .output-block { background: #0d1117; color: #58a6ff; padding: 1rem 1.5rem; border-radius: 6px; font-family: monospace; font-size: 0.82rem; line-height: 1.7; margin: 1rem 0; }
+    .quiz { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 1.5rem; margin: 2.5rem 0; }
+    .quiz h2 { margin-top: 0; }
+    .question { margin-bottom: 2rem; }
+    .question p { font-weight: bold; margin-bottom: 0.75rem; }
+    .options { display: flex; flex-direction: column; gap: 0.5rem; }
+    .option { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; user-select: none; font-size: 0.95rem; background: white; }
+    .option:hover { background: #f0f4ff; }
+    .option.correct { background: #dcfce7; border-color: var(--correct); }
+    .option.wrong { background: #fee2e2; border-color: var(--wrong); }
+    .option input { margin-top: 3px; flex-shrink: 0; }
+    .feedback { margin-top: 0.75rem; font-size: 0.9rem; min-height: 1.2em; color: var(--muted); }
+    .feedback.correct { color: var(--correct); font-weight: bold; }
+    .feedback.wrong { color: var(--wrong); }
+    .check-btn { margin-top: 1.25rem; background: var(--accent); color: white; border: none; padding: 0.6rem 1.5rem; border-radius: 4px; font-size: 0.95rem; cursor: pointer; font-family: inherit; }
+    .check-btn:hover { opacity: 0.9; }
+    .score { margin-top: 1rem; font-size: 1rem; font-weight: bold; text-align: center; display: none; }
+    .lesson-nav { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); font-size: 0.9rem; color: var(--muted); }
+    .teacher-prompt { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 1rem 1.25rem; margin-top: 2rem; font-size: 0.9rem; }
+    .breadcrumb { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+    .breadcrumb a { color: var(--muted); }
+  
+/* ── Deep Dive ───────────────────────────────────────────────── */
+.dd-wrap {
+  border: 1px solid #e5e5e0;
+  border-radius: 8px;
+  margin: 2.5rem 0;
+  overflow: hidden;
+}
+.dd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  background: #1a1a2e;
+  cursor: pointer;
+  user-select: none;
+  gap: 1rem;
+}
+.dd-header:hover { background: #1e1e38; }
+.dd-header-left { display: flex; flex-direction: column; gap: 0.15rem; }
+.dd-label {
+  font-family: monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.dd-sub { font-size: 0.78rem; color: #6c7086; }
+.dd-chevron { color: #6c7086; font-size: 1.1rem; transition: transform .2s; }
+.dd-wrap.open .dd-chevron { transform: rotate(90deg); }
+.dd-body { display: none; padding: 1.25rem 1.5rem; background: #fafaf8; }
+.dd-wrap.open .dd-body { display: block; }
+.dd-block { margin-bottom: 1.75rem; }
+.dd-block:last-child { margin-bottom: 0; }
+.dd-block-title {
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e5e5e0;
+}
+.dd-tension {
+  display: grid;
+  grid-template-columns: 210px 1.5rem 1fr;
+  gap: 0.25rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f0f0ec;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  align-items: baseline;
+}
+.dd-tension:last-child { border-bottom: none; }
+.dd-tension-label { font-weight: bold; color: #1a1a1a; }
+.dd-tension-sep { color: #aaa; text-align: center; }
+.dd-tension-body { color: #555; }
+.dd-q {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 0.75rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid #f0f0ec;
+}
+.dd-q:last-child { border-bottom: none; }
+.dd-q-num {
+  font-family: monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  background: #1a1a2e;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.6rem;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+}
+.dd-q-text { font-size: 0.9rem; font-weight: bold; color: #1a1a1a; margin-bottom: 0.35rem; line-height: 1.5; }
+.dd-hint { font-size: 0.82rem; color: #555; margin-bottom: 0.5rem; font-style: italic; }
+.dd-hint strong { font-style: normal; color: #2563eb; }
+.dd-ans-btn {
+  font-size: 0.8rem;
+  font-family: monospace;
+  background: none;
+  border: 1px solid #e5e5e0;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  color: #555;
+  margin-bottom: 0.5rem;
+}
+.dd-ans-btn:hover { background: #f0f4ff; color: #2563eb; border-color: #93c5fd; }
+.dd-ans {
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: #333;
+  background: #eff6ff;
+  border-left: 3px solid #2563eb;
+  padding: 0.75rem 1rem;
+  border-radius: 0 4px 4px 0;
+}
+.dd-pitfall {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f0f0ec;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  align-items: baseline;
+}
+.dd-pitfall:last-child { border-bottom: none; }
+.dd-pitfall-title { font-weight: bold; color: #dc2626; }
+.dd-pitfall-body { color: #555; }
+@media (max-width: 640px) {
+  .dd-tension, .dd-pitfall { grid-template-columns: 1fr; }
+  .dd-tension-sep { display: none; }
+}
+
+</style>
+</head>
+<body>
+<article>
+  <header>
+    <div class="breadcrumb">
+      <a href="./0001-what-is-an-ai-agent.html">L1</a> ·
+      <a href="./0002-your-first-agent-in-nodejs.html">L2</a> ·
+      <a href="./0003-tool-design-and-structured-output.html">L3</a>
+    </div>
+    <div class="lesson-meta">Lesson 04 · AI Agents · ~25 min</div>
+    <h1>Memory &amp; Conversation State</h1>
+    <p style="color:var(--muted);font-size:0.95rem;margin-top:0.5rem;">
+      Every agent you have built so far forgets everything when the process ends.
+      This lesson fixes that — and shows you which kind of memory to reach for when.
+    </p>
+  </header>
+
+  <h2>Three kinds of memory</h2>
+
+  <div class="sidenote">
+    Course ref: <em>Level 3, §3.10 — Conversation History</em> and
+    <em>§3.11 — Semantic Memory.</em>
+  </div>
+
+  <div class="memory-grid">
+    <div class="memory-card type1">
+      <div class="mc-label">Type 1</div>
+      <div class="mc-name">In-context</div>
+      <div class="mc-body">The <code>messages</code> array. Lives in RAM. Fast. Bounded by the context window. Gone when the process exits.</div>
+    </div>
+    <div class="memory-card type2">
+      <div class="mc-label">Type 2</div>
+      <div class="mc-name">Persistent</div>
+      <div class="mc-body">Messages saved to a DB (Postgres, Redis, file). Survives restarts. Loaded by thread ID. Backbone of multi-session chat.</div>
+    </div>
+    <div class="memory-card type3">
+      <div class="mc-label">Type 3</div>
+      <div class="mc-name">Semantic</div>
+      <div class="mc-body">Facts stored as vector embeddings. Retrieved by meaning, not exact key. Cross-session knowledge that scales indefinitely.</div>
+    </div>
+  </div>
+
+  <p>
+    You have been using Type 1 in every lesson so far. This lesson adds Type 2.
+    Type 3 (vector memory) is Lesson 6 — once you have the foundation.
+  </p>
+
+  <h2>The context window is not infinite</h2>
+
+  <p>
+    Every API call sends the full <code>messages</code> array. That means cost and latency
+    grow with every turn. Two practical limits to know:
+  </p>
+
+  <table>
+    <thead><tr><th>Model</th><th>Context window</th><th>Practical conversation limit</th></tr></thead>
+    <tbody>
+      <tr><td>claude-haiku-4-5</td><td>200k tokens</td><td>~500 back-and-forth turns</td></tr>
+      <tr><td>claude-sonnet-4-6</td><td>200k tokens</td><td>~500 turns, higher quality</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    For most agents that limit is irrelevant. But cost matters — sending 400 old messages
+    on every call burns tokens you do not need. The fix: trim the oldest messages once you
+    exceed a threshold, or keep a rolling summary.
+  </p>
+
+  <h2>Conversation threading</h2>
+
+  <p>
+    A <strong>thread</strong> is one isolated conversation — like a single chat window.
+    Each thread has a unique ID. On every request you load the thread, run the agent, then save.
+  </p>
+
+  <div class="flow">
+    <div class="flow-box">Request + threadId</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-box">Load messages</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-box">Run agent</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-box">Save messages</div>
+    <div class="flow-arrow">&#8594;</div>
+    <div class="flow-box">Return response</div>
+  </div>
+
+  <p>
+    In NestJS terms: the thread store is a repository. The agent service loads by
+    <code>threadId</code>, runs the loop, persists the result. No new concepts —
+    just a data-access pattern you already know.
+  </p>
+
+  <h2>Build it: stateful agent with file-based persistence</h2>
+
+  <p>
+    We use JSON files per thread — no external dependencies for now. In production, swap
+    <code>loadThread</code> and <code>saveThread</code> for a Postgres repository.
+    The agent code stays identical.
+  </p>
+
+  <div style="position:relative">
+  <pre id="code-main"><code><span class="cmt">// stateful-agent.mjs
+// Usage:
+//   node --env-file=.env stateful-agent.mjs &lt;threadId&gt; "&lt;message&gt;"
+//
+// Try this sequence:
+//   node --env-file=.env stateful-agent.mjs abc123 "My name is Derese"
+//   node --env-file=.env stateful-agent.mjs abc123 "What is my name?"   (new process — still remembers)
+//   node --env-file=.env stateful-agent.mjs xyz999 "What is my name?"   (different thread — blank)</span>
+
+<span class="kw">import</span> Anthropic <span class="kw">from</span> <span class="str">'@anthropic-ai/sdk'</span>;
+<span class="kw">import</span> { readFileSync, writeFileSync, existsSync, mkdirSync } <span class="kw">from</span> <span class="str">'fs'</span>;
+
+<span class="kw">const</span> client = <span class="kw">new</span> <span class="fn">Anthropic</span>({ apiKey: process.env.ANTHROPIC_API_KEY });
+<span class="fn">mkdirSync</span>(<span class="str">'./threads'</span>, { recursive: <span class="kw">true</span> });
+
+<span class="cmt">// ── THREAD STORE (swap this layer for Postgres/Redis in production) ───────────</span>
+
+<span class="kw">function</span> <span class="fn">loadThread</span>(threadId) {
+  <span class="kw">const</span> path = <span class="str">`./threads/</span>${threadId}<span class="str">.json`</span>;
+  <span class="kw">return</span> <span class="fn">existsSync</span>(path) ? <span class="fn">JSON.parse</span>(<span class="fn">readFileSync</span>(path, <span class="str">'utf8'</span>)) : [];
+}
+
+<span class="kw">function</span> <span class="fn">saveThread</span>(threadId, messages) {
+  <span class="fn">writeFileSync</span>(<span class="str">`./threads/</span>${threadId}<span class="str">.json`</span>, <span class="fn">JSON.stringify</span>(messages, <span class="kw">null</span>, <span class="num">2</span>));
+}
+
+<span class="cmt">// ── CONTEXT TRIMMING (keep last N turns to control token cost) ────────────────</span>
+
+<span class="kw">function</span> <span class="fn">trimToLastN</span>(messages, n = <span class="num">20</span>) {
+  <span class="kw">return</span> messages.length &lt;= n ? messages : messages.<span class="fn">slice</span>(-n);
+}
+
+<span class="cmt">// ── AGENT ─────────────────────────────────────────────────────────────────────</span>
+
+<span class="kw">async function</span> <span class="fn">chat</span>(threadId, userMessage) {
+  <span class="kw">const</span> history = <span class="fn">loadThread</span>(threadId);
+
+  console.<span class="fn">log</span>(<span class="str">`[thread:</span>${threadId}<span class="str">] </span>${history.length}<span class="str"> prior messages`</span>);
+
+  <span class="kw">const</span> messages = [
+    ...<span class="fn">trimToLastN</span>(history),           <span class="cmt">// past context, trimmed</span>
+    { role: <span class="str">'user'</span>, content: userMessage }, <span class="cmt">// new turn</span>
+  ];
+
+  <span class="kw">const</span> response = <span class="kw">await</span> client.messages.<span class="fn">create</span>({
+    model: <span class="str">'claude-haiku-4-5-20251001'</span>,
+    max_tokens: <span class="num">1024</span>,
+    system: <span class="str">'You are a helpful assistant with memory of this conversation.'</span>,
+    messages,
+  });
+
+  <span class="kw">const</span> reply = response.content
+    .<span class="fn">filter</span>(b => b.type === <span class="str">'text'</span>)
+    .<span class="fn">map</span>(b => b.text)
+    .<span class="fn">join</span>(<span class="str">''</span>);
+
+  console.<span class="fn">log</span>(<span class="str">`User: </span>${userMessage}`</span>);
+  console.<span class="fn">log</span>(<span class="str">`Assistant: </span>${reply}\n`</span>);
+
+  <span class="cmt">// Save the FULL history (not trimmed) — trim only what we SEND to the API</span>
+  <span class="fn">saveThread</span>(threadId, [
+    ...history,
+    { role: <span class="str">'user'</span>, content: userMessage },
+    { role: <span class="str">'assistant'</span>, content: reply },
+  ]);
+
+  <span class="kw">return</span> reply;
+}
+
+<span class="cmt">// ── ENTRYPOINT ────────────────────────────────────────────────────────────────</span>
+
+<span class="kw">const</span> [,, threadId, ...rest] = process.argv;
+<span class="kw">if</span> (!threadId || !rest.length) {
+  console.<span class="fn">log</span>(<span class="str">'Usage: node stateful-agent.mjs &lt;threadId&gt; "&lt;message&gt;"'</span>);
+  process.<span class="fn">exit</span>(<span class="num">1</span>);
+}
+<span class="kw">await</span> <span class="fn">chat</span>(threadId, rest.<span class="fn">join</span>(<span class="str">' '</span>));</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-main',this)">copy</button>
+  </div>
+
+  <h3>Run it — across separate processes</h3>
+
+  <pre><code>node --env-file=.env stateful-agent.mjs abc123 "My name is Derese, I build NestJS apps"
+node --env-file=.env stateful-agent.mjs abc123 "What do you know about me?"
+node --env-file=.env stateful-agent.mjs xyz999 "What do you know about me?"</code></pre>
+
+  <div class="output-label">Expected (second call)</div>
+  <div class="output-block">[thread:abc123] 2 prior messages
+User: What do you know about me?
+Assistant: You told me your name is Derese and that you build NestJS applications.</div>
+
+  <div class="output-label">Expected (third call — different thread)</div>
+  <div class="output-block">[thread:xyz999] 0 prior messages
+User: What do you know about me?
+Assistant: I don't have any information about you yet. Feel free to share!</div>
+
+  <p>
+    The thread files appear under <code>./threads/</code>. Open one — you'll see the raw
+    messages array as JSON. That is the agent's long-term memory, fully inspectable and editable.
+  </p>
+
+  <h2>The trim vs save distinction</h2>
+
+  <div class="callout">
+    <strong>Critical pattern.</strong>
+    Trim what you <em>send to the API</em> to control cost.
+    Save the <em>full history</em> to disk so you never lose turns.
+    These two things are independent.
+  </div>
+
+  <p>
+    The code above saves to <code>history</code> (the full array) but sends
+    <code>trimToLastN(history)</code> to the API. This means:
+  </p>
+  <ul>
+    <li>Old turns are preserved on disk for auditing or replay</li>
+    <li>The API only pays for the last 20 turns each call</li>
+    <li>You can increase the trim window any time without data loss</li>
+  </ul>
+
+  <h2>When to add semantic memory (Type 3)</h2>
+
+  <p>
+    Persistent threads solve the session problem but not the <em>scale</em> problem.
+    If a user has 500 past conversations, you cannot load all 10,000 messages into context.
+    That is when you need semantic memory:
+  </p>
+
+  <table>
+    <thead><tr><th>Situation</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td>Single ongoing conversation</td><td>In-context (messages array)</td></tr>
+      <tr><td>Returning users across sessions</td><td>Persistent thread (DB)</td></tr>
+      <tr><td>Long history — retrieve only relevant past facts</td><td>Semantic / vector memory</td></tr>
+      <tr><td>Shared knowledge base across many users</td><td>Semantic / vector memory</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Semantic memory (embeddings + vector search) is Lesson 6. You need the threading
+    foundation first.
+  </p>
+
+  <div class="quiz">
+    <h2>Check your understanding</h2>
+    <p style="font-weight:normal;color:var(--muted);margin-bottom:1.5rem;font-size:0.9rem;">From memory. No scrolling back.</p>
+
+    <div class="question" id="q1">
+      <p>1. You trim the messages to the last 20 before sending to the API. Should you also trim what you save to the database?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q1" value="a" /><span>Yes — save only the last 20 to keep the DB small</span></label>
+        <label class="option"><input type="radio" name="q1" value="b" /><span>No — save the full history; only trim what you send to the API</span></label>
+        <label class="option"><input type="radio" name="q1" value="c" /><span>It doesn't matter — the agent ignores old messages anyway</span></label>
+        <label class="option"><input type="radio" name="q1" value="d" /><span>Yes — older messages are never useful</span></label>
+      </div>
+      <div class="feedback" id="f1"></div>
+    </div>
+
+    <div class="question" id="q2">
+      <p>2. Two users share the same agent but must not see each other's conversation history. What mechanism isolates them?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q2" value="a" /><span>Running separate Node.js processes per user</span></label>
+        <label class="option"><input type="radio" name="q2" value="b" /><span>Unique thread IDs — each user's messages are stored and loaded separately</span></label>
+        <label class="option"><input type="radio" name="q2" value="c" /><span>The LLM automatically ignores other users' messages</span></label>
+        <label class="option"><input type="radio" name="q2" value="d" /><span>Clearing the messages array between requests</span></label>
+      </div>
+      <div class="feedback" id="f2"></div>
+    </div>
+
+    <div class="question" id="q3">
+      <p>3. A user has 500 past conversations totalling 50,000 messages. They ask "what did we discuss about billing last month?" What memory type is needed?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q3" value="a" /><span>In-context — load all 50,000 messages into the array</span></label>
+        <label class="option"><input type="radio" name="q3" value="b" /><span>Persistent thread — load the latest thread only</span></label>
+        <label class="option"><input type="radio" name="q3" value="c" /><span>Semantic memory — embed and retrieve only the relevant past messages</span></label>
+        <label class="option"><input type="radio" name="q3" value="d" /><span>No memory needed — rephrase the question to include all context</span></label>
+      </div>
+      <div class="feedback" id="f3"></div>
+    </div>
+
+    <div class="question" id="q4">
+      <p>4. In a NestJS app, where does the thread store logic belong?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q4" value="a" /><span>Inside the agent loop itself — it should handle its own persistence</span></label>
+        <label class="option"><input type="radio" name="q4" value="b" /><span>In a repository or service — the agent loop just receives and returns messages</span></label>
+        <label class="option"><input type="radio" name="q4" value="c" /><span>In a global singleton shared across all requests</span></label>
+        <label class="option"><input type="radio" name="q4" value="d" /><span>In the controller — closest to the HTTP layer</span></label>
+      </div>
+      <div class="feedback" id="f4"></div>
+    </div>
+
+    <button class="check-btn" onclick="checkAll()">Check answers</button>
+    <div class="score" id="score"></div>
+  </div>
+
+  <h2>Primary source for this lesson</h2>
+  <p>
+    <strong>Course slides: Level 3, §3.10 and §3.11</strong> — open
+    <code>resources/AI_Agents_Course_Slides/AI_Agents_Slides_Level3.pdf</code>.
+    §3.10 covers conversation threading and checkpointers (LangGraph's term for thread stores).
+    §3.11 introduces semantic memory and vector stores. The patterns are framework-agnostic —
+    the Node.js implementation you just built uses the same architecture.
+  </p>
+
+  
+  <!-- ── DEEP DIVE ─────────────────────────────────────────────────────────── -->
+  <div class="dd-wrap" id="dd-l1_1.8">
+    <div class="dd-header" onclick="toggleDD('l1_1.8')">
+      <div class="dd-header-left">
+        <span class="dd-label">&#9650; Senior &amp; Staff Deep Dive</span>
+        <span class="dd-sub">Engineering tensions &bull; staff-level questions with answers &bull; production pitfalls</span>
+      </div>
+      <span class="dd-chevron">&#9654;</span>
+    </div>
+    <div class="dd-body">
+      <div class="dd-block">
+<div class="dd-block-title">&#9889; Engineering tensions</div>
+<div class="dd-tension"><span class="dd-tension-label">Memory freshness vs. retrieval latency</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">Semantic search adds 50–200ms per query. For a user waiting for a response, this is noticeable. You can pre-fetch memory in parallel with other operations, cache recent memories, or accept the latency. Each choice has engineering cost.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Memory precision vs. recall</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">High-k retrieval (many memories) reduces missing relevant context but floods the prompt with noise. Low-k keeps the context clean but risks missing the critical memory. k=3–5 is the typical starting point; tune empirically for your domain.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Hotpath vs. background memory writing</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">Writing memory synchronously means it's available for the next turn but adds response latency. Writing asynchronously removes the latency hit but means the agent may not remember something it just learned in the previous turn. Choose based on whether you need 'instant recall' or 'eventual consistency.'</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Stateful chatbot vs. stateless architecture</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">A stateful chatbot with checkpointing lets users resume conversations but adds a dependency. A stateless chatbot passes conversation history in the request payload — simpler but puts state management on the client.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">add_messages deduplication vs. custom message handling</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">add_messages deduplicates by message ID. If you construct messages with the same ID for testing, deduplication will silently drop them. Understand the reducer's semantics before relying on it.</span></div>
+</div>
+<div class="dd-block">
+<div class="dd-block-title">&#128172; Staff-level questions</div>
+<div class="dd-q">
+<div class="dd-q-num">Q1</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Design a memory system for a multi-tenant SaaS where User A's memories must never surface in User B's session, and memories must be scoped by workspace.</div>
+<div class="dd-hint"><strong>Steer:</strong> Isolation is a namespace problem. What keys do you use, and where do you enforce the filtering?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.8-l2_2.11-0')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.8-l2_2.11-0" style="display:none">Use hierarchical namespacing: namespace = (tenant_id, workspace_id, 'memories'). Every write to the memory store includes these namespace components. Every read filters by the same namespace — physically impossible to retrieve cross-tenant memories because the vector search is scoped to the namespace. At the application layer: extract tenant_id and workspace_id from the authenticated request context, never from user-provided input. Validate at both the write and read path. In LangGraph's InMemoryStore, the namespace parameter enforces this isolation. For production (Pinecone, Weaviate, pgvector), add a metadata filter: {tenant_id: X, workspace_id: Y} to every similarity search. Audit: log every memory write and read with the namespace — if you ever see a cross-namespace access in logs, that's a critical security incident.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q2</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you handle conflicting memories? User stored 'prefers Python' in January and 'now works in Go' in March. How do you resolve at retrieval time?</div>
+<div class="dd-hint"><strong>Steer:</strong> Conflicts are temporal — the newer one is usually correct. But 'usually' is not 'always.'</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.8-l2_2.11-1')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.8-l2_2.11-1" style="display:none">Three strategies: (1) Recency-weighted retrieval: store a timestamp with every memory. When two memories conflict, surface the newer one with higher priority. Include timestamps in the retrieved context so the LLM can reason about recency: 'User prefers Python (Jan 2024), User now works in Go (Mar 2024).' (2) Update-on-conflict: when writing a new memory, check if it contradicts an existing one (LLM-based conflict detection). If yes, update the existing memory rather than adding a duplicate. Store the change history. (3) Explicit contradiction flag: mark conflicting memories and surface both with a note: 'There is a conflict in user preferences. The more recent preference is Go.' Let the LLM handle resolution contextually. In practice: use recency-weighting as default, add conflict detection for high-value memory types (user preferences, contact info).</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q3</div>
+<div class="dd-q-body">
+<div class="dd-q-text">What is your strategy for memory maintenance at scale? When does pruning become necessary, and what is the decision rule?</div>
+<div class="dd-hint"><strong>Steer:</strong> Memory stores that only grow eventually degrade retrieval quality and increase cost. Pruning needs a principled rule, not ad-hoc deletion.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.8-l2_2.11-2')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.8-l2_2.11-2" style="display:none">Pruning becomes necessary when: (1) Retrieval latency increases beyond your SLA (the index is too large to search efficiently), (2) Stale memories are surfacing in top-k results and affecting output quality, (3) Storage cost exceeds budget. Decision rule for what to prune: importance score × recency score. Importance: was this memory ever retrieved and used? Track retrieval frequency. Recency: how old is this memory? Apply exponential decay. Score = retrieval_count × exp(-age_days / half_life). Prune memories below a threshold score. For user-facing systems: add a TTL to low-confidence or factual memories (facts change). Keep procedural memories (the user's workflow preferences) indefinitely unless explicitly updated. Never delete the 5 most recently accessed memories regardless of score.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q4</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Design an evaluation framework for memory quality. How do you measure whether the memory system is improving agent responses?</div>
+<div class="dd-hint"><strong>Steer:</strong> Memory impact is an attribution problem — how do you know whether the retrieved memory changed the response?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.8-l2_2.11-3')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.8-l2_2.11-3" style="display:none">A/B evaluation: split traffic 50/50 — treatment group receives retrieved memories in context, control group does not. Use LLM-as-judge to rate both responses on relevance, personalization, and accuracy. Memory lift = quality_with_memory - quality_without_memory. Also measure: (1) Memory relevance rate — what % of retrieved memories are actually relevant to the query? Rate with LLM-as-judge. (2) Memory usage rate — what % of the time does the LLM actually reference the retrieved memory in its response? (3) Personalization score — does the response address the user's known preferences? Track with a rubric. (4) Retrieval cost vs. quality lift — is the 150ms retrieval latency and token cost justified by the quality improvement? If memory lift is <5% and cost is high, simplify.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q5</div>
+<div class="dd-q-body">
+<div class="dd-q-text">When should you use vector store (semantic) memory vs. key-value (exact lookup) vs. SQL (structured query) vs. knowledge graph (entity relationships)?</div>
+<div class="dd-hint"><strong>Steer:</strong> Each storage type has a query pattern it excels at. Match the query pattern to the storage type.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.8-l2_2.11-4')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.8-l2_2.11-4" style="display:none">Vector store: when you need 'find memories semantically related to this current context' — fuzzy, meaning-based retrieval. Use for: user preferences, past experiences, anything where exact matching fails. Key-value: when you need 'fetch this specific fact by ID instantly' — low latency, exact match. Use for: user timezone, subscription tier, last session timestamp — structured facts with known keys. SQL: when you need 'find all memories where topic=X and date>Y' — structured, filterable, aggregatable. Use for: interaction history, event logs, auditable records. Knowledge graph: when you need 'traverse relationships between entities' — user works at company X, company X uses technology Y, technology Y has known vulnerability Z. Use for: rich entity relationship modeling where the connections matter as much as the facts. Most production systems use 2–3 of these in combination.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q6</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How does memory change the failure modes of an agent compared to a memoryless one? What new bugs does it introduce?</div>
+<div class="dd-hint"><strong>Steer:</strong> Memory adds a new data source that can be wrong, outdated, or irrelevant. What does the agent do when memory misleads it?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.8-l2_2.11-5')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.8-l2_2.11-5" style="display:none">New failure modes: (1) Memory poisoning — a bad interaction writes incorrect information to memory. The agent then retrieves and acts on wrong information indefinitely. Mitigate: add a confidence score to memories, require multiple consistent signals before storing high-confidence memories. (2) Memory hallucination — the LLM 'remembers' something that's actually not in the retrieved memories. The retrieved context acts as a false anchor. Mitigate: instruct the agent 'only reference facts that appear in the provided memories' and add output validation. (3) Stale memory relevance — a retrieved memory was accurate 6 months ago and is now misleading. Mitigate: include memory timestamps in context and instruct: 'memories older than 30 days should be treated as potentially outdated.' (4) Memory selection bias — the retriever consistently retrieves certain types of memories over others. The agent develops a skewed view of the user. Audit retrieval diversity regularly.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q7</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you implement conversation summarization when message history grows too long?</div>
+<div class="dd-hint"><strong>Steer:</strong> The history needs to shrink without losing important context.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.8-l2_2.11-6')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.8-l2_2.11-6" style="display:none">Add a check_and_trim_history node that runs before the main assistant node: if token_count(messages) > threshold (e.g., 75% of context window): run a summarization LLM call: 'Summarize the key facts and decisions from this conversation history in 200 words.' Replace old messages with: [HumanMessage('Previous conversation summary: {summary}'), ...last 5 messages]. The last 5 messages are kept verbatim — they're most relevant and the LLM needs them for continuity. The summary captures key facts and decisions without verbatim dialogue. Track: how often summarization triggers, token count before and after, response quality on queries that reference summarized content. If quality degrades on summarized queries, increase the number of verbatim messages retained.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q8</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Design a multi-user chatbot where different users can share a conversation thread (team chat with AI). How do you design state and thread IDs?</div>
+<div class="dd-hint"><strong>Steer:</strong> Multiple users in one thread means messages need user attribution, and thread IDs must be team-scoped.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.8-l2_2.11-7')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.8-l2_2.11-7" style="display:none">Thread ID: team_{team_id}_channel_{channel_id} — scoped to the shared context, not per-user. State adds: sender_user_id to each message metadata. Messages: use add_messages but each message includes {role: 'human', content: '...', metadata: {user_id: X, username: 'Alice'}}. The assistant node sees all messages with attribution. System prompt adapts: 'This is a team conversation. Multiple users may ask questions. Address each user by name when responding to them specifically. When summarizing, note which user provided which information.' Access control: validate that the requesting user is a member of team_{team_id} before allowing reads or writes to the thread. The thread is shared; access is controlled by team membership, not individual thread IDs.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q9</div>
+<div class="dd-q-body">
+<div class="dd-q-text">What does tools_condition check, and how does it create the agent loop?</div>
+<div class="dd-hint"><strong>Steer:</strong> tools_condition is the routing function at the heart of the chatbot loop. Trace exactly what it reads and what it returns.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l1_1.8-l2_2.11-8')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l1_1.8-l2_2.11-8" style="display:none">tools_condition reads the last message in state.messages. If the last message is an AIMessage with tool_calls (the LLM decided to use a tool), it returns 'tools' → routes to the ToolNode. If the last message is an AIMessage without tool_calls (the LLM gave a final answer), it returns END → terminates. This creates the loop: assistant_node → tools_condition → (if tool_calls) tools_node → assistant_node (the tool result becomes a new message, prompting the assistant to continue). The loop terminates when the assistant produces a response without requesting any tools. The key insight: the 'loop' is not an explicit while loop in your code — it's an emergent property of the graph's conditional edge routing. tools_condition is the termination condition.</div>
+</div>
+</div>
+</div>
+</div>
+<div class="dd-block">
+<div class="dd-block-title">&#128308; Production pitfalls</div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Memory without forgetting</span><span class="dd-pitfall-body">A memory store that only ever grows eventually surfaces outdated, contradictory memories. After 6 months, early preferences may actively mislead. Implement memory decay, importance scoring, or explicit update mechanisms from day one.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Namespace collision in multi-tenant systems</span><span class="dd-pitfall-body">Using flat keys (memory_123) instead of hierarchical namespacing (user_A/workspace_1/memory_123) means memories can bleed across tenants. Always namespace by user_id and context_type from day one — retrofitting is painful.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Synchronous memory retrieval blocking responses</span><span class="dd-pitfall-body">Calling the memory store synchronously before every response adds 150–300ms to P50 latency. Parallelize: start memory retrieval at the same time as other initialization steps using asyncio.gather, not sequentially.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Unbounded message history</span><span class="dd-pitfall-body">add_messages accumulates all messages forever. After a long conversation, the messages list consumes the entire context window. Implement sliding window trimming or summarization for long-running sessions.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Thread ID collision</span><span class="dd-pitfall-body">Using simple IDs across a multi-tenant system will eventually collide. Always namespace: customer_A_session_1, never just session_1.</span></div>
+</div>
+
+    </div>
+  </div>
+
+  <div class="lesson-nav">
+    <div><a href="./0003-tool-design-and-structured-output.html">← Lesson 3 — Tool Design &amp; Structured Output</a></div>
+    <div style="margin-top:0.5rem;">
+      <strong>Next:</strong>
+      <a href="./0005-building-a-nestjs-agent-service.html">Lesson 5 — Building a NestJS Agent Service</a>
+      — wrap the agent loop into a proper NestJS service with dependency injection, DTOs, and an HTTP endpoint.
+    </div>
+  </div>
+
+  <div class="teacher-prompt">
+    <strong>Ask your teacher.</strong> Ask how to replace the file store with a TypeORM repository.
+    Ask how threads map to sessions in your current NestJS app.
+    Open Claude Code and ask — it has your full learning context.
+  </div>
+</article>
+
+<script>
+  const answers = { q1:'b', q2:'b', q3:'c', q4:'b' };
+  const explanations = {
+    q1: {
+      b: 'Correct. Trimming controls what you send to the API (cost). Saving preserves the full record. These are independent concerns — trimming the DB loses history permanently.',
+      wrong: 'Not quite. Trim what you send to the API to control cost. Always save the full history — you may need it for auditing, replay, or widening the trim window later.'
+    },
+    q2: {
+      b: 'Correct. Thread IDs are the isolation mechanism. Each user gets a unique thread ID; their messages are stored and loaded separately with no overlap.',
+      wrong: 'Not quite. Thread IDs are the standard isolation pattern. Separate processes are overkill. The LLM has no concept of "other users" — isolation is entirely your responsibility.'
+    },
+    q3: {
+      c: 'Correct. 50,000 messages cannot fit in context. Semantic memory uses embeddings to retrieve only the handful of past messages relevant to the current question.',
+      wrong: 'Not quite. You cannot load 50,000 messages into the context window. Semantic memory (vector search) retrieves only the relevant subset by meaning.'
+    },
+    q4: {
+      b: 'Correct. Separation of concerns: a repository handles persistence; the agent service handles LLM orchestration. The agent loop only cares about messages in, messages out.',
+      wrong: 'Not quite. In NestJS, persistence belongs in a repository or service layer. The agent loop should be decoupled from storage — swap DB implementations without touching the loop.'
+    }
+  };
+
+  function checkAll() {
+    let correct = 0;
+    const total = Object.keys(answers).length;
+    Object.entries(answers).forEach(([qid, correctVal]) => {
+      const selected = document.querySelector(`input[name="${qid}"]:checked`);
+      const feedback = document.getElementById('f' + qid.slice(1));
+      const options = document.querySelectorAll(`input[name="${qid}"]`);
+      options.forEach(opt => {
+        const label = opt.parentElement;
+        label.classList.remove('correct','wrong');
+        if (opt.value === correctVal) label.classList.add('correct');
+        else if (opt.checked) label.classList.add('wrong');
+      });
+      if (!selected) { feedback.textContent = 'No answer selected.'; feedback.className = 'feedback'; return; }
+      const isCorrect = selected.value === correctVal;
+      if (isCorrect) { correct++; feedback.textContent = explanations[qid][correctVal]; feedback.className = 'feedback correct'; }
+      else { feedback.textContent = explanations[qid].wrong; feedback.className = 'feedback wrong'; }
+    });
+    const scoreEl = document.getElementById('score');
+    scoreEl.style.display = 'block';
+    if (correct === total) { scoreEl.style.color = 'var(--correct)'; scoreEl.textContent = `${correct}/${total} — Solid. Build the stateful agent, then move to Lesson 5.`; }
+    else { scoreEl.style.color = correct >= 2 ? '#92400e' : 'var(--wrong)'; scoreEl.textContent = `${correct}/${total} — Re-read the trim vs save section, then try again.`; }
+  }
+
+  function copyCode(id, btn) {
+    navigator.clipboard.writeText(document.getElementById(id).innerText).then(() => {
+      btn.textContent = 'copied!';
+      setTimeout(() => btn.textContent = 'copy', 1500);
+    });
+  }
+</script>
+<script>
+
+function toggleDD(id) {
+  const w = document.getElementById('dd-' + id);
+  if (w) w.classList.toggle('open');
+}
+function toggleAns(id) {
+  const el = document.getElementById(id);
+  const btn = el?.previousElementSibling;
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (btn) btn.textContent = open ? '▶ Show answer' : '▼ Hide answer';
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+---
+import ThemeHead   from '@/components/ThemeHead.astro';
+import ThemeToggle from '@/components/ThemeToggle.astro';
+import { LESSONS } from '@/data/lessons';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lessons — AI Agents</title>
+  <ThemeHead />
+</head>
+<body>
+  <article class="lesson-article">
+    <header class="lesson-header">
+      <div class="lesson-breadcrumb">
+        <a href="/">Study Path</a>
+      </div>
+      <div class="lesson-num">AI Agents · Node.js · NestJS</div>
+      <h1>Lessons</h1>
+      <p class="lesson-subtitle">L01–L34 · C1–C2 capstones · cookbook &amp; checklist · EX1–EX4 exercises — in study order.</p>
+    </header>
+
+    <nav class="toc-nav">
+      {LESSONS.map(l => (
+        <a href={l.href} class="toc-row toc-row--done">
+          <span class="toc-num">{l.num}</span>
+          <span class="toc-title">{l.title}</span>
+          <span class="toc-status toc-status--done">✓ built</span>
+        </a>
+      ))}
+    </nav>
+  </article>
+  <ThemeToggle />
+</body>
+</html>
+
+<style is:global>
+  @import '../../styles/global.css';
+</style>
+
+<style>
+  .toc-nav { display: flex; flex-direction: column; gap: 0; }
+
+  .toc-row {
+    display: grid; grid-template-columns: 2.5rem 1fr auto;
+    gap: 1rem; align-items: center; padding: 1rem 0;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none; color: inherit;
+  }
+  .toc-row--nested {
+    grid-template-columns: 1.5rem 2.5rem 1fr auto;
+    padding-left: 1.5rem;
+    background: var(--bg2, #f8fafc);
+    border-left: 3px solid var(--accent, #2563eb);
+  }
+  .toc-nest-leader {
+    font-family: monospace; font-size: .75rem;
+    color: var(--accent, #2563eb); opacity: .6;
+  }
+  .toc-row--pending { opacity: .45; cursor: default; }
+  .toc-row--done:hover .toc-title { color: var(--accent); }
+
+  .toc-num {
+    font-family: monospace; font-size: .72rem; font-weight: 700;
+    background: #1a1a2e; color: #a5b4fc;
+    border-radius: 5px; width: 2.2rem; height: 2.2rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .toc-title { font-size: .95rem; font-weight: bold; }
+  .toc-status {
+    font-family: monospace; font-size: .7rem;
+    border-radius: 20px; padding: .1rem .55rem;
+  }
+  .toc-status--done    { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+  .toc-status--pending { background: #f8fafc; border: 1px solid #e2e8f0; color: #94a3b8; }
+</style>

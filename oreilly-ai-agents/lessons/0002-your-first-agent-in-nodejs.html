@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lesson 2 — Your First Agent in Node.js</title>
+  <style>
+    :root {
+      --ink: #1a1a1a;
+      --muted: #555;
+      --accent: #2563eb;
+      --bg: #fafaf8;
+      --card: #ffffff;
+      --border: #e5e5e0;
+      --correct: #16a34a;
+      --wrong: #dc2626;
+      --highlight: #fef9c3;
+      --code-bg: #1e1e2e;
+      --code-fg: #cdd6f4;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Georgia", serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.75;
+      font-size: 18px;
+      padding: 2rem 1rem 6rem;
+    }
+
+    article { max-width: 720px; margin: 0 auto; }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .lesson-meta {
+      font-family: monospace;
+      font-size: 13px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.5rem;
+    }
+
+    h1 { font-size: 2rem; font-weight: normal; line-height: 1.25; }
+    h2 { font-size: 1.25rem; font-weight: bold; margin: 2.5rem 0 0.75rem; }
+    h3 { font-size: 1rem; font-weight: bold; margin: 1.5rem 0 0.5rem; }
+
+    p { margin-bottom: 1rem; }
+    a { color: var(--accent); }
+
+    .sidenote {
+      float: right;
+      clear: right;
+      width: 190px;
+      margin: 0 -210px 1rem 1rem;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+      border-left: 2px solid var(--border);
+      padding-left: 0.75rem;
+    }
+
+    @media (max-width: 940px) {
+      .sidenote { float: none; width: 100%; margin: 0 0 1rem; }
+    }
+
+    .callout {
+      background: var(--highlight);
+      border-left: 3px solid #ca8a04;
+      padding: 0.75rem 1rem;
+      margin: 1.5rem 0;
+      font-size: 0.95rem;
+    }
+
+    .callout strong { display: block; margin-bottom: 0.25rem; }
+
+    .step {
+      display: flex;
+      gap: 1rem;
+      margin: 1.75rem 0;
+      align-items: flex-start;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 2rem;
+      height: 2rem;
+      background: var(--ink);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: monospace;
+      font-size: 0.85rem;
+      margin-top: 0.15rem;
+    }
+
+    .step-body { flex: 1; }
+    .step-body p { margin-bottom: 0.5rem; }
+
+    pre {
+      background: var(--code-bg);
+      color: var(--code-fg);
+      padding: 1.25rem 1.5rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: "Menlo", "Monaco", "Fira Code", monospace;
+      font-size: 0.82rem;
+      line-height: 1.6;
+      margin: 1rem 0;
+      position: relative;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.6rem;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #cdd6f4;
+      padding: 0.25rem 0.65rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      font-family: monospace;
+    }
+
+    .copy-btn:hover { background: rgba(255,255,255,0.2); }
+
+    code { font-family: "Menlo","Monaco","Fira Code",monospace; font-size: 0.85em; }
+
+    p code, li code {
+      background: #f0f0ec;
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+    }
+
+    .annotation {
+      color: #6c7086;
+      font-style: italic;
+    }
+
+    .kw   { color: #cba6f7; }
+    .fn   { color: #89b4fa; }
+    .str  { color: #a6e3a1; }
+    .num  { color: #fab387; }
+    .cmt  { color: #6c7086; font-style: italic; }
+    .type { color: #f38ba8; }
+
+    /* Quiz */
+    .quiz {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.5rem;
+      margin: 2.5rem 0;
+    }
+
+    .quiz h2 { margin-top: 0; }
+
+    .question { margin-bottom: 2rem; }
+    .question p { font-weight: bold; margin-bottom: 0.75rem; }
+
+    .options { display: flex; flex-direction: column; gap: 0.5rem; }
+
+    .option {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 0.95rem;
+      background: white;
+    }
+
+    .option:hover { background: #f0f4ff; }
+    .option.correct { background: #dcfce7; border-color: var(--correct); }
+    .option.wrong   { background: #fee2e2; border-color: var(--wrong); }
+    .option input { margin-top: 3px; flex-shrink: 0; }
+
+    .feedback {
+      margin-top: 0.75rem;
+      font-size: 0.9rem;
+      min-height: 1.2em;
+      color: var(--muted);
+    }
+
+    .feedback.correct { color: var(--correct); font-weight: bold; }
+    .feedback.wrong   { color: var(--wrong); }
+
+    .check-btn {
+      margin-top: 1.25rem;
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.6rem 1.5rem;
+      border-radius: 4px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .check-btn:hover { opacity: 0.9; }
+
+    .score {
+      margin-top: 1rem;
+      font-size: 1rem;
+      font-weight: bold;
+      text-align: center;
+      display: none;
+    }
+
+    .lesson-nav {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .teacher-prompt {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 6px;
+      padding: 1rem 1.25rem;
+      margin-top: 2rem;
+      font-size: 0.9rem;
+    }
+
+    .breadcrumb {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .breadcrumb a { color: var(--muted); }
+
+    .output-block {
+      background: #0d1117;
+      color: #58a6ff;
+      padding: 1rem 1.5rem;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      margin: 1rem 0;
+    }
+
+    .output-label {
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.25rem;
+    }
+  
+/* ── Deep Dive ───────────────────────────────────────────────── */
+.dd-wrap {
+  border: 1px solid #e5e5e0;
+  border-radius: 8px;
+  margin: 2.5rem 0;
+  overflow: hidden;
+}
+.dd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  background: #1a1a2e;
+  cursor: pointer;
+  user-select: none;
+  gap: 1rem;
+}
+.dd-header:hover { background: #1e1e38; }
+.dd-header-left { display: flex; flex-direction: column; gap: 0.15rem; }
+.dd-label {
+  font-family: monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.dd-sub { font-size: 0.78rem; color: #6c7086; }
+.dd-chevron { color: #6c7086; font-size: 1.1rem; transition: transform .2s; }
+.dd-wrap.open .dd-chevron { transform: rotate(90deg); }
+.dd-body { display: none; padding: 1.25rem 1.5rem; background: #fafaf8; }
+.dd-wrap.open .dd-body { display: block; }
+.dd-block { margin-bottom: 1.75rem; }
+.dd-block:last-child { margin-bottom: 0; }
+.dd-block-title {
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e5e5e0;
+}
+.dd-tension {
+  display: grid;
+  grid-template-columns: 210px 1.5rem 1fr;
+  gap: 0.25rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f0f0ec;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  align-items: baseline;
+}
+.dd-tension:last-child { border-bottom: none; }
+.dd-tension-label { font-weight: bold; color: #1a1a1a; }
+.dd-tension-sep { color: #aaa; text-align: center; }
+.dd-tension-body { color: #555; }
+.dd-q {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 0.75rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid #f0f0ec;
+}
+.dd-q:last-child { border-bottom: none; }
+.dd-q-num {
+  font-family: monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  background: #1a1a2e;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.6rem;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+}
+.dd-q-text { font-size: 0.9rem; font-weight: bold; color: #1a1a1a; margin-bottom: 0.35rem; line-height: 1.5; }
+.dd-hint { font-size: 0.82rem; color: #555; margin-bottom: 0.5rem; font-style: italic; }
+.dd-hint strong { font-style: normal; color: #2563eb; }
+.dd-ans-btn {
+  font-size: 0.8rem;
+  font-family: monospace;
+  background: none;
+  border: 1px solid #e5e5e0;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  color: #555;
+  margin-bottom: 0.5rem;
+}
+.dd-ans-btn:hover { background: #f0f4ff; color: #2563eb; border-color: #93c5fd; }
+.dd-ans {
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: #333;
+  background: #eff6ff;
+  border-left: 3px solid #2563eb;
+  padding: 0.75rem 1rem;
+  border-radius: 0 4px 4px 0;
+}
+.dd-pitfall {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f0f0ec;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  align-items: baseline;
+}
+.dd-pitfall:last-child { border-bottom: none; }
+.dd-pitfall-title { font-weight: bold; color: #dc2626; }
+.dd-pitfall-body { color: #555; }
+@media (max-width: 640px) {
+  .dd-tension, .dd-pitfall { grid-template-columns: 1fr; }
+  .dd-tension-sep { display: none; }
+}
+
+</style>
+</head>
+<body>
+<article>
+  <header>
+    <div class="breadcrumb"><a href="./0001-what-is-an-ai-agent.html">← Lesson 1</a></div>
+    <div class="lesson-meta">Lesson 02 · AI Agents · ~25 min</div>
+    <h1>Your First Agent in Node.js</h1>
+    <p style="color:var(--muted);font-size:0.95rem;margin-top:0.5rem;">
+      Implement the agent loop from scratch — no framework, just the raw loop — so you know
+      exactly what every framework does under the hood.
+    </p>
+  </header>
+
+  <!-- GOAL -->
+  <h2>What you'll build</h2>
+  <p>
+    A command-line agent that can answer questions requiring tool use. You give it a task like
+    <em>"What files are in my current directory and how many are there?"</em> — and it will
+    call a real tool (a shell command runner), observe the result, and return an answer.
+  </p>
+  <p>
+    No LangChain, no Vercel AI SDK. Just the <strong>Anthropic SDK</strong> and the loop
+    you learned in Lesson 1.
+  </p>
+
+  <!-- SETUP -->
+  <h2>Step 1 — Project setup</h2>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <p>Create a new project and install the Anthropic SDK:</p>
+      <pre><code>mkdir my-first-agent && cd my-first-agent
+npm init -y
+npm install @anthropic-ai/sdk
+touch agent.mjs</code></pre>
+      <p>We use <code>.mjs</code> for top-level <code>await</code> without extra config.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <p>Add your API key. Create a <code>.env</code> file (and add it to <code>.gitignore</code>):</p>
+      <pre><code>echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+echo ".env" >> .gitignore</code></pre>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Don't have a key?</strong>
+    Get one at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.
+    The free tier is enough for this lesson. Haiku is cheapest — we'll use it here.
+  </div>
+
+  <!-- THE LOOP -->
+  <h2>Step 2 — The agent loop</h2>
+
+  <p>
+    Before you write code, re-read the loop from Lesson 1. Every line you write maps to one of these steps:
+  </p>
+
+  <div class="sidenote">
+    Course reference: <em>Level 2, §2.5 — "Create an Agent Class from Scratch"</em>.
+    The Python version of this same loop is on slide 26 onwards.
+  </div>
+
+  <ol style="padding-left: 1.5rem; margin-bottom: 1rem;">
+    <li>Send goal + context + available tools → LLM</li>
+    <li>LLM returns: text response <em>or</em> a tool call</li>
+    <li>If tool call: execute it, append result to messages</li>
+    <li>Repeat from 1 until LLM returns plain text</li>
+  </ol>
+
+  <p>Here is the full agent in one file. Read through it once — annotations explain each part:</p>
+
+  <div style="position:relative">
+  <pre id="code-main"><code><span class="cmt">// agent.mjs</span>
+<span class="kw">import</span> Anthropic <span class="kw">from</span> <span class="str">'@anthropic-ai/sdk'</span>;
+<span class="kw">import</span> { execSync } <span class="kw">from</span> <span class="str">'child_process'</span>;
+
+<span class="kw">const</span> client = <span class="kw">new</span> <span class="fn">Anthropic</span>({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+<span class="cmt">// ── 1. DEFINE TOOLS ──────────────────────────────────────────────────────────
+// A tool is just a JSON schema + a handler function.
+// The LLM reads the schema to decide when and how to call the tool.
+// Your code runs the handler and returns the result.</span>
+
+<span class="kw">const</span> tools = [
+  {
+    name: <span class="str">'run_shell'</span>,
+    description: <span class="str">'Run a safe, read-only shell command and return its output. Use for listing files, checking environment, reading file contents.'</span>,
+    input_schema: {
+      type: <span class="str">'object'</span>,
+      properties: {
+        command: {
+          type: <span class="str">'string'</span>,
+          description: <span class="str">'The shell command to run (read-only operations only)'</span>,
+        },
+      },
+      required: [<span class="str">'command'</span>],
+    },
+  },
+];
+
+<span class="cmt">// ── 2. DEFINE TOOL HANDLERS ───────────────────────────────────────────────────
+// This is the code that actually executes when the LLM calls a tool.
+// Think of this as a NestJS service method the LLM is allowed to invoke.</span>
+
+<span class="kw">function</span> <span class="fn">executeTool</span>(name, input) {
+  <span class="kw">if</span> (name === <span class="str">'run_shell'</span>) {
+    <span class="kw">try</span> {
+      <span class="kw">return</span> <span class="fn">execSync</span>(input.command, { encoding: <span class="str">'utf8'</span>, timeout: <span class="num">5000</span> });
+    } <span class="kw">catch</span> (err) {
+      <span class="kw">return</span> <span class="str">`Error: </span>${err.message}<span class="str">`</span>;
+    }
+  }
+  <span class="kw">return</span> <span class="str">'Unknown tool'</span>;
+}
+
+<span class="cmt">// ── 3. THE AGENT LOOP ─────────────────────────────────────────────────────────
+// This is the core. It is exactly the 4-step loop from Lesson 1.</span>
+
+<span class="kw">async function</span> <span class="fn">runAgent</span>(userMessage) {
+  console.<span class="fn">log</span>(<span class="str">`\n🤖 Task: </span>${userMessage}<span class="str">\n`</span>);
+
+  <span class="cmt">// The messages array IS the agent's memory.
+  // Every turn — user message, assistant response, tool result — appends here.</span>
+  <span class="kw">const</span> messages = [
+    { role: <span class="str">'user'</span>, content: userMessage }
+  ];
+
+  <span class="kw">while</span> (<span class="kw">true</span>) {
+    <span class="cmt">// STEP 1: Send current state to the LLM</span>
+    <span class="kw">const</span> response = <span class="kw">await</span> client.messages.<span class="fn">create</span>({
+      model: <span class="str">'claude-haiku-4-5-20251001'</span>,
+      max_tokens: <span class="num">1024</span>,
+      tools,
+      messages,
+    });
+
+    <span class="cmt">// STEP 2: Check what the LLM returned</span>
+    <span class="kw">const</span> stopReason = response.stop_reason;
+
+    <span class="kw">if</span> (stopReason === <span class="str">'end_turn'</span>) {
+      <span class="cmt">// LLM returned a plain text answer — we're done</span>
+      <span class="kw">const</span> text = response.content
+        .<span class="fn">filter</span>(b => b.type === <span class="str">'text'</span>)
+        .<span class="fn">map</span>(b => b.text)
+        .<span class="fn">join</span>(<span class="str">''</span>);
+
+      console.<span class="fn">log</span>(<span class="str">`\n✅ Answer:\n</span>${text}<span class="str">\n`</span>);
+      <span class="kw">return</span> text;
+    }
+
+    <span class="kw">if</span> (stopReason === <span class="str">'tool_use'</span>) {
+      <span class="cmt">// LLM wants to call a tool — append its response to messages first</span>
+      messages.<span class="fn">push</span>({ role: <span class="str">'assistant'</span>, content: response.content });
+
+      <span class="cmt">// STEP 3: Find tool calls, execute each, collect results</span>
+      <span class="kw">const</span> toolResults = response.content
+        .<span class="fn">filter</span>(b => b.type === <span class="str">'tool_use'</span>)
+        .<span class="fn">map</span>(toolCall => {
+          console.<span class="fn">log</span>(<span class="str">`  🔧 Tool: </span>${toolCall.name}<span class="str"> → </span>${<span class="fn">JSON.stringify</span>(toolCall.input)}<span class="str">`</span>);
+          <span class="kw">const</span> result = <span class="fn">executeTool</span>(toolCall.name, toolCall.input);
+          console.<span class="fn">log</span>(<span class="str">`  📋 Result: </span>${result.<span class="fn">slice</span>(<span class="num">0</span>, <span class="num">120</span>)}<span class="str">...`</span>);
+          <span class="kw">return</span> {
+            type: <span class="str">'tool_result'</span>,
+            tool_use_id: toolCall.id,
+            content: result,
+          };
+        });
+
+      <span class="cmt">// Append tool results — the LLM will read these on the next iteration</span>
+      messages.<span class="fn">push</span>({ role: <span class="str">'user'</span>, content: toolResults });
+
+      <span class="cmt">// STEP 4: Loop — go back to top and call the LLM again</span>
+    }
+  }
+}
+
+<span class="cmt">// ── 4. RUN IT ─────────────────────────────────────────────────────────────────</span>
+
+<span class="kw">await</span> <span class="fn">runAgent</span>(
+  <span class="str">'List the files in the current directory and tell me how many there are.'</span>
+);</code></pre>
+  <button class="copy-btn" onclick="copyCode('code-main', this)">copy</button>
+  </div>
+
+  <!-- RUN IT -->
+  <h2>Step 3 — Run it</h2>
+
+  <pre><code>node --env-file=.env agent.mjs</code></pre>
+
+  <p>You should see output like this:</p>
+
+  <div class="output-label">Terminal output</div>
+  <div class="output-block">
+🤖 Task: List the files in the current directory and tell me how many there are.
+
+  🔧 Tool: run_shell → {"command":"ls -la"}
+  📋 Result: total 32
+drwxr-xr-x  4 user staff  128 Jun 14 ...
+
+✅ Answer:
+The current directory contains 4 items:
+- agent.mjs
+- node_modules/
+- package.json
+- package-lock.json
+  </div>
+
+  <p>
+    What just happened: the LLM decided to call <code>run_shell</code>, your code executed it,
+    the result was fed back in, and then the LLM synthesised a human-readable answer.
+    That is the full agent loop — you built it from scratch.
+  </p>
+
+  <!-- WHAT FRAMEWORKS DO -->
+  <h2>What frameworks actually do</h2>
+
+  <p>
+    Now you know the loop. Every framework — LangChain, Vercel AI SDK, LangGraph — wraps this
+    exact same pattern. They add:
+  </p>
+
+  <ul style="padding-left: 1.5rem; margin-bottom: 1rem; line-height: 2;">
+    <li>Convenience for defining and registering tools</li>
+    <li>Built-in error handling and retries</li>
+    <li>Streaming support</li>
+    <li>Graph-based control flow (for multi-agent setups)</li>
+    <li>Observability hooks</li>
+  </ul>
+
+  <p>
+    None of them change the core loop. When something breaks in a framework, you now know where to look.
+  </p>
+
+  <!-- STRETCH -->
+  <h2>Stretch: try a second task</h2>
+
+  <p>Change the last line to a task that requires multiple tool calls to answer. For example:</p>
+
+  <pre><code>await runAgent(
+  'Read the contents of package.json and tell me what version of Node this project expects.'
+);</code></pre>
+
+  <p>
+    Watch the loop iterate more than once. The LLM will call <code>ls</code>, then
+    <code>cat package.json</code>, then synthesise an answer from both results.
+  </p>
+
+  <!-- QUIZ -->
+  <div class="quiz">
+    <h2>Check your understanding</h2>
+    <p style="font-weight:normal;color:var(--muted);margin-bottom:1.5rem;font-size:0.9rem;">
+      From memory. No scrolling back.
+    </p>
+
+    <div class="question" id="q1">
+      <p>1. In the agent loop, what does <code>stop_reason: "tool_use"</code> mean?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q1" value="a" /><span>The agent has finished and the answer is ready</span></label>
+        <label class="option"><input type="radio" name="q1" value="b" /><span>The LLM wants to call a tool before it can answer</span></label>
+        <label class="option"><input type="radio" name="q1" value="c" /><span>A tool threw an error and the loop should stop</span></label>
+        <label class="option"><input type="radio" name="q1" value="d" /><span>The context window is full</span></label>
+      </div>
+      <div class="feedback" id="f1"></div>
+    </div>
+
+    <div class="question" id="q2">
+      <p>2. Why do we append the assistant's response to <code>messages</code> before executing the tool?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q1b" value="a" /><span>So the LLM can see its own previous decision when it loops again</span></label>
+        <label class="option"><input type="radio" name="q1b" value="b" /><span>Because the Anthropic SDK requires it to validate the request</span></label>
+        <label class="option"><input type="radio" name="q1b" value="c" /><span>To reduce token count on the next call</span></label>
+        <label class="option"><input type="radio" name="q1b" value="d" /><span>So the tool handler can read what the LLM said</span></label>
+      </div>
+      <div class="feedback" id="f2"></div>
+    </div>
+
+    <div class="question" id="q3">
+      <p>3. The LLM never directly executes tools. Who does?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q3" value="a" /><span>The Anthropic cloud infrastructure</span></label>
+        <label class="option"><input type="radio" name="q3" value="b" /><span>A separate tool-executor LLM</span></label>
+        <label class="option"><input type="radio" name="q3" value="c" /><span>Your code — the <code>executeTool</code> function</span></label>
+        <label class="option"><input type="radio" name="q3" value="d" /><span>The Node.js event loop automatically</span></label>
+      </div>
+      <div class="feedback" id="f3"></div>
+    </div>
+
+    <div class="question" id="q4">
+      <p>4. The <code>messages</code> array grows on every loop iteration. What role does it play?</p>
+      <div class="options">
+        <label class="option"><input type="radio" name="q4" value="a" /><span>It is the agent's memory — the LLM reads all of it on every call</span></label>
+        <label class="option"><input type="radio" name="q4" value="b" /><span>It is a log — it has no effect on the LLM's responses</span></label>
+        <label class="option"><input type="radio" name="q4" value="c" /><span>It is used only for debugging</span></label>
+        <label class="option"><input type="radio" name="q4" value="d" /><span>It is cleared after each tool call to save tokens</span></label>
+      </div>
+      <div class="feedback" id="f4"></div>
+    </div>
+
+    <button class="check-btn" onclick="checkAll()">Check answers</button>
+    <div class="score" id="score"></div>
+  </div>
+
+  <!-- PRIMARY SOURCE -->
+  <h2>Primary source for this lesson</h2>
+  <p>
+    <strong>Course slides: Level 2, §2.5</strong> — "Create an Agent Class from Scratch in Python."
+    Open <code>resources/AI_Agents_Course_Slides/AI_Agents_Slides_Level2.pdf</code>.
+    The Python implementation on slides 24–28 maps directly to the Node.js code you just wrote.
+    Compare them side by side — the loop is identical.
+  </p>
+
+  <!-- NAV -->
+  
+  <!-- ── DEEP DIVE ─────────────────────────────────────────────────────────── -->
+  <div class="dd-wrap" id="dd-l2_2.5">
+    <div class="dd-header" onclick="toggleDD('l2_2.5')">
+      <div class="dd-header-left">
+        <span class="dd-label">&#9650; Senior &amp; Staff Deep Dive</span>
+        <span class="dd-sub">Engineering tensions &bull; staff-level questions with answers &bull; production pitfalls</span>
+      </div>
+      <span class="dd-chevron">&#9654;</span>
+    </div>
+    <div class="dd-body">
+      <div class="dd-block">
+<div class="dd-block-title">&#9889; Engineering tensions</div>
+<div class="dd-tension"><span class="dd-tension-label">Custom ReAct vs. framework</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">Building ReAct from scratch gives total control and transparency. Using a framework is faster but hides loop mechanics. The right choice depends on whether you need to modify the loop logic or just need a working agent quickly.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">System prompt verbosity vs. LLM comprehension</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">A longer, more explicit system prompt (with examples, edge cases, tool usage rules) produces more reliable behavior but consumes tokens on every call. Find the minimum prompt that produces reliable behavior for your specific task.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Tight loop control vs. agent flexibility</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">A hand-rolled loop with explicit regex parsing for Action lines gives total control but breaks if the LLM changes output format. Framework-based loops handle variation but are harder to customize for non-standard behavior.</span></div>
+<div class="dd-tension"><span class="dd-tension-label">Max turns as safety vs. performance ceiling</span><span class="dd-tension-sep">—</span><span class="dd-tension-body">Low max_turns is safe but limits complex tasks. High max_turns enables complex tasks but risks runaway loops. Set at ~2× your P95 turn count to catch outliers without strangling normal operation.</span></div>
+</div>
+<div class="dd-block">
+<div class="dd-block-title">&#128172; Staff-level questions</div>
+<div class="dd-q">
+<div class="dd-q-num">Q1</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Your custom ReAct agent enters a loop where it repeatedly calls the same tool with slightly different arguments without making progress. How do you detect and break this?</div>
+<div class="dd-hint"><strong>Steer:</strong> Detect repetition, not just max_turns. Same tool + similar arguments is a stuck signal.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.5-l2_2.6-0')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.5-l2_2.6-0" style="display:none">Detection: maintain a tool_call_history in state: Annotated[list, add]. After each tool call, append (tool_name, hash_of_args). Before the next tool call, check: if the last 2 entries have the same tool_name and similar args hash (fuzzy match), the agent is stuck. Breaking the loop: inject a system message into the conversation: 'You have called [tool_name] multiple times with similar arguments without new information. Please either try a different approach, use a different tool, or provide a best-effort answer based on available information.' This redirects without hard-stopping. If still stuck after 2 more turns: force termination and return a partial result with explanation. Track 'stuck detected' as a metric — high rate indicates the tools or prompt need redesign for the stuck query pattern.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q2</div>
+<div class="dd-q-body">
+<div class="dd-q-text">The LLM stops generating 'PAUSE' tokens and includes the action result inline. What has changed and how do you fix it?</div>
+<div class="dd-hint"><strong>Steer:</strong> The LLM's output format drifted. This happens because the format instruction wasn't strong enough or the model changed.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.5-l2_2.6-1')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.5-l2_2.6-1" style="display:none">Root causes: (1) Model version updated and the new version follows PAUSE instructions less reliably. (2) System prompt was changed and the PAUSE instruction got deprioritized or buried. (3) Conversation history grew long enough that the PAUSE instruction got pushed out of the attention window. Fix: (1) Add PAUSE instruction at the end of the system prompt (better attention to end positions). (2) Add it again as a reminder in the user message template: 'Remember: output PAUSE after each Action and wait for the Observation.' (3) If model version changed: test whether the new version follows PAUSE consistently. Some newer models prefer a different format (e.g., tool_call objects rather than text-based PAUSE). Switch to the framework's built-in tool calling mechanism rather than text-based PAUSE — it's more reliable across model versions. (4) Reduce message history length — if PAUSE compliance drops after 8 turns, implement history pruning to keep the system prompt instructions visible.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q3</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Why does the message history need to be passed to every LLM call, and what breaks if you only pass the latest message?</div>
+<div class="dd-hint"><strong>Steer:</strong> LLMs are stateless. The history IS the state.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.5-l2_2.6-2')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.5-l2_2.6-2" style="display:none">LLMs are completely stateless between API calls — they have no memory of previous calls. Passing only the latest message: the LLM sees 'Action: search for X' as its entire context. It has no idea: (1) What the original task was (system prompt is gone if you don't include it), (2) What previous searches returned (Observations are gone), (3) What the user originally asked (their message is gone), (4) What tools are available (forgotten without system prompt). The result: the LLM either hallucinates context or gives a nonsensical response. Every call must include the full history: [system_message, user_message, assistant_turn_1_thought, tool_result_1, assistant_turn_2_thought, ...]. This is expensive (every call pays for the full history in tokens) but necessary. Optimization: compress old turns into summaries, not eliminate them.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q4</div>
+<div class="dd-q-body">
+<div class="dd-q-text">What are the 4 essential elements of an effective ReAct system prompt, and what goes wrong if each is missing?</div>
+<div class="dd-hint"><strong>Steer:</strong> Each element serves a specific purpose. What does the LLM do without it?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.5-l2_2.6-3')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.5-l2_2.6-3" style="display:none">(1) Loop format instructions ('You run in a loop: Thought → Action → PAUSE → Observation'): Without this, the LLM doesn't know to alternate thinking and acting. It might do all thinking first, or skip thinking entirely. (2) Available tools list with examples ('Available tools: search_inventory(product_id) → returns stock info'): Without this, the LLM doesn't know what tools exist and may hallucinate tool calls or call non-existent tools. (3) PAUSE instruction ('After each Action, output PAUSE and wait for the Observation'): Without this, the LLM generates both the Action and a hallucinated Observation without waiting for the real tool result. This is the most critical instruction to get right. (4) Example session (shows a complete Thought/Action/PAUSE/Observation/Answer exchange): Without this, the LLM understands the instruction abstractly but may not format the output correctly. The example is the template the LLM replicates.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q5</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you handle the case where a tool call returns a response too long to include fully in the context?</div>
+<div class="dd-hint"><strong>Steer:</strong> Tool results can be large (e.g., a full document, search results with 100 items). Including them fully fills the context window.</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.5-l2_2.6-4')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.5-l2_2.6-4" style="display:none">Three strategies: (1) Summarize at the tool level: the tool itself truncates or summarizes its output. search_results returns top 5 results, not 100. The truncation logic is in the tool, not the agent. (2) Summarize in the Observation: after receiving the tool result, run a cheap LLM call to compress it: 'Summarize these search results in 100 words.' Pass the summary as the Observation, not the full result. Store the full result externally (file system, database) with an ID in state. (3) Extract and structure: parse the large response and extract only the fields the agent needs. If the tool returns a full JSON document, extract the 3 fields the agent cares about and discard the rest. Track context window utilization — if tool results are regularly consuming >30% of the context, implement one of these patterns proactively.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q6</div>
+<div class="dd-q-body">
+<div class="dd-q-text">Design a monitoring dashboard for a production ReAct loop. What 5 metrics would you display?</div>
+<div class="dd-hint"><strong>Steer:</strong> Metrics should answer: is it working? Is it efficient? Is anything wrong?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.5-l2_2.6-5')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.5-l2_2.6-5" style="display:none">(1) Max_turns hit rate (target: <1%) — the most critical signal. Any spike means agents are getting stuck. Alert at 2%. (2) Average turns per successful run (P50/P95) — track over time. Increasing P95 means tasks are getting harder or the agent is getting less efficient. (3) Tool call error rate by tool name — identifies which specific tools are failing. (4) Cost per successful run (tokens × price) — tracks efficiency over time and catches runaway loops early. (5) Task completion rate (completed / started) — how many agent runs produce a final answer vs. timing out or erroring. Each metric at P50/P95/P99 over a 24h rolling window. Drill-down: clicking any metric should show the runs that contributed to anomalies.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q7</div>
+<div class="dd-q-body">
+<div class="dd-q-text">The loop hits max_turns on every complex query. What changes do you make — to the system prompt, tools, or max_turns?</div>
+<div class="dd-hint"><strong>Steer:</strong> Diagnose first: are the queries genuinely complex, or is the agent inefficiently approaching them?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.5-l2_2.6-6')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.5-l2_2.6-6" style="display:none">Diagnose: log the full turn sequence for 10 failing runs. Common patterns: (1) Agent keeps searching for specific information the tools cannot provide → fix the system prompt: 'If you cannot find X after 2 searches, provide a best-effort answer stating the limitation.' (2) Agent verifies every piece of information multiple times → add to system prompt: 'Trust your tool results. Do not re-verify information you've already retrieved.' (3) Queries are genuinely complex requiring many steps → raise max_turns for this query type only. Add a query complexity classifier; set max_turns=20 for complex queries, max_turns=5 for simple ones. (4) Tools return incomplete results requiring many follow-up calls → redesign the tools to return richer, more complete data in a single call. Fix the root cause, not just the symptom.</div>
+</div>
+</div>
+</div>
+<div class="dd-q">
+<div class="dd-q-num">Q8</div>
+<div class="dd-q-body">
+<div class="dd-q-text">How do you make the regex for detecting Actions robust to LLM output format variation?</div>
+<div class="dd-hint"><strong>Steer:</strong> Regex is brittle. What alternatives or augmentations make action detection more robust?</div>
+<div class="dd-ans-wrap">
+<button class="dd-ans-btn" onclick="toggleAns('ddq-l2_2.5-l2_2.6-7')">&#9654; Show answer</button>
+<div class="dd-ans" id="ddq-l2_2.5-l2_2.6-7" style="display:none">Multi-strategy detection: (1) Primary: regex r'^Action: (\w+): (.*)
+    <div><a href="./0001-what-is-an-ai-agent.html">← Lesson 1 — What is an AI Agent?</a></div>
+    <div style="margin-top:0.5rem;">
+      <strong>Next:</strong>
+      <a href="./0003-tool-design-and-structured-output.html">Lesson 3 — Tool Design &amp; Structured Output</a>
+      — how to design tools the LLM uses reliably, and how to get typed, validated output back.
+    </div>
+  </div>
+
+  <div class="teacher-prompt">
+    <strong>Ask your teacher.</strong> Paste an error, ask why a tool call failed, or ask how this
+    maps to a NestJS service. Open Claude Code and ask — it has your full learning context.
+  </div>
+</article>
+
+<script>
+  const answers = { q1: 'b', q2: 'a', q3: 'c', q4: 'a' };
+  const nameMap = { q1: 'q1', q2: 'q1b', q3: 'q3', q4: 'q4' };
+
+  const explanations = {
+    q1: {
+      b: 'Correct. The LLM is signalling it needs more information from a tool before it can answer. Your code must execute the tool and loop again.',
+      wrong: 'Not quite. tool_use means the LLM wants to call a tool — it has not finished yet. end_turn means it\'s done.'
+    },
+    q2: {
+      a: 'Correct. The messages array is the agent\'s memory. The LLM needs to see its own tool call on the next iteration so it knows what tool result belongs to which request.',
+      wrong: 'Not quite. The messages array is the LLM\'s memory. Every turn — including the LLM\'s own tool call decisions — must be appended so the LLM has full context on the next loop.'
+    },
+    q3: {
+      c: 'Correct. The LLM only outputs intent — a tool name and arguments. Your executeTool function is what actually runs the shell command, queries the DB, etc.',
+      wrong: 'Not quite. The LLM outputs intent only. Your code is the executor — always. This is why agents are safe to deploy: the LLM cannot do anything your code does not allow.'
+    },
+    q4: {
+      a: 'Correct. The messages array is the agent\'s short-term memory. The LLM reads every message in the array on each API call — that\'s how it knows what it already tried and what the results were.',
+      wrong: 'Not quite. The messages array is the agent\'s memory — the LLM reads the entire array on every call. That\'s what gives it context across loop iterations.'
+    }
+  };
+
+  function checkAll() {
+    let correct = 0;
+    const total = Object.keys(answers).length;
+
+    Object.entries(answers).forEach(([qid, correctVal]) => {
+      const radioName = nameMap[qid];
+      const selected = document.querySelector(`input[name="${radioName}"]:checked`);
+      const feedback = document.getElementById('f' + qid.slice(1));
+      const options = document.querySelectorAll(`input[name="${radioName}"]`);
+
+      options.forEach(opt => {
+        const label = opt.parentElement;
+        label.classList.remove('correct', 'wrong');
+        if (opt.value === correctVal) label.classList.add('correct');
+        else if (opt.checked) label.classList.add('wrong');
+      });
+
+      if (!selected) {
+        feedback.textContent = 'No answer selected.';
+        feedback.className = 'feedback';
+        return;
+      }
+
+      const isCorrect = selected.value === correctVal;
+      if (isCorrect) {
+        correct++;
+        feedback.textContent = explanations[qid][correctVal];
+        feedback.className = 'feedback correct';
+      } else {
+        feedback.textContent = explanations[qid].wrong;
+        feedback.className = 'feedback wrong';
+      }
+    });
+
+    const scoreEl = document.getElementById('score');
+    scoreEl.style.display = 'block';
+    if (correct === total) {
+      scoreEl.style.color = 'var(--correct)';
+      scoreEl.textContent = `${correct}/${total} — Solid. Build the agent, run it, then come back for Lesson 3.`;
+    } else {
+      scoreEl.style.color = correct >= 2 ? '#92400e' : 'var(--wrong)';
+      scoreEl.textContent = `${correct}/${total} — Re-read the annotated code, then try again.`;
+    }
+  }
+
+  function copyCode(id, btn) {
+    const pre = document.getElementById(id);
+    const text = pre.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'copied!';
+      setTimeout(() => btn.textContent = 'copy', 1500);
+    });
+  }
+</script>
+<script>
+
+function toggleDD(id) {
+  const w = document.getElementById('dd-' + id);
+  if (w) w.classList.toggle('open');
+}
+function toggleAns(id) {
+  const el = document.getElementById(id);
+  const btn = el?.previousElementSibling;
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (btn) btn.textContent = open ? '▶ Show answer' : '▼ Hide answer';
+}
+
+</script>
+</body>
+</html>
+ — catches standard format. (2) Fallback 1: if primary fails, try fuzzy matching — look for lines containing a known tool name followed by colon. Reduce false negatives. (3) Fallback 2: if text contains PAUSE but no Action regex match, use an LLM parse: 'Extract the tool name and arguments from this text: {response}.' Returns structured output. More expensive but catches edge cases. (4) Validation: after extraction, verify the tool_name is in the list of known tools. If not, it's a hallucination — log and skip. (5) Feedback loop: log every time a fallback fires. A high fallback rate signals the LLM is drifting from the expected format and the system prompt needs updating. Move away from text-based PAUSE as you scale — native tool calling (function calling API) is more reliable.</div>
+</div>
+</div>
+</div>
+</div>
+<div class="dd-block">
+<div class="dd-block-title">&#128308; Production pitfalls</div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Message history growing without bounds</span><span class="dd-pitfall-body">Every turn appends to the message list. After 15 cycles, you may have 45+ messages consuming most of the context window. Implement history trimming or summarization for multi-turn agents.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">No distinction between recoverable and terminal failures</span><span class="dd-pitfall-body">A tool returns 'API key invalid' — that's terminal, retrying won't help. A tool returns '429 rate limited' — that's recoverable. The agent should handle these differently: terminal errors escalate immediately, recoverable errors retry. Without this distinction, the agent wastes turns retrying terminal errors.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Silent max_turns failures</span><span class="dd-pitfall-body">The loop hits max_turns and returns empty or None with no explanation. Always return the best available partial result plus an explicit explanation when terminating on max_turns. Log a WARNING.</span></div>
+<div class="dd-pitfall"><span class="dd-pitfall-title">Regex brittle to LLM output variation</span><span class="dd-pitfall-body">Model updates change output formatting. A regex that worked on gpt-4o-2024-05-13 breaks on gpt-4o-2024-08-06. Add fallback parsing strategies and monitor fallback fire rates.</span></div>
+</div>
+
+    </div>
+  </div>
+
+  <div class="lesson-nav">
+    <div><a href="./0001-what-is-an-ai-agent.html">← Lesson 1 — What is an AI Agent?</a></div>
+    <div style="margin-top:0.5rem;">
+      <strong>Next:</strong>
+      <a href="./0003-tool-design-and-structured-output.html">Lesson 3 — Tool Design &amp; Structured Output</a>
+      — how to design tools the LLM uses reliably, and how to get typed, validated output back.
+    </div>
+  </div>
+
+  <div class="teacher-prompt">
+    <strong>Ask your teacher.</strong> Paste an error, ask why a tool call failed, or ask how this
+    maps to a NestJS service. Open Claude Code and ask — it has your full learning context.
+  </div>
+</article>
+
+<script>
+  const answers = { q1: 'b', q2: 'a', q3: 'c', q4: 'a' };
+  const nameMap = { q1: 'q1', q2: 'q1b', q3: 'q3', q4: 'q4' };
+
+  const explanations = {
+    q1: {
+      b: 'Correct. The LLM is signalling it needs more information from a tool before it can answer. Your code must execute the tool and loop again.',
+      wrong: 'Not quite. tool_use means the LLM wants to call a tool — it has not finished yet. end_turn means it\'s done.'
+    },
+    q2: {
+      a: 'Correct. The messages array is the agent\'s memory. The LLM needs to see its own tool call on the next iteration so it knows what tool result belongs to which request.',
+      wrong: 'Not quite. The messages array is the LLM\'s memory. Every turn — including the LLM\'s own tool call decisions — must be appended so the LLM has full context on the next loop.'
+    },
+    q3: {
+      c: 'Correct. The LLM only outputs intent — a tool name and arguments. Your executeTool function is what actually runs the shell command, queries the DB, etc.',
+      wrong: 'Not quite. The LLM outputs intent only. Your code is the executor — always. This is why agents are safe to deploy: the LLM cannot do anything your code does not allow.'
+    },
+    q4: {
+      a: 'Correct. The messages array is the agent\'s short-term memory. The LLM reads every message in the array on each API call — that\'s how it knows what it already tried and what the results were.',
+      wrong: 'Not quite. The messages array is the agent\'s memory — the LLM reads the entire array on every call. That\'s what gives it context across loop iterations.'
+    }
+  };
+
+  function checkAll() {
+    let correct = 0;
+    const total = Object.keys(answers).length;
+
+    Object.entries(answers).forEach(([qid, correctVal]) => {
+      const radioName = nameMap[qid];
+      const selected = document.querySelector(`input[name="${radioName}"]:checked`);
+      const feedback = document.getElementById('f' + qid.slice(1));
+      const options = document.querySelectorAll(`input[name="${radioName}"]`);
+
+      options.forEach(opt => {
+        const label = opt.parentElement;
+        label.classList.remove('correct', 'wrong');
+        if (opt.value === correctVal) label.classList.add('correct');
+        else if (opt.checked) label.classList.add('wrong');
+      });
+
+      if (!selected) {
+        feedback.textContent = 'No answer selected.';
+        feedback.className = 'feedback';
+        return;
+      }
+
+      const isCorrect = selected.value === correctVal;
+      if (isCorrect) {
+        correct++;
+        feedback.textContent = explanations[qid][correctVal];
+        feedback.className = 'feedback correct';
+      } else {
+        feedback.textContent = explanations[qid].wrong;
+        feedback.className = 'feedback wrong';
+      }
+    });
+
+    const scoreEl = document.getElementById('score');
+    scoreEl.style.display = 'block';
+    if (correct === total) {
+      scoreEl.style.color = 'var(--correct)';
+      scoreEl.textContent = `${correct}/${total} — Solid. Build the agent, run it, then come back for Lesson 3.`;
+    } else {
+      scoreEl.style.color = correct >= 2 ? '#92400e' : 'var(--wrong)';
+      scoreEl.textContent = `${correct}/${total} — Re-read the annotated code, then try again.`;
+    }
+  }
+
+  function copyCode(id, btn) {
+    const pre = document.getElementById(id);
+    const text = pre.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'copied!';
+      setTimeout(() => btn.textContent = 'copy', 1500);
+    });
+  }
+</script>
+</body>
+</html>

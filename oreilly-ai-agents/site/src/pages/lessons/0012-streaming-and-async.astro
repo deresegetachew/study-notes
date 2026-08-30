@@ -1,0 +1,334 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const streamCode = `
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+// Stream tokens as they arrive — no waiting for full response
+async function streamResponse(userMessage: string): Promise<string> {
+  let fullText = '';
+
+  const stream = client.messages.stream({
+    model: 'claude-opus-4-8',
+    max_tokens: 1024,
+    messages: [{ role: 'user', content: userMessage }],
+  });
+
+  // Process each text delta as it arrives
+  for await (const event of stream) {
+    if (
+      event.type === 'content_block_delta' &&
+      event.delta.type === 'text_delta'
+    ) {
+      process.stdout.write(event.delta.text); // live output
+      fullText += event.delta.text;
+    }
+  }
+
+  // Await the final message for usage stats
+  const finalMessage = await stream.finalMessage();
+  console.log('\\nTokens used:', finalMessage.usage);
+
+  return fullText;
+}
+
+await streamResponse('Explain the CAP theorem in simple terms.');
+`.trim();
+
+const sseCode = `
+// NestJS endpoint that proxies Anthropic streaming to the browser via SSE
+import { Controller, Get, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
+import Anthropic from '@anthropic-ai/sdk';
+
+@Controller('stream')
+export class StreamController {
+  private client = new Anthropic();
+
+  @Get()
+  async stream(@Query('q') question: string, @Res() res: Response) {
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const stream = this.client.messages.stream({
+      model: 'claude-opus-4-8',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: question }],
+    });
+
+    for await (const event of stream) {
+      if (
+        event.type === 'content_block_delta' &&
+        event.delta.type === 'text_delta'
+      ) {
+        // SSE format: "data: <payload>\\n\\n"
+        res.write(\`data: \${JSON.stringify({ text: event.delta.text })}\\n\\n\`);
+      }
+    }
+
+    res.write('data: [DONE]\\n\\n');
+    res.end();
+  }
+}
+`.trim();
+
+const asyncCode = `
+// Sync vs async — the key difference for agent workflows
+
+// ❌ SYNC-STYLE (blocks the event loop during LLM call)
+// In Node.js, LLM calls are always I/O — you must await them.
+// There is no synchronous Anthropic SDK in Node.js.
+
+// ✅ ASYNC with Promise.all — independent calls run concurrently
+async function parallelSummaries(topics: string[]): Promise<string[]> {
+  // All LLM calls fire at once — total time ≈ slowest single call
+  return Promise.all(
+    topics.map(topic =>
+      client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 256,
+        messages: [{ role: 'user', content: \`Summarise: \${topic}\` }],
+      }).then(r => r.content[0].type === 'text' ? r.content[0].text : '')
+    )
+  );
+}
+
+// ✅ ASYNC with concurrency limit — avoid rate-limit errors
+import pLimit from 'p-limit';
+
+async function batchSummaries(topics: string[]): Promise<string[]> {
+  const limit = pLimit(3); // max 3 concurrent LLM calls
+  return Promise.all(
+    topics.map(topic => limit(() => summarise(topic)))
+  );
+}
+`.trim();
+
+const mindMap = `
+# Streaming & Async
+## Streaming Output
+### messages.stream() API
+### Token-by-token delivery
+### First token in ~300ms
+## SSE to Browser
+### text/event-stream header
+### NestJS proxy pattern
+### Browser EventSource API
+## Async Concurrency Patterns
+### Sequential await (dependent steps)
+### Promise.all (small independent batches)
+### p-limit (large batches)
+### Queue and worker pool
+## Rate Limits
+### 429 triggers on large batches
+### p-limit concurrency guard
+### Exponential backoff on retry
+## Tensions
+### Max concurrency for speed vs rate-limit headroom
+### Stream every response vs buffer for complete output
+## Pitfalls
+### Forgetting res.end() after SSE closes
+### Promise.all on large batches
+### Buffering full streamed response
+### No stream timeout set
+`;
+---
+
+<LessonLayout
+  title="L12 — Streaming & Async"
+>
+  <LessonHeader
+    num="L12"
+    title="Streaming & Async"
+    subtitle="Stream tokens for perceived speed, run concurrent LLM calls for throughput, and control concurrency to stay within rate limits."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§2.12 — Streaming Output</h2>
+    <p>
+      By default, the Anthropic SDK waits for the full response before returning.
+      Streaming lets you receive and display tokens as they arrive — users see output
+      immediately instead of staring at a spinner for 10+ seconds.
+    </p>
+
+    <LessonCallout variant="key" title="Why streaming matters">
+      <p>
+        A 500-token response at 60 tokens/second takes ~8 seconds to complete.
+        With streaming, the user sees the first token in ~300ms.
+        Perceived latency drops by 95% with zero change to total processing time.
+      </p>
+    </LessonCallout>
+
+    <CodeBlock lang="typescript" label="stream.ts" code={streamCode} />
+
+    <h3 class="lesson-heading">Streaming to the browser via SSE</h3>
+    <p>
+      Server-Sent Events (SSE) is the standard way to push streamed tokens from a
+      NestJS backend to a browser client. The server writes <code>data: ...</code>
+      lines over a persistent HTTP connection; the browser reads them with
+      <code>EventSource</code>.
+    </p>
+
+    <LessonDiagram definition={`
+sequenceDiagram
+  participant B as Browser
+  participant N as NestJS
+  participant A as Anthropic API
+
+  B->>N: GET /stream?q=...
+  N->>A: messages.stream(...)
+  loop token by token
+    A-->>N: content_block_delta
+    N-->>B: data: \{"text":"..."\}
+  end
+  A-->>N: message_stop
+  N-->>B: data: [DONE]
+`} />
+
+    <CodeBlock lang="typescript" label="stream.controller.ts" code={sseCode} />
+
+    <LessonCallout variant="tip" title="Client-side EventSource">
+      <p>
+        In the browser: <code>const es = new EventSource('/stream?q=...')</code>,
+        then <code>es.onmessage = e =&gt; append(JSON.parse(e.data).text)</code>.
+        Call <code>es.close()</code> when you receive <code>[DONE]</code>.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">§2.13 — Async vs. Sync Execution</h2>
+    <p>
+      All Anthropic SDK calls in Node.js are asynchronous I/O. The question is not
+      <em>whether</em> to use async, but <em>how many calls to run concurrently</em>.
+    </p>
+
+    <CodeBlock lang="typescript" label="async-patterns.ts" code={asyncCode} />
+
+    <h3 class="lesson-heading">Concurrency strategy</h3>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Pattern</th><th>When to use</th><th>Risk</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Sequential await</strong></td>
+            <td>Steps depend on each other's output</td>
+            <td>Slow — latency stacks linearly</td>
+          </tr>
+          <tr>
+            <td><strong>Promise.all</strong></td>
+            <td>Independent tasks, small batch</td>
+            <td>Rate-limit errors on large batches</td>
+          </tr>
+          <tr>
+            <td><strong>p-limit</strong></td>
+            <td>Independent tasks, large batch</td>
+            <td>More complex code — worth it at scale</td>
+          </tr>
+          <tr>
+            <td><strong>Queue + worker pool</strong></td>
+            <td>Long-running agent tasks, background jobs</td>
+            <td>Infrastructure overhead (BullMQ, etc.)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="warn" title="Rate limits bite at Promise.all">
+      <p>
+        Anthropic enforces requests-per-minute and tokens-per-minute limits.
+        <code>Promise.all</code> over 20+ items will trigger 429 errors.
+        Use <code>p-limit</code> or exponential backoff for any batch larger than ~5.
+      </p>
+    </LessonCallout>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Stream Anthropic responses token-by-token with <code>messages.stream()</code>',
+        'Pipe a stream to an SSE endpoint in NestJS for browser consumption',
+        'Run independent LLM calls concurrently with <code>Promise.all</code>',
+        'Limit concurrency to avoid rate-limit errors with <code>p-limit</code>',
+        'Explain when sequential await is correct vs. when parallel is faster',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'What SSE header must a NestJS endpoint set to enable server-sent events?',
+        options: [
+          'Content-Type: application/json',
+          'Content-Type: text/event-stream',
+          'Transfer-Encoding: chunked',
+          'X-Accel-Buffering: no',
+        ],
+        answer:  1,
+        explain: 'text/event-stream is the MIME type that tells the browser to treat the response as an SSE connection. Without it, the browser buffers the full response rather than firing onmessage events for each line.',
+      },
+      {
+        q:       'You need to summarise 50 documents with the Anthropic API. Which pattern is safest?',
+        options: [
+          'Promise.all over all 50',
+          'Sequential await in a for loop',
+          'p-limit with concurrency 3-5',
+          'A single prompt with all 50 documents',
+        ],
+        answer:  2,
+        explain: 'p-limit with concurrency 3-5 keeps requests within rate limits while still being much faster than sequential await. Promise.all over 50 will likely hit the per-minute request cap. A single prompt with 50 documents risks exceeding context limits and produces lower-quality summaries.',
+      },
+      {
+        q:       'Streaming does not reduce the total tokens used or the total server processing time. What does it improve?',
+        options: [
+          'Token throughput per second',
+          'Perceived latency — the user sees output sooner',
+          'Accuracy of the model response',
+          'Cost per API call',
+        ],
+        answer:  1,
+        explain: 'Streaming improves perceived latency: the first tokens arrive in ~300ms instead of the user waiting 5-10 seconds for the complete response. Total server work, token count, and cost are identical.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§2.12, §2.13"
+      tensions={[
+        { a: 'Max concurrency for speed', b: 'Rate-limit headroom for reliability' },
+        { a: 'Stream every response', b: 'Buffer when downstream needs complete output' },
+      ]}
+      questions={[
+        {
+          q:    'A streaming SSE endpoint is behind an Nginx reverse proxy. Users report seeing no tokens until the full response arrives. What is happening and how do you fix it?',
+          hint: 'Nginx has a response buffering feature enabled by default.',
+          answer: '<p>Nginx buffers proxy responses by default (<code>proxy_buffering on</code>). With SSE, this means Nginx accumulates the entire stream before forwarding to the client — defeating the purpose of streaming. Fix: add <code>X-Accel-Buffering: no</code> to the NestJS response headers, or set <code>proxy_buffering off</code> in the Nginx location block for the SSE route. Also ensure <code>proxy_read_timeout</code> is long enough for your longest possible stream.</p>',
+        },
+        {
+          q:    'You have a p-limit concurrency of 5 but still hit 429 errors intermittently. What is the more robust approach?',
+          hint: 'Think about what happens when all 5 concurrent requests finish quickly and the next wave starts.',
+          answer: '<p>p-limit controls concurrent requests in flight, but does not control the <em>rate</em> of requests per minute. If 5 requests all complete in 200ms each, you\'re firing 25 req/s — well above most Anthropic tier limits. Solutions: (1) <strong>Token bucket / leaky bucket</strong> — rate-limit by requests per second, not by concurrency. (2) <strong>Exponential backoff on 429</strong> — catch the error, wait 2^n seconds, retry. (3) <strong>p-throttle</strong> (npm) — wraps a function to enforce a max calls-per-interval. In practice, combine p-limit for concurrency <em>and</em> exponential backoff for resilience.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Forgetting to call res.end() after the SSE stream closes — the browser connection hangs open indefinitely.',
+        'Using Promise.all on large batches without rate-limit handling — one 429 rejects the entire Promise.all.',
+        'Buffering the full streamed response before processing — defeats the latency benefit entirely.',
+        'Not setting a recursion_limit or stream timeout — a slow model response keeps the SSE connection open until the request times out at the load balancer.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

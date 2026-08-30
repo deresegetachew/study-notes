@@ -1,0 +1,373 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import LessonDiagram from '@/components/LessonDiagram.astro';
+import CodeBlock     from '@/components/CodeBlock.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+import LessonQuiz    from '@/components/LessonQuiz.astro';
+import DeepDive      from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const mindMap = `
+# Memory and Conversation State
+## Three Memory Types
+### In-context: messages array
+### Persistent: DB by thread ID
+### Semantic: vector embeddings
+## Context Window Limits
+### Cost grows per turn
+### Trim what you send
+### Save full history separately
+## Conversation Threading
+### Unique thread ID per user
+### Load then run then save
+### Isolation by thread ID
+## When to Use Each
+### Single session: in-context
+### Returning users: persistent
+### Large history: semantic
+## Tensions
+### Memory freshness vs Retrieval latency
+### High-k vs Low-k retrieval
+### Stateful threads vs Stateless client
+## Pitfalls
+### Memory without forgetting
+### Namespace collision multi-tenant
+### Synchronous retrieval blocking responses
+### Unbounded message history
+### Thread ID collision across tenants
+`;
+---
+
+<LessonLayout title="L4 — Memory & Conversation State"
+>
+
+  <LessonHeader
+    num="L04"
+    title="Memory & Conversation State"
+    subtitle="Every agent so far forgets when the process exits. This lesson fixes that."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">Three kinds of memory</h2>
+
+    <div class="memory-grid">
+      <div class="memory-card memory-card--blue">
+        <div class="memory-card-label">Type 1</div>
+        <div class="memory-card-title">In-context</div>
+        <div class="memory-card-body">The <code>messages</code> array. Lives in RAM. Fast. Bounded by context window. Gone when the process exits.</div>
+      </div>
+      <div class="memory-card memory-card--green">
+        <div class="memory-card-label">Type 2</div>
+        <div class="memory-card-title">Persistent</div>
+        <div class="memory-card-body">Messages saved to a DB (Postgres, Redis, file). Survives restarts. Loaded by thread ID. Backbone of multi-session chat.</div>
+      </div>
+      <div class="memory-card memory-card--purple">
+        <div class="memory-card-label">Type 3</div>
+        <div class="memory-card-title">Semantic</div>
+        <div class="memory-card-body">Facts stored as vector embeddings. Retrieved by meaning, not exact key. Cross-session knowledge that scales indefinitely.</div>
+      </div>
+    </div>
+
+    <p>
+      You have been using Type 1 in every lesson so far. This lesson adds Type 2.
+      Type 3 (vector memory) comes later once you have the foundation.
+    </p>
+
+    <h2 class="lesson-heading">The context window is not infinite</h2>
+
+    <p>
+      Every API call sends the full <code>messages</code> array. Cost and latency grow with every
+      turn. For most agents the limits are irrelevant — but cost matters when you're sending 400
+      old messages on every call.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Model</th><th>Context window</th><th>Practical conversation limit</th></tr></thead>
+        <tbody>
+          <tr><td>claude-haiku-4-5</td><td>200k tokens</td><td>~500 back-and-forth turns</td></tr>
+          <tr><td>claude-sonnet-4-6</td><td>200k tokens</td><td>~500 turns, higher quality</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Fix: trim the oldest messages once you exceed a threshold, or keep a rolling summary.</p>
+
+    <h2 class="lesson-heading">Conversation threading</h2>
+
+    <p>
+      A <strong>thread</strong> is one isolated conversation — like a single chat window.
+      Each thread has a unique ID. On every request you load the thread, run the agent, then save.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  A["Request\n+ threadId"]:::step --> B["Load\nmessages"]:::step
+  B --> C["Run\nagent"]:::step
+  C --> D["Save\nmessages"]:::step
+  D --> E["Return\nresponse"]:::done
+
+  classDef step fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <p>
+      In NestJS terms: the thread store is a repository. The agent service loads by
+      <code>threadId</code>, runs the loop, persists the result. No new concepts —
+      just a data-access pattern you already know.
+    </p>
+
+    <h2 class="lesson-heading">Build it: stateful agent with file-based persistence</h2>
+
+    <p>
+      We use JSON files per thread — no external dependencies for now. In production, swap
+      <code>loadThread</code> and <code>saveThread</code> for a Postgres repository.
+      The agent code stays identical.
+    </p>
+
+    <CodeBlock lang="javascript" label="stateful-agent.mjs" code={`
+// Usage:
+//   node --env-file=.env stateful-agent.mjs <threadId> "<message>"
+//
+// Try this sequence:
+//   node --env-file=.env stateful-agent.mjs abc123 "My name is Derese"
+//   node --env-file=.env stateful-agent.mjs abc123 "What is my name?"  ← new process, still remembers
+//   node --env-file=.env stateful-agent.mjs xyz999 "What is my name?"  ← different thread, blank
+
+import Anthropic from '@anthropic-ai/sdk';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+mkdirSync('./threads', { recursive: true });
+
+// ── THREAD STORE (swap this layer for Postgres/Redis in production) ───────────
+
+function loadThread(threadId) {
+  const path = \`./threads/\${threadId}.json\`;
+  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : [];
+}
+
+function saveThread(threadId, messages) {
+  writeFileSync(\`./threads/\${threadId}.json\`, JSON.stringify(messages, null, 2));
+}
+
+// ── CONTEXT TRIMMING (keep last N turns to control token cost) ────────────────
+
+function trimToLastN(messages, n = 20) {
+  return messages.length <= n ? messages : messages.slice(-n);
+}
+
+// ── AGENT ─────────────────────────────────────────────────────────────────────
+
+async function chat(threadId, userMessage) {
+  const history = loadThread(threadId);
+
+  console.log(\`[thread:\${threadId}] \${history.length} prior messages\`);
+
+  const messages = [
+    ...trimToLastN(history),                   // past context, trimmed for cost
+    { role: 'user', content: userMessage },    // new turn
+  ];
+
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 1024,
+    system: 'You are a helpful assistant with memory of this conversation.',
+    messages,
+  });
+
+  const reply = response.content
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join('');
+
+  console.log(\`User: \${userMessage}\`);
+  console.log(\`Assistant: \${reply}\\n\`);
+
+  // Save the FULL history (not trimmed) — trim only what we SEND to the API
+  saveThread(threadId, [
+    ...history,
+    { role: 'user', content: userMessage },
+    { role: 'assistant', content: reply },
+  ]);
+
+  return reply;
+}
+
+// ── ENTRYPOINT ────────────────────────────────────────────────────────────────
+
+const [,, threadId, ...rest] = process.argv;
+if (!threadId || !rest.length) {
+  console.log('Usage: node stateful-agent.mjs <threadId> "<message>"');
+  process.exit(1);
+}
+await chat(threadId, rest.join(' '));
+    `} />
+
+    <h2 class="lesson-heading">Run it — across separate processes</h2>
+
+    <CodeBlock lang="bash" label="terminal" code={`
+node --env-file=.env stateful-agent.mjs abc123 "My name is Derese, I build NestJS apps"
+node --env-file=.env stateful-agent.mjs abc123 "What do you know about me?"
+node --env-file=.env stateful-agent.mjs xyz999 "What do you know about me?"
+    `} />
+
+    <CodeBlock lang="text" label="second call output" code={`
+[thread:abc123] 2 prior messages
+User: What do you know about me?
+Assistant: You told me your name is Derese and that you build NestJS applications.
+    `} />
+
+    <CodeBlock lang="text" label="third call — different thread" code={`
+[thread:xyz999] 0 prior messages
+User: What do you know about me?
+Assistant: I don't have any information about you yet. Feel free to share!
+    `} />
+
+    <LessonCallout variant="key" title="The trim vs save distinction">
+      <p>
+        Trim what you <em>send to the API</em> to control cost.
+        Save the <em>full history</em> to disk so you never lose turns.
+        These are independent concerns.
+      </p>
+      <p>
+        The code saves to <code>history</code> (full array) but sends
+        <code>trimToLastN(history)</code> to the API.
+        Old turns are preserved for auditing or replay. The trim window can be widened any time without data loss.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">When to add semantic memory (Type 3)</h2>
+
+    <p>
+      Persistent threads solve the session problem but not the <em>scale</em> problem. A user
+      with 500 past conversations has ~10,000 messages — you cannot load all of them into context.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Situation</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td>Single ongoing conversation</td><td>In-context (messages array)</td></tr>
+          <tr><td>Returning users across sessions</td><td>Persistent thread (DB)</td></tr>
+          <tr><td>Long history — retrieve only relevant past facts</td><td>Semantic / vector memory</td></tr>
+          <tr><td>Shared knowledge base across many users</td><td>Semantic / vector memory</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Quick-check quiz</h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'You trim messages to the last 20 before the API call. Should you also trim what you save to the database?',
+        options: [
+          'No — save the full history; only trim what you send to the API',
+          'Yes — save only the last 20 to keep the DB small',
+          "It doesn't matter — the agent ignores old messages anyway",
+          'Yes — older messages are never useful',
+        ],
+        answer:  0,
+        explain: 'Trimming controls API cost. Saving preserves the full record. These are independent. Trimming the DB loses history permanently — you may need it for auditing, replay, or widening the trim window later.',
+      },
+      {
+        q:       'Two users share the same agent but must not see each other\'s history. What mechanism isolates them?',
+        options: [
+          'Unique thread IDs — each user\'s messages are stored and loaded separately',
+          'Running separate Node.js processes per user',
+          'The LLM automatically ignores other users\' messages',
+          'Clearing the messages array between requests',
+        ],
+        answer:  0,
+        explain: 'Thread IDs are the isolation mechanism. Each user gets a unique thread ID; their messages are stored and loaded separately with no overlap.',
+      },
+      {
+        q:       'A user has 500 past conversations totalling 50,000 messages. They ask "what did we discuss about billing last month?" What memory type is needed?',
+        options: [
+          'Semantic memory — embed and retrieve only the relevant past messages',
+          'In-context — load all 50,000 messages into the array',
+          'Persistent thread — load the latest thread only',
+          'No memory needed — rephrase the question to include all context',
+        ],
+        answer:  0,
+        explain: '50,000 messages cannot fit in context. Semantic memory uses vector embeddings to retrieve only the handful of past messages relevant to the current question.',
+      },
+      {
+        q:       'In a NestJS app, where does the thread store logic belong?',
+        options: [
+          'In a repository or service — the agent loop just receives and returns messages',
+          'Inside the agent loop itself — it should handle its own persistence',
+          'In a global singleton shared across all requests',
+          'In the controller — closest to the HTTP layer',
+        ],
+        answer:  0,
+        explain: 'Separation of concerns: a repository handles persistence; the agent service handles LLM orchestration. The agent loop should be decoupled from storage — swap DB implementations without touching the loop.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="l1_1.8, l2_2.11"
+    tensions={[
+      { a: 'Memory freshness',           b: 'Retrieval latency (+50–200ms)' },
+      { a: 'High-k retrieval (recall)',  b: 'Low-k retrieval (clean context)' },
+      { a: 'Synchronous memory writes',  b: 'Async writes (eventual consistency)' },
+      { a: 'Stateful chatbot (threads)', b: 'Stateless (state on client)' },
+    ]}
+    questions={[
+      {
+        q:      'Design a memory system for a multi-tenant SaaS where User A\'s memories must never surface in User B\'s session.',
+        hint:   'Isolation is a namespace problem. What keys do you use, and where do you enforce the filtering?',
+        answer: '<p>Use hierarchical namespacing: <code>namespace = (tenant_id, workspace_id, "memories")</code>. Every write includes these namespace components; every read filters by the same namespace — physically impossible to retrieve cross-tenant memories.</p><p>Extract <code>tenant_id</code> and <code>workspace_id</code> from the authenticated request context, never from user-provided input. Validate at both write and read paths.</p><p>Audit: log every memory write and read with the namespace. A cross-namespace access in logs is a critical security incident.</p>',
+      },
+      {
+        q:      'How do you handle conflicting memories? User stored "prefers Python" in January and "now works in Go" in March.',
+        hint:   'Conflicts are temporal — the newer one is usually correct. But "usually" is not "always."',
+        answer: '<p><strong>Recency-weighted retrieval:</strong> store a timestamp with every memory. Surface the newer one with higher priority. Include timestamps so the LLM can reason: "User prefers Python (Jan 2024), User now works in Go (Mar 2024)."</p><p><strong>Update-on-conflict:</strong> when writing a new memory, detect if it contradicts an existing one. If yes, update the existing memory and store the change history.</p><p><strong>Explicit contradiction flag:</strong> mark conflicting memories and surface both with a note: "There is a conflict — the more recent preference is Go." Let the LLM handle resolution contextually.</p>',
+      },
+      {
+        q:      'How do you implement conversation summarisation when message history grows too long?',
+        hint:   'The history needs to shrink without losing important context.',
+        answer: '<p>Add a check-and-trim step before the main LLM call. If <code>token_count(messages) > 75% of context window</code>: run a cheap summarisation call — "Summarise the key facts and decisions from this conversation in 200 words."</p><p>Replace old messages with: <code>[{ role: "user", content: "Previous conversation summary: {summary}" }, ...last 5 messages]</code>.</p><p>Keep the last 5 messages verbatim — most relevant for continuity. The summary captures key facts without verbatim dialogue. Track: how often summarisation triggers and response quality on queries referencing summarised content.</p>',
+      },
+      {
+        q:      'When should you use vector store (semantic) vs key-value vs SQL vs knowledge graph memory?',
+        hint:   'Each storage type has a query pattern it excels at. Match query pattern to storage type.',
+        answer: '<p><strong>Vector store:</strong> "find memories semantically related to this context" — fuzzy, meaning-based retrieval. Use for user preferences, past experiences.</p><p><strong>Key-value:</strong> "fetch this specific fact by ID instantly" — low latency, exact match. Use for user timezone, subscription tier, last session timestamp.</p><p><strong>SQL:</strong> "find all memories where topic=X and date>Y" — structured, filterable, aggregatable. Use for interaction history, event logs, auditable records.</p><p><strong>Knowledge graph:</strong> "traverse relationships between entities" — user works at company X, company X uses technology Y. Use when connections matter as much as facts.</p><p>Most production systems use 2–3 of these in combination.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Memory without forgetting — a store that only grows eventually surfaces outdated, contradictory memories. Implement memory decay, importance scoring, or explicit TTLs from day one.',
+      'Namespace collision in multi-tenant systems — flat keys (<code>memory_123</code>) instead of hierarchical namespacing (<code>user_A/workspace_1/memory_123</code>) means memories can bleed across tenants. Retrofit is painful.',
+      'Synchronous memory retrieval blocking responses — calling the memory store before every response adds 150–300ms to P50 latency. Parallelize: start memory retrieval in parallel with other init steps.',
+      'Unbounded message history — <code>messages</code> accumulates forever. After a long conversation it fills the context window. Implement sliding window trimming or summarisation for long-running sessions.',
+      'Thread ID collision in multi-tenant systems — simple IDs (<code>session_1</code>) collide across tenants. Always namespace: <code>customer_A_session_1</code>.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .memory-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 1rem; margin: 1.5rem 0;
+  }
+  .memory-card {
+    border: 1px solid var(--border); border-radius: 6px; padding: 1rem;
+    border-top-width: 3px;
+  }
+  .memory-card--blue   { border-top-color: #2563eb; }
+  .memory-card--green  { border-top-color: #16a34a; }
+  .memory-card--purple { border-top-color: #9333ea; }
+  .memory-card-label {
+    font-family: monospace; font-size: .7rem; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); margin-bottom: .3rem;
+  }
+  .memory-card-title { font-weight: bold; margin-bottom: .4rem; }
+  .memory-card-body  { font-size: .85rem; color: var(--muted); line-height: 1.5; }
+</style>

@@ -1,0 +1,387 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const decomposerCode = `
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+interface Step {
+  id: number;
+  description: string;
+  dependsOn: number[];   // step ids that must complete first
+}
+
+interface Plan {
+  goal: string;
+  steps: Step[];
+}
+
+async function decompose(goal: string): Promise<Plan> {
+  const response = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 1024,
+    system: \`You are a task planner. Break the user's goal into concrete,
+actionable steps. Return JSON matching this schema:
+{
+  "goal": "string",
+  "steps": [
+    { "id": 1, "description": "...", "dependsOn": [] },
+    { "id": 2, "description": "...", "dependsOn": [1] }
+  ]
+}\`,
+    messages: [{ role: 'user', content: goal }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '';
+  return JSON.parse(text) as Plan;
+}
+
+// Group steps by wave — steps with no unmet dependencies run in parallel
+function waves(plan: Plan): Step[][] {
+  const done = new Set<number>();
+  const result: Step[][] = [];
+  let remaining = [...plan.steps];
+
+  while (remaining.length) {
+    const wave = remaining.filter(s => s.dependsOn.every(d => done.has(d)));
+    if (wave.length === 0) {
+      const ids = remaining.map(s => s.id).join(', ');
+      throw new Error('Cycle detected in plan — steps [' + ids + '] cannot be scheduled.');
+    }
+    wave.forEach(s => done.add(s.id));
+    remaining = remaining.filter(s => !done.has(s.id));
+    result.push(wave);
+  }
+  return result;
+}
+
+const goal = 'Research the top 3 vector databases, compare their pricing, and write a summary email.';
+const plan  = await decompose(goal);
+const schedule = waves(plan);
+
+console.log('Plan:', plan.goal);
+schedule.forEach((wave, i) => {
+  console.log(\`Wave \${i + 1} (parallel):\`);
+  wave.forEach(s => console.log(\`  [\${s.id}] \${s.description}\`));
+});
+`.trim();
+
+const reactCode = `
+// Minimal ReAct loop — Reason then Act, repeat until done
+async function reactAgent(goal: string) {
+  const messages: Anthropic.MessageParam[] = [
+    { role: 'user', content: goal }
+  ];
+
+  while (true) {
+    const response = await client.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 1024,
+      system: \`You are a ReAct agent. At each step output:
+Thought: <your reasoning>
+Action: <tool name> | <JSON args>   (or "Action: done" when finished)
+Observation: (leave blank — the system fills this in)\`,
+      tools,
+      messages,
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    messages.push({ role: 'assistant', content: text });
+
+    if (text.includes('Action: done')) break;
+
+    // Parse action line and call the tool
+    const actionLine = text.match(/Action:\\s*(\\w+)\\s*\\|\\s*(.+)/);
+    if (actionLine) {
+      const [, toolName, argsJson] = actionLine;
+      const result = await callTool(toolName, JSON.parse(argsJson));
+      messages.push({ role: 'user', content: \`Observation: \${result}\` });
+    }
+  }
+}
+`.trim();
+
+const mindMap = `
+# Tackling Complex Tasks
+## Why Single-Shot Fails
+### Context overflow
+### Lost state across steps
+### Hallucinated unexecutable steps
+## Task Decomposition
+### Sequential: step depends on previous
+### Parallel: independent via Promise.all
+### Hierarchical: orchestrator plus sub-agents
+## Dependency Waves
+### Steps as DAG structure
+### Same-wave steps run in parallel
+### Next wave waits on prior wave
+## ReAct Loop
+### Thought: reason about goal
+### Action: call a tool
+### Observation: result back to context
+## Plan-first vs ReAct
+### Plan-first: efficient but brittle
+### ReAct: adaptive more tokens
+### Hybrid: standard in production
+## Tensions
+### Plan upfront vs Interleave reasoning
+### Parallel speed vs Sequential correctness
+## Pitfalls
+### No iteration cap on ReAct
+### Decomposing too finely
+### Ignoring dependency graph
+### LLM JSON without schema validation
+`;
+---
+
+<LessonLayout
+  title="L09 — Tackling Complex Tasks"
+>
+  <LessonHeader
+    num="L09"
+    title="Tackling Complex Tasks"
+    subtitle="Task decomposition, dependency waves, and the ReAct reasoning loop."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">Why single-shot prompts fail</h2>
+    <p>
+      A simple agent — one LLM call, one answer — collapses under goals that span multiple
+      steps, require external data, or depend on earlier results. The model runs out of
+      context, loses track of state, or hallucinates steps it cannot actually execute.
+    </p>
+    <LessonCallout variant="key" title="The core insight">
+      <p>
+        Complex tasks need a <strong>planning layer</strong> that sits above execution.
+        The planner decides <em>what</em> to do and in <em>what order</em>;
+        the executor handles <em>how</em>.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">§1.3 — Task Decomposition</h2>
+    <p>
+      Decomposition turns one hard goal into many simpler sub-tasks. Three strategies
+      cover most real scenarios:
+    </p>
+
+    <div class="decomp-grid">
+      <div class="decomp-card">
+        <div class="decomp-label">Sequential</div>
+        <p>Steps run one after another. Step N can use the output of step N−1.
+        Use when each step depends on the previous result.</p>
+        <p class="decomp-eg">Example: fetch page → parse → summarise → email</p>
+      </div>
+      <div class="decomp-card">
+        <div class="decomp-label">Parallel</div>
+        <p>Independent steps run concurrently via <code>Promise.all</code>.
+        Use when sub-tasks share no data dependencies.</p>
+        <p class="decomp-eg">Example: research DB A, DB B, and DB C simultaneously</p>
+      </div>
+      <div class="decomp-card">
+        <div class="decomp-label">Hierarchical</div>
+        <p>An orchestrator agent delegates to specialised sub-agents, each owning
+        a distinct capability domain.</p>
+        <p class="decomp-eg">Example: planner → researcher + writer + reviewer</p>
+      </div>
+    </div>
+
+    <h3 class="lesson-heading">Dependency waves</h3>
+    <p>
+      In practice a plan is a directed acyclic graph (DAG). Steps in the same
+      "wave" — no unmet dependencies — can run in parallel; the next wave starts
+      only after all steps in the current wave finish.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  A["Step 1\nResearch DB A"]:::parallel
+  B["Step 2\nResearch DB B"]:::parallel
+  C["Step 3\nResearch DB C"]:::parallel
+  D["Step 4\nCompare pricing"]:::seq
+  E["Step 5\nWrite summary email"]:::seq
+
+  A --> D
+  B --> D
+  C --> D
+  D --> E
+
+  classDef parallel fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef seq     fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="task-decomposer.ts" code={decomposerCode} />
+
+    <LessonCallout variant="tip" title="Let the LLM build the DAG">
+      <p>
+        You don't need to write decomposition logic by hand. Ask the model to return
+        a JSON plan with <code>dependsOn</code> arrays, then use the <code>waves()</code>
+        function above to schedule execution automatically.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">§1.5 — ReAct: Reasoning + Acting</h2>
+    <p>
+      ReAct (Yao et al., 2022) interleaves <strong>Thought</strong> steps with
+      <strong>Action</strong> steps. Each observation from the environment is fed back
+      as context, letting the agent course-correct before choosing the next action.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart TD
+  G["Goal"]:::start --> T1["Thought\n(reason about goal)"]:::thought
+  T1 --> A1["Action\n(call tool)"]:::action
+  A1 --> O1["Observation\n(tool result)"]:::obs
+  O1 --> T2["Thought\n(re-evaluate)"]:::thought
+  T2 --> A2["Action\n(next tool / done)"]:::action
+
+  classDef start   fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef thought fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef action  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef obs     fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="react-agent.ts" code={reactCode} />
+
+    <h3 class="lesson-heading">Plan-first vs. ReAct</h3>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Approach</th><th>When to use</th><th>Trade-off</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Plan-first</strong></td>
+            <td>Goal is well-defined, steps are predictable</td>
+            <td>Efficient, but brittle if the world changes mid-execution</td>
+          </tr>
+          <tr>
+            <td><strong>ReAct</strong></td>
+            <td>Uncertain environment, tools return unexpected data</td>
+            <td>Adaptive, but uses more tokens per turn</td>
+          </tr>
+          <tr>
+            <td><strong>Hybrid</strong></td>
+            <td>Plan high-level steps, use ReAct within each step</td>
+            <td>Best of both; standard in production systems</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="warn" title="Avoid infinite loops">
+      <p>
+        Always set a maximum iteration count on any ReAct loop. Without a hard cap,
+        a confused model can cycle through Thought → Action → Observation indefinitely,
+        burning tokens and API budget.
+      </p>
+    </LessonCallout>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Break a goal into a JSON plan with <code>dependsOn</code> dependency arrays',
+        'Schedule plan steps into parallel waves using the DAG wave-scheduler',
+        'Implement a ReAct loop: Thought → Action → Observation → repeat',
+        'Choose between plan-first, ReAct, or hybrid based on task predictability',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'Which decomposition strategy runs independent subtasks at the same time?',
+        options: ['Sequential', 'Parallel', 'Hierarchical', 'ReAct'],
+        answer:  1,
+        explain: 'Parallel decomposition uses Promise.all to run independent steps concurrently. Sequential runs steps one after another; hierarchical delegates to sub-agents; ReAct is a reasoning loop, not a decomposition strategy.',
+      },
+      {
+        q:       'What does the "O" in the ReAct loop stand for?',
+        options: ['Output', 'Operation', 'Observation', 'Orchestration'],
+        answer:  2,
+        explain: 'ReAct = Reason + Act. The full loop is Thought → Action → Observation. The Observation is the tool result fed back into context so the model can re-evaluate.',
+      },
+      {
+        q:       'A plan-first agent generates its full plan upfront. What is the main downside?',
+        options: [
+          'It always uses more tokens than ReAct',
+          'It cannot use tools',
+          'It is brittle when the environment changes mid-execution',
+          'It cannot run steps in parallel',
+        ],
+        answer:  2,
+        explain: 'Plan-first agents commit to a plan before seeing any tool results. If a tool returns unexpected data (a page is down, a price has changed), the static plan cannot adapt — unlike a ReAct loop that re-reasons after every observation.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§1.3, §1.5"
+      tensions={[
+        { a: 'Plan upfront for efficiency', b: 'Interleave reasoning for adaptability' },
+        { a: 'Parallel execution for speed',  b: 'Sequential execution for correctness' },
+      ]}
+      questions={[
+        {
+          q:    'When does a decomposition DAG break down, and what is your recovery strategy?',
+          hint: 'Think about what happens when step 3 returns an error that invalidates the assumptions in step 4.',
+          answer: '<p>A DAG breaks when a step result invalidates downstream assumptions — step 3 might find no pricing data, making step 4 ("compare pricing") meaningless. Recovery options: (1) <strong>static error handling</strong> — each step returns a typed result including failure cases, and the scheduler skips dependents; (2) <strong>re-planning</strong> — on failure, send the partial results back to the planner LLM and ask it to revise the remaining steps; (3) <strong>human checkpoint</strong> — pause and surface the failure before continuing. The right choice depends on how often steps fail and the cost of incorrect downstream work.</p>',
+        },
+        {
+          q:    'ReAct loops can drift — after many Thought/Observation cycles the model loses track of the original goal. How would you prevent this?',
+          hint: 'Consider what information must be present at each turn.',
+          answer: '<p>Three mitigations: (1) <strong>Pin the goal</strong> — include the original goal in the system prompt, not just the first user message, so it stays in context after truncation. (2) <strong>Step budget</strong> — inject a "steps remaining: N" counter into each Thought prompt; the model self-limits. (3) <strong>Structured Thought format</strong> — require the model to restate its current sub-goal in every Thought block, forcing re-alignment. In practice, combine all three: pin goal + budget cap + structured format.</p>',
+        },
+      ]}
+      pitfalls={[
+        'No iteration cap on the ReAct loop — one confused model call becomes an infinite billing event.',
+        'Decomposing too finely — 20 trivial steps are harder to debug than 5 meaningful ones.',
+        'Ignoring the dependency graph and always running sequentially — misses easy parallelism wins.',
+        'Trusting JSON from the LLM without validating the schema — a missing dependsOn field silently breaks the wave scheduler.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .decomp-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+    margin: 0.75rem 0;
+  }
+  .decomp-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.85rem 1rem;
+    font-size: 0.88rem;
+  }
+  .decomp-label {
+    font-family: monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+  .decomp-eg {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+  @media (max-width: 640px) {
+    .decomp-grid { grid-template-columns: 1fr; }
+  }
+</style>

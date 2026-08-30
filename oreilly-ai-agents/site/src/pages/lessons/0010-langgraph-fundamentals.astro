@@ -1,0 +1,321 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const graphCode = `
+import { StateGraph, END } from '@langchain/langgraph';
+import { Annotation } from '@langchain/langgraph';
+
+// 1. Define state shape with Annotation
+const AgentState = Annotation.Root({
+  messages: Annotation<string[]>({
+    reducer: (prev, next) => [...prev, ...next],  // accumulate messages
+    default: () => [],
+  }),
+  status: Annotation<'running' | 'done'>({
+    reducer: (_, next) => next,
+    default: () => 'running',
+  }),
+});
+
+// 2. Define node functions — each receives state, returns partial state
+async function callModel(state: typeof AgentState.State) {
+  const lastMsg = state.messages.at(-1) ?? '';
+  const reply = await llm.invoke(lastMsg);
+  return { messages: [reply.content as string] };
+}
+
+function shouldContinue(state: typeof AgentState.State) {
+  const last = state.messages.at(-1) ?? '';
+  return last.includes('DONE') ? 'end' : 'model';
+}
+
+// 3. Build the graph
+const graph = new StateGraph(AgentState)
+  .addNode('model', callModel)
+  .addEdge('__start__', 'model')
+  .addConditionalEdges('model', shouldContinue, {
+    model: 'model',   // loop back
+    end:   END,       // terminal
+  })
+  .compile();
+
+// 4. Run — stream state updates
+for await (const chunk of await graph.stream({ messages: ['What is 2+2?'] })) {
+  console.log('Node output:', chunk);
+}
+`.trim();
+
+const stateCode = `
+// Reducers control HOW new state merges with existing state
+
+// Replace — last write wins (default for most scalar fields)
+const CounterState = Annotation.Root({
+  count: Annotation<number>({
+    reducer: (_, next) => next,   // always replace
+    default: () => 0,
+  }),
+});
+
+// Accumulate — append new items without losing history
+const HistoryState = Annotation.Root({
+  history: Annotation<string[]>({
+    reducer: (prev, next) => [...prev, ...next],
+    default: () => [],
+  }),
+});
+
+// Merge — combine objects from multiple nodes
+const MetadataState = Annotation.Root({
+  metadata: Annotation<Record<string, string>>({
+    reducer: (prev, next) => ({ ...prev, ...next }),
+    default: () => ({}),
+  }),
+});
+`.trim();
+
+const mindMap = `
+# LangGraph Fundamentals
+## Core Primitives
+### Node — async function
+### Edge — directed connection
+### State — typed shared object
+### Compiler — validates graph
+## Nodes and Edges
+### Static edges (addEdge)
+### Conditional edges (addConditionalEdges)
+### __start__ and END
+## State Management
+### Replace reducer
+### Accumulate reducer
+### Merge reducer
+## State vs Memory
+### In-memory per run
+### Checkpointer for persistence
+## Tensions
+### Global shared state vs scoped per-node state
+### Replace reducers vs accumulating reducers
+## Pitfalls
+### Replace reducer on messages array
+### Forgetting edge from __start__
+### Business logic in conditional edges
+### No recursion_limit set
+`;
+---
+
+<LessonLayout
+  title="L10 — LangGraph Fundamentals"
+>
+  <LessonHeader
+    num="L10"
+    title="LangGraph Fundamentals"
+    subtitle="Nodes, edges, state reducers, and conditional routing — the graph primitives every LangGraph agent is built from."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§1.7 — What is LangGraph?</h2>
+    <p>
+      LangGraph is a library for building stateful, graph-structured agents. Instead of
+      a linear chain of steps, you define a <strong>directed graph</strong> where nodes
+      are functions and edges are the routes between them. The graph manages shared state
+      automatically and supports cycles — essential for any agent that needs to loop.
+    </p>
+
+    <div class="concept-grid">
+      <div class="concept-card">
+        <div class="concept-label">Node</div>
+        <p>A plain async function. Receives the current state, returns a partial state update. Nodes are where computation happens — LLM calls, tool invocations, routing logic.</p>
+      </div>
+      <div class="concept-card">
+        <div class="concept-label">Edge</div>
+        <p>A directed connection from one node to another. Can be static (always go to node B after A) or conditional (choose B or C based on state).</p>
+      </div>
+      <div class="concept-card">
+        <div class="concept-label">State</div>
+        <p>A typed object shared across all nodes. Each node's return value is merged into state using <strong>reducers</strong> you define. Reducers decide whether to replace, append, or merge.</p>
+      </div>
+      <div class="concept-card">
+        <div class="concept-label">Compiler</div>
+        <p><code>.compile()</code> validates the graph (no orphan nodes, valid entry/exit) and returns a runnable that supports <code>invoke</code>, <code>stream</code>, and checkpointing.</p>
+      </div>
+    </div>
+
+    <h2 class="lesson-heading">§2.7 — Nodes and Edges in practice</h2>
+
+    <LessonDiagram definition={`
+flowchart LR
+  S([__start__]):::entry --> M["model\n(call LLM)"]:::node
+  M --> R{"shouldContinue\n(conditional edge)"}:::cond
+  R -->|loop| M
+  R -->|done| E([END]):::exit
+
+  classDef entry fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef exit  fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+  classDef node  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef cond  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="graph.ts" code={graphCode} />
+
+    <LessonCallout variant="tip" title="__start__ and END">
+      <p>
+        <code>__start__</code> is LangGraph's virtual entry node — you don't define it,
+        just add an edge from it to your first real node.
+        <code>END</code> is the terminal sentinel imported from <code>@langchain/langgraph</code>.
+        A graph can have multiple paths to <code>END</code>.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Static vs. conditional edges</h3>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Edge type</th><th>API</th><th>Use when</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Static</strong></td>
+            <td><code>.addEdge('a', 'b')</code></td>
+            <td>Node A always routes to node B — no branching</td>
+          </tr>
+          <tr>
+            <td><strong>Conditional</strong></td>
+            <td><code>.addConditionalEdges('a', fn, map)</code></td>
+            <td>Route depends on state — <code>fn</code> returns a key, <code>map</code> maps keys to node names</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">§2.8 — State Management</h2>
+    <p>
+      State in LangGraph is not just a plain object — each field has a <strong>reducer</strong>
+      that controls how updates from concurrent or sequential nodes are merged.
+      Choosing the wrong reducer is the most common source of bugs.
+    </p>
+
+    <CodeBlock lang="typescript" label="state-reducers.ts" code={stateCode} />
+
+    <LessonCallout variant="warn" title="Reducer mismatch bugs">
+      <p>
+        If you use a replace reducer on a <code>messages</code> array, every node
+        overwrites the full history rather than appending. The agent appears to "forget"
+        earlier messages. Always use an accumulating reducer for conversation history.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">State vs. memory</h3>
+    <p>
+      LangGraph <strong>state</strong> lives in memory for the duration of one graph run.
+      For persistence across runs (multi-turn conversations, resuming after failure) you
+      need a <strong>checkpointer</strong> — a storage backend that snapshots state after
+      every node. We cover this in L20: Conversation Threading.
+    </p>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Define a typed state with <code>Annotation.Root</code> and custom reducers',
+        'Write node functions that accept state and return partial updates',
+        'Connect nodes with <code>addEdge</code> and <code>addConditionalEdges</code>',
+        'Compile and run a graph with <code>.stream()</code> to observe per-node output',
+        'Choose between replace, accumulate, and merge reducers for different fields',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'What does a LangGraph node function return?',
+        options: [
+          'The complete new state object',
+          'A partial state update (only changed fields)',
+          'The next node name to route to',
+          'A Promise that resolves to END or a node name',
+        ],
+        answer:  1,
+        explain: 'Nodes return a partial state — only the fields they changed. LangGraph merges the partial update into the full state using each field\'s reducer. Returning the full state is not wrong but is redundant and harder to maintain.',
+      },
+      {
+        q:       'Which LangGraph API do you use when the next node depends on the current state?',
+        options: ['addEdge', 'addConditionalEdges', 'addNode', 'compile'],
+        answer:  1,
+        explain: 'addConditionalEdges takes a router function that inspects state and returns a string key, plus a map from keys to node names. addEdge is for static routes that never change.',
+      },
+      {
+        q:       'A messages field uses a replace reducer. After node A adds message 1 and node B adds message 2, what does state.messages contain?',
+        options: [
+          'Both message 1 and message 2',
+          'Only message 2 (node B overwrote node A)',
+          'Only message 1 (first write wins)',
+          'An error — two nodes cannot write to the same field',
+        ],
+        answer:  1,
+        explain: 'A replace reducer keeps only the latest write. Node B ran after node A, so its update replaces the state entirely — only message 2 survives. This is why conversation history fields need an accumulating reducer.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§1.7, §2.7, §2.8"
+      tensions={[
+        { a: 'Global shared state (simple)', b: 'Scoped per-node state (safer at scale)' },
+        { a: 'Mutable replace reducers (predictable)', b: 'Accumulating reducers (safe for history)' },
+      ]}
+      questions={[
+        {
+          q:    'LangGraph graphs can have cycles. What prevents an infinite loop in a production graph?',
+          hint: 'Think about what the conditional edge router inspects and what guarantees it eventually returns END.',
+          answer: '<p>Three layers: (1) <strong>State-based termination</strong> — the conditional edge function checks a field like <code>status === "done"</code> or <code>iterations &gt;= MAX</code> and routes to END. Without this, there is no termination guarantee. (2) <strong>Iteration budget in state</strong> — include a counter field (<code>iterations: number</code>) with a replace reducer, increment it in each node, and check it in the router. (3) <strong>Timeout at the compile level</strong> — LangGraph\'s <code>recursion_limit</code> compile option throws after N steps. Set it as a hard backstop, not as your primary guard.</p>',
+        },
+        {
+          q:    'Two parallel nodes both write to the same state field. How does LangGraph decide the final value?',
+          hint: 'Consider what the reducer contract means when called with two simultaneous updates.',
+          answer: '<p>LangGraph calls the reducer with <code>(currentValue, nodeAUpdate)</code> and then <code>(resultA, nodeBUpdate)</code> — reductions are applied sequentially in completion order, not truly simultaneously. For an accumulating reducer this means both writes survive (append-append). For a replace reducer, the last node to finish wins — a race condition. The fix: use a merge reducer for fields that multiple nodes write to, or redesign the graph so no two nodes touch the same field.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Using a replace reducer on a messages array — the agent appears to forget conversation history after the second node runs.',
+        'Forgetting to add an edge from __start__ — the graph compiles but throws at runtime with a confusing "no entry point" error.',
+        'Putting business logic in conditional edges instead of nodes — edge functions should only read state and return a route key; side effects belong in nodes.',
+        'Not setting recursion_limit — a buggy conditional edge that never returns END will run until the process is killed.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .concept-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin: 0.75rem 0;
+  }
+  .concept-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.85rem 1rem;
+    font-size: 0.88rem;
+  }
+  .concept-label {
+    font-family: monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+  @media (max-width: 640px) {
+    .concept-grid { grid-template-columns: 1fr; }
+  }
+</style>

@@ -1,0 +1,295 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const routerCode = `
+import { StateGraph, END } from '@langchain/langgraph';
+import { Annotation } from '@langchain/langgraph';
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+// State for a triage-then-specialise workflow
+const TriageState = Annotation.Root({
+  query:    Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  category: Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  answer:   Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+});
+
+// Node 1: classify the query
+async function triage(state: typeof TriageState.State) {
+  const res = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 32,
+    messages: [{
+      role: 'user',
+      content: \`Classify this query into ONE of: billing, shipping, technical, general.
+Query: \${state.query}
+Reply with only the category word.\`,
+    }],
+  });
+  const category = res.content[0].type === 'text'
+    ? res.content[0].text.trim().toLowerCase()
+    : 'general';
+  return { category };
+}
+
+// Conditional edge: route based on category
+function routeByCategory(state: typeof TriageState.State): string {
+  const routes: Record<string, string> = {
+    billing:   'billingAgent',
+    shipping:  'shippingAgent',
+    technical: 'technicalAgent',
+  };
+  return routes[state.category] ?? 'generalAgent';
+}
+
+// Specialist nodes (simplified)
+const makeSpecialist = (domain: string) => async (state: typeof TriageState.State) => {
+  const res = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 512,
+    system: \`You are a \${domain} specialist.\`,
+    messages: [{ role: 'user', content: state.query }],
+  });
+  return { answer: res.content[0].type === 'text' ? res.content[0].text : '' };
+};
+
+const graph = new StateGraph(TriageState)
+  .addNode('triage',        triage)
+  .addNode('billingAgent',  makeSpecialist('billing'))
+  .addNode('shippingAgent', makeSpecialist('shipping'))
+  .addNode('technicalAgent',makeSpecialist('technical'))
+  .addNode('generalAgent',  makeSpecialist('general'))
+  .addEdge('__start__', 'triage')
+  .addConditionalEdges('triage', routeByCategory, {
+    billingAgent:   'billingAgent',
+    shippingAgent:  'shippingAgent',
+    technicalAgent: 'technicalAgent',
+    generalAgent:   'generalAgent',
+  })
+  .addEdge('billingAgent',   END)
+  .addEdge('shippingAgent',  END)
+  .addEdge('technicalAgent', END)
+  .addEdge('generalAgent',   END)
+  .compile();
+
+const result = await graph.invoke({ query: 'Why was I charged twice this month?' });
+console.log('Category:', result.category);
+console.log('Answer:', result.answer);
+`.trim();
+
+const mindMap = `
+# Conditional Edges & Custom Workflows
+## Conditional Edges
+### Router reads state
+### Returns route key
+### Maps key to node
+## Custom Workflows
+### Fan-out / fan-in
+### Triage router
+### Looping refiner
+### Pipeline with checkpoints
+## Sub-Graphs as Nodes
+### Independently testable
+### Composed into orchestrator
+## Workflow Patterns
+### addConditionalEdges API
+### Pure router functions
+### Key-to-node map
+## Tensions
+### Many specialist branches vs few generic
+### LLM routing vs rule-based routing
+## Pitfalls
+### No fallback route in edge map
+### LLM calls inside router function
+### Giant monolithic workflows
+### Missing terminal edges to END
+`;
+---
+
+<LessonLayout
+  title="L18 — Conditional Edges & Custom Workflows"
+>
+  <LessonHeader
+    num="L18"
+    title="Conditional Edges & Custom Workflows"
+    subtitle="Route agent execution through specialist branches using conditional edges, and compose reusable sub-graphs into larger workflows."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§3.1 — Conditional Edges</h2>
+    <p>
+      Conditional edges let a graph branch at runtime based on state. Instead of
+      flowing to a single next node, a router function reads the current state and
+      returns a key that maps to a node name.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  S([START]):::e
+  T[Triage\nclassify]:::s
+  R{Route by\ncategory}:::dec
+  B[Billing\nAgent]:::sp
+  SH[Shipping\nAgent]:::sp
+  TE[Technical\nAgent]:::sp
+  G[General\nAgent]:::sp
+  E([END]):::d
+
+  S --> T --> R
+  R -->|billing|   B
+  R -->|shipping|  SH
+  R -->|technical| TE
+  R -->|general|   G
+  B  --> E
+  SH --> E
+  TE --> E
+  G  --> E
+
+  classDef e   fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef d   fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+  classDef s   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef dec fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef sp  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="triage-graph.ts" code={routerCode} />
+
+    <LessonCallout variant="key" title="Router functions are pure">
+      <p>
+        The function passed to <code>addConditionalEdges</code> must be a pure function —
+        it reads state and returns a string key. All side effects (LLM calls, tool calls)
+        belong in nodes, not in the router. This keeps the routing logic testable without
+        a running graph.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">§3.2 — Custom Agentic Workflows</h2>
+    <p>
+      A custom workflow composes multiple specialist sub-graphs into a single orchestrated
+      pipeline. Each sub-graph is independently testable and can be reused across different
+      top-level workflows.
+    </p>
+
+    <h3 class="lesson-heading">Common workflow patterns</h3>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Pattern</th><th>Shape</th><th>Use case</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Fan-out / fan-in</strong></td>
+            <td>One node → N parallel → merge</td>
+            <td>Research multiple sources, pick best answer</td>
+          </tr>
+          <tr>
+            <td><strong>Triage router</strong></td>
+            <td>One node → conditional → specialist</td>
+            <td>Customer support, content classification</td>
+          </tr>
+          <tr>
+            <td><strong>Looping refiner</strong></td>
+            <td>Generate → critique → revise loop</td>
+            <td>Draft improvement, code generation + test</td>
+          </tr>
+          <tr>
+            <td><strong>Pipeline with checkpoints</strong></td>
+            <td>Sequential steps, state checkpointed between</td>
+            <td>Long-running tasks that can be paused/resumed</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="Sub-graphs as nodes">
+      <p>
+        A compiled LangGraph sub-graph can be used as a node in a parent graph by passing
+        it directly to <code>.addNode('name', subgraph)</code>. This lets you build and
+        test each sub-workflow in isolation, then compose them into the final orchestrator.
+      </p>
+    </LessonCallout>
+
+    <LessonCallout variant="warn" title="Fallback routes are mandatory">
+      <p>
+        The <code>map</code> object in <code>addConditionalEdges</code> must cover every
+        possible key your router function can return. If the model returns an unexpected
+        category (e.g. <code>"refund"</code> instead of <code>"billing"</code>), the
+        graph will throw at runtime. Always include a <code>default</code> fallback.
+      </p>
+    </LessonCallout>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Write a router function that reads state and returns a route key',
+        'Wire <code>addConditionalEdges</code> with a complete key-to-node map including a fallback',
+        'Design a triage-then-specialist workflow as a LangGraph',
+        'Compose multiple sub-graphs as nodes inside a parent orchestrator',
+        'Test routing logic independently as a pure function without running the graph',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'Why must the router function passed to addConditionalEdges be a pure function?',
+        options: [
+          'LangGraph requires router functions to be synchronous',
+          'Side effects in routers make routing non-deterministic and hard to test',
+          'Router functions cannot access the state object',
+          'LangGraph runs router functions in a separate process',
+        ],
+        answer:  1,
+        explain: 'Router functions should only read state and return a key. Embedding LLM calls or I/O in a router makes routing non-deterministic (LLMs vary), couples routing to external services, and prevents unit testing the routing logic without a full running graph.',
+      },
+      {
+        q:       'Your conditional edge router returns a key not listed in the map object. What happens?',
+        options: [
+          'LangGraph routes to END automatically',
+          'LangGraph throws a runtime error',
+          'LangGraph re-runs the previous node',
+          'LangGraph ignores the edge and the graph stalls',
+        ],
+        answer:  1,
+        explain: 'LangGraph validates that every key returned by the router is in the map. An unlisted key throws a runtime error. Always include every possible router output in the map, including a default/fallback key for unexpected model outputs.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.1, §3.2"
+      tensions={[
+        { a: 'Many specialist branches (precise)',       b: 'Few generic branches (maintainable)' },
+        { a: 'LLM classifier routing (flexible)',        b: 'Rule-based routing (deterministic)' },
+      ]}
+      questions={[
+        {
+          q:    'Your triage classifier occasionally miscategorises queries, routing billing questions to the shipping agent. How do you improve routing accuracy without retraining?',
+          hint: 'Think about what information the classifier has access to, and how you could give it more signal.',
+          answer: '<p>Several approaches: (1) <strong>Few-shot examples in the classifier prompt</strong> — add 2-3 labelled examples per category. Examples dramatically outperform zero-shot for classification. (2) <strong>Confidence + fallback</strong> — ask the model to return a confidence score with the category; route low-confidence cases to a human or a catch-all general agent rather than guessing. (3) <strong>Two-stage routing</strong> — first binary classify (is this billing or not?), then sub-classify within billing. Smaller, more focused questions are more accurate. (4) <strong>Eval loop</strong> — build an eval dataset of historically miscategorised queries, run it on every prompt change, and track accuracy before deploying.</p>',
+        },
+        {
+          q:    'A workflow has 6 specialist agents. Adding a 7th requires editing the triage prompt, the router function, the edge map, and each agent\'s system prompt. How would you redesign this to make adding specialists cheaper?',
+          hint: 'Think about data-driven configuration vs. hardcoded graph structure.',
+          answer: '<p>Make specialists data-driven: (1) <strong>Registry pattern</strong> — store specialist definitions in a config object: <code>&#123; id, category, systemPrompt &#125;</code>. Generate graph nodes and edge maps from the registry at startup. Adding a specialist = adding one object, not editing graph code. (2) <strong>Dynamic router</strong> — the router reads the registry at runtime and returns any category that matches; the edge map is generated from the same registry. (3) <strong>Plugins</strong> — each specialist is a separate module that self-registers. The orchestrator discovers specialists via a registration function. This decouples the orchestrator from specialist implementations entirely — useful for teams where different people own different agents.</p>',
+        },
+      ]}
+      pitfalls={[
+        'No fallback route in the edge map — an unexpected model output throws at runtime with no graceful degradation.',
+        'LLM calls inside the router function — makes routing non-deterministic and expensive.',
+        'Giant monolithic workflows — hard to test, debug, and reuse. Prefer small composable sub-graphs.',
+        'Forgetting to add terminal edges from specialist nodes to END — the graph compiles but hangs at runtime.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

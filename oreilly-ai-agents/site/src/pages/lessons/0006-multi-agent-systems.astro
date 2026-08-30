@@ -1,0 +1,469 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import LessonDiagram from '@/components/LessonDiagram.astro';
+import CodeBlock     from '@/components/CodeBlock.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+import LessonQuiz    from '@/components/LessonQuiz.astro';
+import DeepDive      from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const multiAgentCode = `
+// node --env-file=.env multi-agent.mjs
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// ── SPECIALIST AGENTS ─────────────────────────────────────────────────────────
+// Each agent has: a system prompt defining its role + a small tool set.
+// 3-5 tools each, tightly scoped. They know nothing about each other.
+
+const specialists = {
+  billing: {
+    system: \`You are a billing specialist. You handle invoices, charges, refunds,
+and payment methods. You only deal with financial matters.
+If the user's issue is not billing-related, say so clearly.\`,
+    tools: [
+      {
+        name: 'get_invoice',
+        description: 'Look up an invoice by ID. Returns invoice details including amount, status, and line items.',
+        input_schema: {
+          type: 'object',
+          properties: { invoice_id: { type: 'string', description: 'The invoice ID, e.g. INV-1234' } },
+          required: ['invoice_id'],
+        },
+      },
+      {
+        name: 'issue_refund',
+        description: 'Issue a refund for an invoice. Returns confirmation ID.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            invoice_id: { type: 'string', description: 'The invoice to refund' },
+            reason:     { type: 'string', description: 'Reason for the refund' },
+          },
+          required: ['invoice_id', 'reason'],
+        },
+      },
+    ],
+  },
+
+  tech_support: {
+    system: \`You are a technical support specialist. You diagnose software bugs,
+connectivity issues, and product errors. You do not handle billing or accounts.
+If the issue is not technical, say so clearly.\`,
+    tools: [
+      {
+        name: 'check_system_status',
+        description: 'Check whether a service component is operational. Returns status: ok | degraded | down.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            service: { type: 'string', enum: ['api', 'dashboard', 'webhooks'], description: 'The service to check' },
+          },
+          required: ['service'],
+        },
+      },
+      {
+        name: 'create_support_ticket',
+        description: 'Create a support ticket for an issue needing engineer investigation. Returns ticket ID.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            summary:  { type: 'string', description: 'One-line issue summary' },
+            severity: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Impact severity' },
+          },
+          required: ['summary', 'severity'],
+        },
+      },
+    ],
+  },
+};
+
+// ── MOCK TOOL EXECUTION ───────────────────────────────────────────────────────
+
+function executeTool(name, input) {
+  const mocks = {
+    get_invoice:          () => JSON.stringify({ id: input.invoice_id, amount: 99.00, status: 'paid', date: '2026-06-01' }),
+    issue_refund:         () => JSON.stringify({ confirmation: 'REF-9921', status: 'approved' }),
+    check_system_status:  () => JSON.stringify({ service: input.service, status: 'ok' }),
+    create_support_ticket: () => JSON.stringify({ ticket_id: 'TKT-4457', status: 'created' }),
+  };
+  return mocks[name]?.() ?? 'Unknown tool';
+}
+
+// ── SPECIALIST RUNNER ─────────────────────────────────────────────────────────
+// The same agent loop from Lesson 2, parameterised by specialist config.
+
+async function runSpecialist(specialistKey, userMessage) {
+  const spec = specialists[specialistKey];
+  const messages = [{ role: 'user', content: userMessage }];
+
+  while (true) {
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      system: spec.system,
+      tools: spec.tools,
+      messages,
+    });
+
+    if (response.stop_reason === 'end_turn') {
+      return response.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    }
+
+    messages.push({ role: 'assistant', content: response.content });
+    const results = response.content
+      .filter(b => b.type === 'tool_use')
+      .map(t => ({ type: 'tool_result', tool_use_id: t.id, content: executeTool(t.name, t.input) }));
+    messages.push({ role: 'user', content: results });
+  }
+}
+
+// ── SUPERVISOR ────────────────────────────────────────────────────────────────
+// Uses forced tool use (Lesson 3) to produce a reliable routing decision.
+
+const routeTool = {
+  name: 'route',
+  description: 'Select the specialist best suited to handle this request.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      specialist: {
+        type: 'string',
+        enum: ['billing', 'tech_support'],
+        description: 'billing: invoices, charges, refunds. tech_support: bugs, errors, outages.',
+      },
+      reason: {
+        type: 'string',
+        description: 'One sentence explaining why this specialist was chosen.',
+      },
+    },
+    required: ['specialist', 'reason'],
+  },
+};
+
+async function supervisor(userMessage) {
+  console.log(\`\\nUser: \${userMessage}\\n\`);
+
+  // Step 1: Supervisor decides who handles this
+  const routingResponse = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 256,
+    system: \`You are a customer support supervisor. You read incoming requests and
+route them to the correct specialist. Do not answer questions yourself.\`,
+    tools: [routeTool],
+    tool_choice: { type: 'tool', name: 'route' }, // always route, never answer directly
+    messages: [{ role: 'user', content: userMessage }],
+  });
+
+  const routing = routingResponse.content.find(b => b.type === 'tool_use').input;
+  console.log(\`Supervisor → \${routing.specialist} (\${routing.reason})\`);
+
+  // Step 2: Run the chosen specialist with the original message
+  const answer = await runSpecialist(routing.specialist, userMessage);
+  console.log(\`\\nAnswer: \${answer}\\n\`);
+  return answer;
+}
+
+// ── TEST IT ───────────────────────────────────────────────────────────────────
+
+await supervisor('I was charged twice for invoice INV-5512, can I get a refund?');
+await supervisor('The dashboard has been returning 503 errors for the last hour.');
+`.trim();
+
+const mindMap = `
+# Multi-Agent Systems
+## Why Single Agents Fail
+### Decision quality drops past 5 tools
+### Debugging becomes unclear
+### Roles blur together
+## Two Coordination Patterns
+### Supervisor: central coordinator routes
+### Swarm: peer-to-peer hand-offs
+## Supervisor Pattern
+### Supervisor routes via forced tool use
+### Specialists are isolated domains
+### Parallel with Promise.all
+## When to Split Agents
+### 5-tool count is a smell not a rule
+### Split when decision quality degrades
+### New domain + own LLM decisions = agent
+### Deterministic operation = tool always
+## Tensions
+### Supervisor clarity vs Bottleneck risk
+### Parallelism vs Coordination overhead
+### Sub-agent isolation vs State passing
+## Pitfalls
+### Infinite agent spawning
+### Token cost multiplied by agent count
+### Missing inter-agent error contracts
+`;
+---
+
+<LessonLayout title="L6 — Multi-Agent Systems"
+>
+
+  <LessonHeader
+    num="L06"
+    title="Multi-Agent Systems"
+    subtitle="One agent with 15 tools is slow, unreliable, and hard to debug. Split expertise across specialists coordinated by a supervisor."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">Why single agents hit a ceiling</h2>
+
+    <p>
+      In Lesson 3 you learned to keep tools to 3–5 per agent. But real products need more
+      capability. A customer support agent might handle billing queries, technical troubleshooting,
+      account management, and refund processing — each a domain in itself.
+    </p>
+    <p>Cramming everything into one agent causes two problems:</p>
+    <ul>
+      <li><strong>Decision quality drops.</strong> The more tools an LLM must choose between, the more often it picks the wrong one.</li>
+      <li><strong>Debugging becomes hard.</strong> When something goes wrong you cannot tell which "role" caused it.</li>
+    </ul>
+    <p>The solution is the same one you'd use in a NestJS codebase: split by responsibility.</p>
+
+    <h2 class="lesson-heading">Two patterns: supervisor vs swarm</h2>
+
+    <div class="compare-grid">
+      <div class="compare-panel">
+        <div class="compare-panel-label compare-panel-label--green">Supervisor — use this first</div>
+        <div class="compare-panel-body">
+          <p>One coordinator routes each request to the right specialist. The supervisor decides who handles what.</p>
+          <p><strong>Best for:</strong> known workflow steps, predictable routing, governance and auditability required.</p>
+        </div>
+      </div>
+      <div class="compare-panel">
+        <div class="compare-panel-label compare-panel-label--muted">Swarm — for later</div>
+        <div class="compare-panel-body">
+          <p>Agents hand off to each other peer-to-peer. No central coordinator — any agent can pass the task on.</p>
+          <p><strong>Best for:</strong> unpredictable routing, speed-critical flows, fluid multi-step collaboration.</p>
+        </div>
+      </div>
+    </div>
+
+    <LessonCallout variant="tip" title="Start with supervisor">
+      <p>
+        Easier to reason about, easier to test, easier to debug. Swarms are powerful but their
+        emergent behaviour is harder to predict. Build the supervisor first — add swarm patterns
+        only when the supervisor becomes a bottleneck.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">The supervisor pattern</h2>
+
+    <LessonDiagram definition={`
+flowchart TD
+  U["User request"]:::step --> S
+  S["Supervisor\nroutes to specialist"]:::decision --> B
+  S --> T
+  B["Billing Agent\n(invoices, refunds)"]:::step --> R
+  T["Tech Support Agent\n(bugs, outages)"]:::step --> R
+  R["Final answer to user"]:::done
+
+  classDef step     fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef decision fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done     fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <p>
+      The supervisor does not answer the user directly — it decides which specialist to call.
+      Each specialist has a tight set of tools and a focused system prompt.
+      The supervisor collects the specialist's answer and returns it.
+    </p>
+
+    <h2 class="lesson-heading">Build it: customer support supervisor in Node.js</h2>
+
+    <p>
+      Two specialists (<code>billing</code>, <code>tech_support</code>) and one supervisor that routes
+      between them. The supervisor uses forced tool use (Lesson 3 pattern) to make its routing
+      decision reliably.
+    </p>
+
+    <CodeBlock lang="javascript" label="multi-agent.mjs" code={multiAgentCode} />
+
+    <CodeBlock lang="text" label="expected output" code={`
+User: I was charged twice for invoice INV-5512, can I get a refund?
+
+Supervisor → billing (The user is reporting a duplicate charge and requesting a refund, which is a billing matter.)
+
+Answer: I can see invoice INV-5512 was paid for $99.00 on 2026-06-01. I've issued
+a refund with confirmation REF-9921. You should see the credit within 3–5 business days.
+
+---
+
+User: The dashboard has been returning 503 errors for the last hour.
+
+Supervisor → tech_support (The user is reporting a service error, which is a technical issue.)
+
+Answer: I've checked the dashboard status — it's currently showing as operational.
+I've created support ticket TKT-4457 to investigate the intermittent 503s.
+    `} />
+
+    <h2 class="lesson-heading">Key design decisions</h2>
+
+    <p><strong>Supervisor uses forced tool use for routing.</strong> If you ask the supervisor
+    to "pick a specialist" in prose, it might write "I'll route this to billing" and then also
+    try to answer the question itself. Forced <code>tool_choice</code> guarantees it <em>only</em>
+    outputs a routing decision — no accidental answers.</p>
+
+    <p><strong>Specialists are isolated.</strong> Each specialist has its own system prompt and
+    tool set. The billing agent cannot accidentally call <code>check_system_status</code>. Same reason
+    you write separate NestJS modules instead of one god-service.</p>
+
+    <h2 class="lesson-heading">Parallel specialists for independent sub-tasks</h2>
+
+    <p>When a request needs <em>two</em> specialists simultaneously — "fix my billing AND check
+    my service status" — run them in parallel with <code>Promise.all</code>:</p>
+
+    <CodeBlock lang="javascript" label="parallel execution" code={`
+const [billingAnswer, techAnswer] = await Promise.all([
+  runSpecialist('billing', userMessage),
+  runSpecialist('tech_support', userMessage),
+]);
+// Combine the two specialist answers into one response
+const combined = 'Billing: ' + billingAnswer + '\\n\\nTech: ' + techAnswer;
+    `} />
+
+    <p>
+      No framework needed — <code>Promise.all</code> is sufficient for I/O-bound agents.
+      This is the Node.js equivalent of LangGraph's parallel execution.
+    </p>
+
+    <h2 class="lesson-heading">When to add a new specialist vs a new tool</h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Situation</th><th>Solution</th></tr></thead>
+        <tbody>
+          <tr><td>Tool count climbing AND decision quality degrading</td><td>Consider splitting — 5 tools is a smell, not a law</td></tr>
+          <tr><td>New domain with its own vocabulary, rules, <em>and its own LLM decisions to make</em></td><td>New specialist agent</td></tr>
+          <tr><td>Same domain, just one more action</td><td>Add a tool to the existing specialist</td></tr>
+          <tr><td>Two specialists frequently collaborate</td><td>Consider swarm pattern (agents hand off to each other)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="warning" title="The 5-tool rule is a heuristic, not a law">
+      <p>
+        The real test for splitting is not tool count — it is <strong>decision complexity</strong>.
+        Ask: does this new operation need an LLM to decide something, or can a function encode the logic?
+        A deterministic operation (PDF generation, sending a pre-composed email) is always a tool,
+        regardless of how many tools the agent already has.
+        Split when adding the new responsibility would genuinely confuse the LLM about what to call and when —
+        not just because you crossed a number.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Quick-check quiz</h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Why does the supervisor force-call the route tool instead of asking the LLM to respond with the specialist name in prose?',
+        options: [
+          'To guarantee a structured routing decision — without it the supervisor might answer the user directly',
+          'Because the Anthropic API requires tool_choice for all requests',
+          'To reduce latency — tool calls are faster than text responses',
+          'Because text responses cannot include a specialist name',
+        ],
+        answer:  0,
+        explain: 'Forced tool use guarantees the supervisor outputs only a routing decision. Without it, the LLM often "helpfully" answers the question itself instead of delegating — exactly what we want to prevent.',
+      },
+      {
+        q:       'The billing agent occasionally answers technical questions because the user\'s message mentions both a charge and a bug. How do you prevent this?',
+        options: [
+          'Tell the billing agent in its system prompt: "If the issue is not billing-related, say so and stop"',
+          'Give the billing agent all tools so it can handle anything',
+          'Run the billing agent first and only run tech_support if billing fails',
+          'Use a higher temperature to make the agent more flexible',
+        ],
+        answer:  0,
+        explain: 'The system prompt is the specialist\'s constitution. Explicit out-of-scope instructions ("if not billing-related, say so and stop") is the right tool — not more tools.',
+      },
+      {
+        q:       'A user asks: "Can you check my invoice AND tell me if the API is down?" Both specialists are needed. What is the right approach?',
+        options: [
+          'Run both specialists in parallel with Promise.all and combine the answers',
+          'Route to billing first, then tech_support sequentially',
+          'Create a new specialist that covers both billing and tech',
+          'Route to whichever specialist the supervisor picks first',
+        ],
+        answer:  0,
+        explain: 'Independent specialists on independent sub-tasks = Promise.all. No need to serialise — run both simultaneously, combine the results, return one answer.',
+      },
+      {
+        q:       'You have a billing agent with 4 tools. You need to add invoice PDF generation and email dispatch. What should you do?',
+        options: [
+          'Add generate_invoice to the billing agent (it is a billing operation); create a Communications Agent that receives the PDF and owns all email decisions',
+          'Add both as tools directly to the billing agent — it already has the full context',
+          'Add them to the supervisor so it can call them directly',
+          'Create one composite tool that generates the PDF and sends the email together',
+        ],
+        answer:  0,
+        explain: 'Invoice PDF generation belongs in the billing agent — it is a billing operation that needs billing data and context. The billing agent calls generate_invoice, then hands off to a Communications Agent which receives the PDF and makes the real outbound decisions: which template, how to personalise, whether to CC a manager, how to phrase a refund confirmation vs a rejection. Those decisions justify a dedicated agent because they require LLM reasoning with their own data sources (sentiment history, account tier, prior threads). This split is NOT about crossing a tool count — the 5-tool guideline is a smell, not a rule. The real test: does this responsibility need an LLM to decide, or can a function encode the logic? Email composition cannot; invoice generation can.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="l1_1.9"
+    tensions={[
+      { a: 'Supervisor clarity',            b: 'Bottleneck risk at coordination layer' },
+      { a: 'Multi-agent parallelism',       b: 'Coordination overhead + state merging complexity' },
+      { a: 'Sub-agent isolation',           b: 'Explicit state passing between agents' },
+    ]}
+    questions={[
+      {
+        q:      'Your multi-agent system has Agent A depending on Agent B\'s output, and Agent B depending on Agent C. Agent C fails. Design the failure propagation and recovery strategy.',
+        hint:   'Failures in dependency chains need to be explicit, not silent. Each agent needs to handle "I received an error, not a result."',
+        answer: '<p>Design with explicit error propagation:</p><p><strong>1.</strong> Agent C fails → returns <code>&#123; status: "error", error_type: "tool_failure", message: "..." &#125;</code>. Never raise an exception.</p><p><strong>2.</strong> Agent B receives the error result, checks status before processing. If error: returns <code>&#123; status: "error", source: "agent_c", propagated: true &#125;</code>. Does not attempt to work with missing input.</p><p><strong>3.</strong> Agent A receives the propagated error and decides: can it complete with partial information? If yes, proceed with a caveat. If no, propagate to the user with a clear explanation of which step failed.</p><p><strong>Recovery:</strong> supervisor can retry Agent C independently and re-run B → A from C\'s corrected output. No need to re-run the entire pipeline.</p>',
+      },
+      {
+        q:      'When does the coordination overhead of a multi-agent system exceed the benefits? Give a concrete threshold.',
+        hint:   'Coordination overhead = serialisation + routing + state merging + inter-agent latency. When does this exceed the benefit?',
+        answer: '<p>Multi-agent adds value when EITHER:</p><p><strong>(a) Parallelism saves more time than coordination costs:</strong> if parallel tasks each take 2s and coordination overhead is 500ms, you save 1.5s per parallel pair. For N=2 tasks at 0.5s each: single-agent = 1s, multi-agent = 0.5s + 0.5s overhead = 1s. Not worth it.</p><p><strong>(b) Context isolation is genuinely necessary:</strong> each sub-agent needs >30% of the context window just for its specialised prompt.</p><p><strong>Rule of thumb:</strong> start multi-agent only when a single agent is actively failing due to context overflow or conflicting instructions — not preemptively.</p>',
+      },
+      {
+        q:      'How do you test a multi-agent system end-to-end when testing individual agents in isolation doesn\'t catch inter-agent communication bugs?',
+        hint:   'Integration tests for multi-agent systems need to exercise the communication contracts between agents.',
+        answer: '<p><strong>1. Unit:</strong> test each agent in isolation with mocked inputs representing the structured output of other agents.</p><p><strong>2. Contract:</strong> define schemas for each inter-agent message. Test that Agent A\'s output always matches the schema Agent B expects. Validate in CI.</p><p><strong>3. Integration:</strong> run the full pipeline with a small set of real end-to-end test cases. Capture actual inter-agent messages and verify they match the contract schemas.</p><p><strong>4. Chaos:</strong> inject failures at specific agents and verify propagation behaviour. Most bugs in multi-agent systems live in the failure paths, not the happy path.</p>',
+      },
+      {
+        q:      'How does token cost scale in a multi-agent system? At what scale does this become a real budget concern?',
+        hint:   'Each agent has its own system prompt, context, and tool schemas. These multiply by the number of agents.',
+        answer: '<p><code>multi_agent_cost = Σ(agent_system_prompt + context + output_tokens)</code> across all agents.</p><p>If each agent has a 2K token system prompt and receives 1K context, running 3 turns: 3 agents × (2K + 1K) × 3 = 27K tokens vs. single agent 9K tokens — <strong>3× more</strong>.</p><p>At scale (1M runs/month): single agent = ~$90/month vs. 3-agent = ~$270/month.</p><p><strong>Budget concern threshold:</strong> when the cost multiplier from multi-agent exceeds the productivity gain from parallelism or specialisation. Always model cost before committing. Log token counts per agent per run from day one.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Infinite agent spawning — an agent that can spawn sub-agents, where those sub-agents can also spawn, creates exponentially growing trees. Apply a shallow hierarchy rule: sub-agents cannot spawn sub-agents. Without this, a confused agent can exhaust your API rate limits in minutes.',
+      'Token cost multiplied by agent count — multi-agent systems often cost 3–5× more than single-agent equivalents due to per-agent system prompt overhead. Model cost before committing to the architecture.',
+      'Missing inter-agent error contracts — when Agent B expects a success result from Agent A but receives an error with no defined schema, B fails in an undefined way. Define explicit error schemas for every inter-agent message, not just happy-path schemas.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .compare-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 1rem; margin: 1.5rem 0;
+  }
+  .compare-panel { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .compare-panel-label {
+    font-family: monospace; font-size: .75rem; text-transform: uppercase;
+    letter-spacing: .06em; padding: .4rem .75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .compare-panel-label--green { background: #f0fdf4; color: #166534; }
+  .compare-panel-label--muted { background: #f8fafc; color: #64748b; }
+  .compare-panel-body {
+    padding: 1rem; font-size: .9rem; line-height: 1.6;
+    display: flex; flex-direction: column; gap: .5rem;
+  }
+</style>

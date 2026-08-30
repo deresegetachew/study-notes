@@ -1,0 +1,224 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const mindMap = `
+# What Is an AI Agent?
+## Core Definition
+### LLM as reasoning engine
+### Tools and memory
+### Loop until goal met
+## LLM vs Chain vs Agent
+### Single call: one shot
+### Chain: fixed steps
+### Agent: LLM decides
+## The 4-Step Loop
+### Think: LLM reasons
+### Act: execute tool
+### Observe: append result
+## Messages Array
+### Agent's only state
+### Grows each turn
+### Stateless LLM sees all
+## Tensions
+### Capability vs Controllability
+### Latency vs Quality
+### Context length vs Token cost
+## Pitfalls
+### stop_reason as boolean
+### Tool results on copy of messages
+### Tool descriptions say what not when
+### Throw inside tool implementations
+`;
+---
+
+<LessonLayout title="L1 — What is an AI Agent?"
+>
+
+  <LessonHeader
+    num="L01"
+    title="What is an AI Agent?"
+    subtitle="LLM + Tools + Memory · Agent vs Chain · The 4-step loop"
+    sourceLabel="Anthropic — Build effective agents"
+    sourceHref="https://www.anthropic.com/research/building-effective-agents"
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      An <strong>AI agent</strong> is a software system that uses an LLM as its reasoning engine,
+      can call external tools, and loops until it completes a goal — rather than answering a single
+      prompt. The shift from "call the LLM once" to "loop until done" is what makes something an agent.
+    </p>
+    <p>
+      Three things combine to make an agent: the <strong>LLM</strong> (the brain that decides),
+      <strong>tools</strong> (the hands that act), and <strong>memory</strong> (the messages array
+      that carries context between turns).
+    </p>
+
+    <h2 class="lesson-heading">LLM Call vs Chain vs Agent</h2>
+
+    <div class="lesson-table">
+      <table>
+        <caption>Where does the decision live?</caption>
+        <thead>
+          <tr><th></th><th>LLM Call</th><th>Chain</th><th>Agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Decisions</td><td>None — one shot</td><td>Fixed by developer</td><td>Dynamic — LLM decides</td></tr>
+          <tr><td>Tool use</td><td>No</td><td>Possible</td><td>Yes, driven by LLM</td></tr>
+          <tr><td>Loop</td><td>No</td><td>No</td><td>Yes — until goal met</td></tr>
+          <tr><td>Predictability</td><td>High</td><td>High</td><td>Lower — emergent path</td></tr>
+          <tr><td>Best for</td><td>Classification, extraction</td><td>Known multi-step flows</td><td>Open-ended tasks</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">The 4-Step Agent Loop</h2>
+
+    <LessonDiagram definition={`
+flowchart TD
+  A["🧠 THINK — LLM reasons over messages"]:::step --> B{"stop_reason?"}:::decision
+  B -->|end_turn| C["✅ Return answer to user"]:::done
+  B -->|tool_use| D["⚙️ ACT — execute the tool call"]:::step
+  D --> E["👁 OBSERVE — append tool_result to messages"]:::step
+  E --> A
+
+  classDef step     fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px,rx:4
+  classDef decision fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done     fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px,rx:4
+    `} />
+
+    <p>
+      The <code>messages</code> array <em>is</em> the agent's state. The LLM is stateless —
+      it sees only what you send each turn. Each loop iteration appends the assistant response
+      and tool result, building up context.
+    </p>
+
+    <h2 class="lesson-heading">Minimal Agent in ~20 lines</h2>
+
+    <CodeBlock lang="typescript" label="agent.ts" code={`
+import Anthropic from '@anthropic-ai/sdk';
+
+const client   = new Anthropic();
+const messages: Anthropic.MessageParam[] = [];
+
+async function runAgent(userMessage: string): Promise<string> {
+  messages.push({ role: 'user', content: userMessage });
+
+  while (true) {
+    const response = await client.messages.create({
+      model:      'claude-opus-4-8',
+      max_tokens: 1024,
+      tools,        // your tool definitions
+      messages,
+    });
+
+    if (response.stop_reason === 'end_turn') {
+      const text = response.content.find(b => b.type === 'text');
+      return text?.text ?? '';
+    }
+
+    // stop_reason === 'tool_use' — execute each call and loop back
+    messages.push({ role: 'assistant', content: response.content });
+
+    const results = response.content
+      .filter(b => b.type === 'tool_use')
+      .map(t => ({
+        type:        'tool_result' as const,
+        tool_use_id: t.id,
+        content:     executeTool(t.name, t.input),
+      }));
+
+    messages.push({ role: 'user', content: results });
+  }
+}
+    `} />
+
+    <LessonCallout variant="key" title="The mental model">
+      <p>
+        An agent is a <code>while</code> loop around an LLM call.
+        The loop exits when <code>stop_reason === 'end_turn'</code>.
+        Everything else — tools, memory, multi-agent — is detail on top of that loop.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Quick-check quiz</h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'What two stop_reason values does the agent loop care about?',
+        options: ['end_turn and tool_use', 'done and tool_call', 'finish and function', 'complete and action'],
+        answer:  0,
+        explain: 'end_turn = LLM is done, return the answer. tool_use = LLM wants to call a function, continue the loop.',
+      },
+      {
+        q:       'What is the messages array in an agent?',
+        options: ["The agent's entire working state", 'A log of past API calls', 'The list of available tools', 'The system prompt history'],
+        answer:  0,
+        explain: 'The LLM is stateless. The messages array is the only memory it has — it sees exactly what you send each turn.',
+      },
+      {
+        q:       'When should you use a single LLM call instead of an agent loop?',
+        options: ['Classification or extraction with a fixed schema', 'Any task involving user input', 'Whenever you need to call external APIs', 'When building with NestJS'],
+        answer:  0,
+        explain: 'Single calls are cheaper, faster, and more predictable. Use agents only when the task path cannot be known in advance.',
+      },
+      {
+        q:       'Which component decides which tool to call?',
+        options: ['The LLM', 'The tool registry', 'The messages array', 'The stop_reason value'],
+        answer:  0,
+        explain: 'The LLM reads the tool definitions in the request and decides — the developer only provides the implementations.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="l1_1.1, l1_1.2"
+    tensions={[
+      { a: 'Capability',         b: 'Controllability' },
+      { a: 'Latency',            b: 'Quality' },
+      { a: 'Autonomy',           b: 'Explainability' },
+      { a: 'Context length',     b: 'Token cost' },
+      { a: 'Prompt specificity', b: 'LLM flexibility' },
+    ]}
+    questions={[
+      {
+        q:      'When would you choose a single LLM call over a full agent loop?',
+        hint:   'Think about latency budget, schema certainty, and cost at scale.',
+        answer: '<p>Single call when: response must be &lt;2s, task is classification/extraction with a fixed schema, cost per query matters at scale, or auditability requires deterministic paths.</p><p>Agent loop when: task requires tool use, multi-step reasoning, or the path through the problem cannot be known in advance.</p>',
+      },
+      {
+        q:      'How do you prevent an agent from looping infinitely on a buggy tool?',
+        hint:   'Think about what the agent sees when a tool fails repeatedly.',
+        answer: '<p>Set a <code>maxTurns</code> counter. Return a graceful error string from the tool — do not throw. Throwing breaks the loop; returning <code>"Error: ..."</code> lets the LLM decide to give up. Add exponential back-off for transient failures.</p>',
+      },
+      {
+        q:      'Why does a growing messages array increase API cost non-linearly?',
+        hint:   'Think about how transformer attention works.',
+        answer: '<p>Transformer attention is O(n²) in sequence length. Every turn appends more tokens — the 10th turn re-attends to turns 1–9. This is why trimming strategies (sliding window, summarisation) matter at production scale.</p>',
+      },
+      {
+        q:      'A colleague says expose every possible tool to maximise capability. What is the counter-argument?',
+        hint:   'Think about how the LLM selects among N tools.',
+        answer: '<p>Tool selection accuracy degrades as N increases. The LLM must distinguish many similar descriptions. 3–5 tools per agent is a practical ceiling. Beyond that: use a supervisor to route to specialist sub-agents each with a small focused tool set. More tools also increase prompt token cost on every call.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Treating <code>stop_reason</code> as a boolean — always compare against the string constant, not truthiness.',
+      'Appending tool results to a <em>copy</em> of the messages array — silent state loss, agent loops forever.',
+      'Writing tool descriptions that say <em>what</em> the tool does instead of <em>when</em> to call it.',
+      'Using <code>throw</code> inside tool implementations — return error strings instead so the LLM can recover.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

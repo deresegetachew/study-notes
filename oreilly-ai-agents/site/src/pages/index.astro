@@ -1,0 +1,494 @@
+---
+import ThemeHead from '@/components/ThemeHead.astro';
+import ThemeToggle from '@/components/ThemeToggle.astro';
+
+interface Lesson {
+  num:      string;
+  href:     string;
+  title:    string;
+  subtitle: string;
+  sections: string[];
+}
+
+interface Phase {
+  id:      string;
+  label:   string;
+  color:   string;
+  bg:      string;
+  lessons: Lesson[];
+}
+
+const phases: Phase[] = [
+  {
+    id: 'getting-started', label: 'Getting Started', color: '#2563eb', bg: '#dbeafe',
+    lessons: [
+      {
+        num: 'L01', href: '/lessons/0001-what-is-an-ai-agent',
+        title: 'What is an AI Agent?',
+        subtitle: 'LLM reasoning loop, agent anatomy, tool use, and memory — from first principles.',
+        sections: ['§1.1', '§1.2'],
+      },
+      {
+        num: 'L02', href: '/lessons/0002-your-first-agent-in-nodejs',
+        title: 'Your First Agent in Node.js',
+        subtitle: 'Build a working ReAct agent with tool calling from scratch in TypeScript.',
+        sections: ['§2.5', '§2.6'],
+      },
+      {
+        num: 'L03', href: '/lessons/0003-tool-design-and-structured-output',
+        title: 'Tool Design & Structured Output',
+        subtitle: 'Zod schemas, typed function calling, and integrating external APIs as tools.',
+        sections: ['§1.6', '§2.2', '§2.3'],
+      },
+      {
+        num: 'L04', href: '/lessons/0004-memory-and-conversation-state',
+        title: 'Memory & Conversation State',
+        subtitle: 'Conversation buffer, window memory, and patterns for persisting agent state.',
+        sections: ['§1.8', '§2.11'],
+      },
+      {
+        num: 'L05', href: '/lessons/0005-building-a-nestjs-agent-service',
+        title: 'Building a NestJS Agent Service',
+        subtitle: 'HTTP endpoint wrapping the agent loop, streaming proxy, and request logging.',
+        sections: ['§2.1', '§2.9'],
+      },
+      {
+        num: 'L06', href: '/lessons/0006-multi-agent-systems',
+        title: 'Multi-Agent Systems',
+        subtitle: 'Orchestrator–subagent pattern, supervisor graph, and agent handoff.',
+        sections: ['§1.9', '§4.2'],
+      },
+      {
+        num: 'L07', href: '/lessons/0007-capstone-project',
+        title: 'Capstone: SupportDesk API',
+        subtitle: 'Full NestJS agent service combining tools, memory, routing, and classification.',
+        sections: ['§1.4', '§1.11', '§2.17'],
+      },
+      {
+        num: 'L08', href: '/lessons/0008-real-world-applications-and-business-value',
+        title: 'Real-World Applications & Business Value',
+        subtitle: 'Three production domains, four value drivers, adoption statistics, and IBM/McKinsey case studies.',
+        sections: ['§1.12'],
+      },
+    ],
+  },
+  {
+    id: 'core-patterns', label: 'Core Patterns', color: '#7c3aed', bg: '#ede9fe',
+    lessons: [
+      {
+        num: 'L09', href: '/lessons/0009-tackling-complex-tasks',
+        title: 'Tackling Complex Tasks',
+        subtitle: 'Task decomposition strategies, dependency wave scheduling, and plan-first vs ReAct.',
+        sections: ['§1.3', '§1.5'],
+      },
+      {
+        num: 'L10', href: '/lessons/0010-langgraph-fundamentals',
+        title: 'LangGraph Fundamentals',
+        subtitle: 'StateGraph, Annotation.Root, state reducers, static and conditional edges.',
+        sections: ['§1.7', '§2.7', '§2.8'],
+      },
+      {
+        num: 'L11', href: '/lessons/0011-multi-step-chains-and-prompt-templates',
+        title: 'Multi-Step Chains & Prompt Templates',
+        subtitle: 'Sequential LLM chains with typed prompt templates and role separation.',
+        sections: ['§2.4', '§2.14'],
+      },
+      {
+        num: 'L12', href: '/lessons/0012-streaming-and-async',
+        title: 'Streaming & Async',
+        subtitle: 'SSE streaming in NestJS, concurrent API calls, p-limit for rate control.',
+        sections: ['§2.12', '§2.13'],
+      },
+      {
+        num: 'L13', href: '/lessons/0013-guardrails-and-error-handling',
+        title: 'Guardrails & Error Handling',
+        subtitle: 'Error taxonomy, exponential backoff, Zod input validation, prompt injection defence.',
+        sections: ['§2.10', '§2.15'],
+      },
+      {
+        num: 'L14', href: '/lessons/0014-security-and-safety-essentials',
+        title: 'Security & Safety Essentials',
+        subtitle: 'Prompt injection, jailbreaking, tool misuse, data leakage — the four attack categories and defence framework for each.',
+        sections: ['§1.13'],
+      },
+      {
+        num: 'L15', href: '/lessons/0015-testing-and-evaluation',
+        title: 'Testing & Evaluation',
+        subtitle: 'Vitest unit tests, integration mocks, eval pipelines, and LLM-as-judge scoring.',
+        sections: ['§2.16', '§4.3'],
+      },
+      {
+        num: 'L16', href: '/lessons/0016-advanced-evaluation-and-edd',
+        title: 'Advanced Evaluation & EDD',
+        subtitle: 'Evaluation-Driven Development, three EDD pillars, golden dataset construction, and Agent-as-a-Judge with six bias types.',
+        sections: ['§4.11'],
+      },
+      {
+        num: 'L17', href: '/lessons/0017-rag-pipeline',
+        title: 'RAG Pipeline',
+        subtitle: 'Embed → store → retrieve → generate. Cosine similarity, chunking strategies.',
+        sections: ['§1.10', '§3.4'],
+      },
+      {
+        num: 'C1', href: '/lessons/0037-knowledge-base-qa-capstone',
+        title: 'Phase 2 Capstone: Knowledge Base Q&A',
+        subtitle: 'Wire LangGraph, RAG, streaming, guardrails, and evals into one production NestJS service.',
+        sections: [],
+      },
+    ],
+  },
+  {
+    id: 'advanced-workflows', label: 'Advanced Workflows', color: '#d97706', bg: '#fefce8',
+    lessons: [
+      {
+        num: 'L18', href: '/lessons/0018-conditional-edges-and-custom-workflows',
+        title: 'Conditional Edges & Custom Workflows',
+        subtitle: 'addConditionalEdges, triage routing, fan-out, and looping refiner patterns.',
+        sections: ['§3.1', '§3.2'],
+      },
+      {
+        num: 'L19', href: '/lessons/0019-debugging-state-transitions',
+        title: 'Debugging State Transitions',
+        subtitle: 'withDebug higher-order wrapper, stream-mode state tracing, common reducer bugs.',
+        sections: ['§3.3'],
+      },
+      {
+        num: 'L20', href: '/lessons/0020-human-in-the-loop',
+        title: 'Human-in-the-Loop',
+        subtitle: 'interrupt(), MemorySaver vs PostgresSaver, two-invocation resume pattern.',
+        sections: ['§3.8'],
+      },
+      {
+        num: 'L21', href: '/lessons/0021-time-travel-and-checkpoints',
+        title: 'Time Travel & Checkpoints',
+        subtitle: 'getStateHistory(), branching from any checkpoint, A/B testing agent decisions, and post-mortem replay.',
+        sections: ['§4.8'],
+      },
+      {
+        num: 'L22', href: '/lessons/0022-reflection-pattern',
+        title: 'Reflection Pattern',
+        subtitle: 'Generator + Reflector quality loop, scoring threshold, sycophancy trap.',
+        sections: ['§3.9'],
+      },
+      {
+        num: 'L23', href: '/lessons/0023-plan-and-execute-agent',
+        title: 'Plan-and-Execute Agent',
+        subtitle: 'Plan once (Opus) → execute each step (Haiku) → re-plan on failure.',
+        sections: ['§3.6'],
+      },
+      {
+        num: 'L24', href: '/lessons/0024-conversation-threading-and-semantic-memory',
+        title: 'Conversation Threading & Semantic Memory',
+        subtitle: 'PostgresSaver thread isolation, history trim, fact extraction and recall.',
+        sections: ['§3.10', '§3.11'],
+      },
+      {
+        num: 'L25', href: '/lessons/0025-context-window-management',
+        title: 'Context Window Management',
+        subtitle: 'Lost-in-the-Middle problem, five strategies from truncation to intelligent pruning, and when to combine them.',
+        sections: ['§4.10'],
+      },
+      {
+        num: 'L26', href: '/lessons/0026-mcp-server-interoperability',
+        title: 'MCP Server Interoperability',
+        subtitle: 'StdioClientTransport, tool schema conversion, building a custom MCP server.',
+        sections: ['§3.5'],
+      },
+      {
+        num: 'L27', href: '/lessons/0027-deep-agents',
+        title: 'Deep Agents',
+        subtitle: 'Scratchpad pattern, 50-iteration hard cap, parse resilience, HITL abort.',
+        sections: ['§3.7', '§4.17'],
+      },
+      {
+        num: 'L28', href: '/lessons/0028-agentic-workflow-patterns',
+        title: 'Agentic Workflow Patterns',
+        subtitle: 'Sequential pipelines, fan-out/fan-in with the Send API, subgraph composition, and a decision guide.',
+        sections: ['§3.2', '§4.5', '§4.6'],
+      },
+      {
+        num: 'C2', href: '/lessons/0038-content-pipeline-capstone',
+        title: 'Phase 3 Capstone: Content Creation Pipeline',
+        subtitle: 'Plan-and-execute, reflection loops, HITL checkpoints, semantic memory, and time travel in one pipeline.',
+        sections: [],
+      },
+    ],
+  },
+  {
+    id: 'production', label: 'Production', color: '#dc2626', bg: '#fee2e2',
+    lessons: [
+      {
+        num: 'L29', href: '/lessons/0029-error-recovery-and-circuit-breakers',
+        title: 'Error Recovery & Circuit Breakers',
+        subtitle: 'Four error categories, five recovery pathways as graph nodes, and the circuit breaker pattern with Closed/Open/Half-Open state machine.',
+        sections: ['§4.7'],
+      },
+      {
+        num: 'L30', href: '/lessons/0030-production-tools-and-optimization',
+        title: 'Production Tools & Optimization',
+        subtitle: 'buildTool HOF with timeout, prompt variant testing, cost optimisation levers.',
+        sections: ['§4.1', '§4.9'],
+      },
+      {
+        num: 'L31', href: '/lessons/0031-deploying-agents',
+        title: 'Deploying Agents',
+        subtitle: 'NestJS + BullMQ async queues, multi-stage Docker, environment secrets.',
+        sections: ['§3.12'],
+      },
+      {
+        num: 'L32', href: '/lessons/0032-scaling-agents',
+        title: 'Scaling Agents',
+        subtitle: 'Horizontal scaling, stateless worker pattern, three-tier state storage, message queues, and multi-tenant cost control.',
+        sections: ['§4.15'],
+      },
+      {
+        num: 'L33', href: '/lessons/0033-cost-optimization',
+        title: 'Cost Optimization',
+        subtitle: 'Intelligent model routing, semantic caching, tool result caching, and token optimization — 40–60% cost savings with no quality regression.',
+        sections: ['§4.16'],
+      },
+      {
+        num: 'L34', href: '/lessons/0034-fine-tuning-with-feedback',
+        title: 'Fine-Tuning with Feedback',
+        subtitle: 'Collecting production feedback signals, mapping failure patterns to fix strategies, and A/B testing prompt improvements with auto-rollback.',
+        sections: ['§4.12'],
+      },
+    ],
+  },
+  {
+    id: 'reference', label: 'Reference', color: '#0f766e', bg: '#ccfbf1',
+    lessons: [
+      {
+        num: 'CB', href: '/lessons/0035-agent-design-cookbook',
+        title: 'Agent Design Cookbook',
+        subtitle: '10 phases to work through before writing any agent code — decision trees, autonomy matrix, system prompt guide.',
+        sections: [],
+      },
+      {
+        num: 'CL', href: '/lessons/0036-production-readiness-checklist',
+        title: 'Production Readiness Checklist',
+        subtitle: '83 checkboxes across 12 categories. Interactive — checks saved in your browser. Use before every ship.',
+        sections: [],
+      },
+    ],
+  },
+  {
+    id: 'exercises', label: 'Exercises', color: '#0369a1', bg: '#e0f2fe',
+    lessons: [
+      {
+        num: 'EX1', href: '/lessons/0039-sales-order-agent-exercise',
+        title: 'Sales Order Agent — Design Exercise',
+        subtitle: 'All 10 cookbook phases applied to a real multi-channel agent (chat + email) — tool mapping, state schema, multi-agent architecture, system prompts, and staff-level design review.',
+        sections: [],
+      },
+      {
+        num: 'EX2', href: '/lessons/0040-tech-support-rag-exercise',
+        title: 'Technical Support Assistant — RAG Exercise',
+        subtitle: 'All 10 cookbook phases applied to a RAG-first agent: hybrid search, citations as state, agentic vs pipeline retrieval, hallucination prevention, and KB operations.',
+        sections: [],
+      },
+      {
+        num: 'EX3', href: '/lessons/0041-task-manager-agent-exercise',
+        title: 'Task Manager Agent — File Storage Exercise',
+        subtitle: 'All 10 cookbook phases applied to a file-backed task agent: two MCP servers, Roots in practice, filesystem as persistent state, Sampling decision, and concurrent-write failure modes.',
+        sections: [],
+      },
+      {
+        num: 'EX4', href: '/lessons/0042-trip-planner-agent-exercise',
+        title: 'Trip Planner Agent — Plan-and-Execute Exercise',
+        subtitle: 'Hybrid pattern: ReAct for conversational preference gathering, Plan-and-Execute for parallel step execution. Dependency graph, re-planning on failure, budget as a cross-cutting constraint.',
+        sections: [],
+      },
+    ],
+  },
+];
+
+const totalLessons = phases.reduce((a, p) => a + p.lessons.length, 0);
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Agents — Study Path</title>
+  <ThemeHead />
+</head>
+<body>
+<article class="lesson-article">
+
+  <header class="lesson-header">
+    <div class="lesson-num">AI Agents · Node.js &amp; TypeScript</div>
+    <h1>Study Path</h1>
+    <p class="lesson-subtitle">
+      {totalLessons} lessons &amp; exercises — from your first Claude call to a production-ready agent service.
+    </p>
+  </header>
+
+  <div class="sp-intro">
+    <p>
+      Follow the lessons in order. Each builds on the last. The four phases map to the course levels —
+      <strong>Getting Started</strong> for foundations,
+      <strong>Core Patterns</strong> for LangGraph and key techniques,
+      <strong>Advanced Workflows</strong> for production patterns,
+      and <strong>Production</strong> for deployment.
+      The section tags (e.g. §1.3) reference the corresponding section in your course slides.
+    </p>
+  </div>
+
+  {phases.map((phase, pi) => (
+    <section class="sp-phase">
+      <div class="sp-phase-header" style={`border-left-color:${phase.color}`}>
+        <span class="sp-phase-num" style={`background:${phase.color}`}>{pi + 1}</span>
+        <span class="sp-phase-label">{phase.label}</span>
+        <span class="sp-phase-count">{phase.lessons.length} lessons</span>
+      </div>
+
+      <div class="sp-lessons">
+        {phase.lessons.map(lesson => (
+          <a href={lesson.href} class="sp-row">
+            <span class="sp-num" style={`background:${phase.bg};color:${phase.color}`}>
+              {lesson.num}
+            </span>
+            <div class="sp-body">
+              <div class="sp-title">{lesson.title}</div>
+              <div class="sp-sub">{lesson.subtitle}</div>
+            </div>
+            <div class="sp-tags">
+              {lesson.sections.map(sec => (
+                <span class="sp-tag">{sec}</span>
+              ))}
+            </div>
+          </a>
+        ))}
+      </div>
+    </section>
+  ))}
+
+</article>
+<ThemeToggle />
+</body>
+</html>
+
+<style is:global>
+  @import '../styles/global.css';
+</style>
+
+<style>
+  .sp-intro {
+    font-size: .9rem;
+    color: var(--muted);
+    line-height: 1.75;
+    padding: 1rem 1.25rem;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 2.5rem;
+  }
+  .sp-intro strong { color: var(--text); }
+
+  /* Phase */
+  .sp-phase { margin-bottom: 2.5rem; }
+
+  .sp-phase-header {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .5rem 0 .75rem;
+    border-left: 3px solid;
+    padding-left: .75rem;
+    margin-bottom: .5rem;
+  }
+  .sp-phase-num {
+    font-family: monospace;
+    font-size: .72rem;
+    font-weight: 700;
+    color: #fff;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .sp-phase-label {
+    font-weight: 700;
+    font-size: 1rem;
+    flex: 1;
+  }
+  .sp-phase-count {
+    font-family: monospace;
+    font-size: .7rem;
+    color: var(--muted);
+  }
+
+  /* Lesson rows */
+  .sp-lessons { display: flex; flex-direction: column; }
+
+  .sp-row {
+    display: grid;
+    grid-template-columns: 3rem 1fr auto;
+    align-items: start;
+    gap: .9rem;
+    padding: .85rem 0;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    color: inherit;
+    transition: background .1s;
+  }
+  .sp-row:hover { background: #f8fafc; }
+  .sp-row:hover .sp-title { color: var(--accent); }
+  .sp-row--nested {
+    grid-template-columns: 1.2rem 3rem 1fr auto;
+    padding-left: 1rem;
+    border-left: 3px solid var(--accent, #2563eb);
+    background: var(--bg2, #f8fafc);
+  }
+  .sp-nest-leader {
+    font-family: monospace; font-size: .72rem;
+    color: var(--accent, #2563eb); opacity: .5;
+    padding-top: .15rem;
+  }
+
+  .sp-num {
+    font-family: monospace;
+    font-size: .68rem;
+    font-weight: 700;
+    border-radius: 5px;
+    height: 2.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    flex-shrink: 0;
+    padding: 0 .2rem;
+  }
+
+  .sp-body { min-width: 0; }
+  .sp-title {
+    font-size: .95rem;
+    font-weight: 700;
+    margin-bottom: .2rem;
+    transition: color .1s;
+  }
+  .sp-sub {
+    font-size: .8rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .sp-tags {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: .2rem;
+    flex-shrink: 0;
+    padding-top: .1rem;
+  }
+  .sp-tag {
+    font-family: monospace;
+    font-size: .63rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+</style>

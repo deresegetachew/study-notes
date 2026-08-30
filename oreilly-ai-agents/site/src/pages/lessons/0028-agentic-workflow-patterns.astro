@@ -1,0 +1,1010 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const sequentialCode = `
+import { StateGraph, START, END } from '@langchain/langgraph';
+import { Annotation } from '@langchain/langgraph';
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+// A sequential pipeline: each node depends on the previous node's output.
+// Real-world use: customer feedback processing — detect language → classify
+// sentiment → summarise → assemble a structured report.
+
+const PipelineState = Annotation.Root({
+  rawText:   Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  language:  Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  sentiment: Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  summary:   Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  report:    Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+});
+
+// Step 1 — detect language (fast, cheap, Haiku)
+async function detectLanguage(state: typeof PipelineState.State) {
+  const res = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 16,
+    messages: [{
+      role: 'user',
+      content: \`What language is this? Reply with only the language name.\\n\${state.rawText}\`,
+    }],
+  });
+  return { language: res.content[0].type === 'text' ? res.content[0].text.trim() : 'English' };
+}
+
+// Step 2 — classify sentiment (uses language from step 1)
+async function classifySentiment(state: typeof PipelineState.State) {
+  const res = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 16,
+    messages: [{
+      role: 'user',
+      content: \`Classify sentiment as positive/negative/neutral. One word only. Language: \${state.language}\\n\${state.rawText}\`,
+    }],
+  });
+  return { sentiment: res.content[0].type === 'text' ? res.content[0].text.trim() : 'neutral' };
+}
+
+// Step 3 — one-sentence summary (uses both language and sentiment)
+async function summarise(state: typeof PipelineState.State) {
+  const res = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 128,
+    messages: [{
+      role: 'user',
+      content: \`Summarise in one sentence. Language: \${state.language}\\n\${state.rawText}\`,
+    }],
+  });
+  return { summary: res.content[0].type === 'text' ? res.content[0].text : '' };
+}
+
+// Step 4 — assemble structured report (pure function, no LLM needed)
+function buildReport(state: typeof PipelineState.State) {
+  return {
+    report: JSON.stringify(
+      { language: state.language, sentiment: state.sentiment, summary: state.summary },
+      null, 2
+    ),
+  };
+}
+
+const pipeline = new StateGraph(PipelineState)
+  .addNode('detectLanguage',    detectLanguage)
+  .addNode('classifySentiment', classifySentiment)
+  .addNode('summarise',         summarise)
+  .addNode('buildReport',       buildReport)
+  .addEdge(START, 'detectLanguage')
+  .addEdge('detectLanguage',    'classifySentiment')
+  .addEdge('classifySentiment', 'summarise')
+  .addEdge('summarise',         'buildReport')
+  .addEdge('buildReport',       END)
+  .compile();
+
+const result = await pipeline.invoke({ rawText: 'Das Produkt kam beschädigt an...' });
+console.log(result.report);
+// {"language":"German","sentiment":"negative","summary":"The product arrived damaged."}
+`.trim();
+
+const parallelCode = `
+import { StateGraph, START, END } from '@langchain/langgraph';
+import { Annotation, Send } from '@langchain/langgraph';
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+// Fan-out / Fan-in: N items processed in parallel, results accumulated.
+// Real-world use: batch review analysis — analyze all reviews simultaneously
+// instead of sequentially. 4 reviews × 3s = 3s (parallel) vs 12s (sequential).
+
+interface ReviewResult {
+  sentiment: 'positive' | 'negative' | 'neutral';
+  score:     number;   // 1–5
+  summary:   string;
+}
+
+// Parent state — the results field uses an ADD reducer so parallel outputs accumulate
+const BatchState = Annotation.Root({
+  reviews: Annotation<string[]>({
+    reducer:  (_, next) => next,
+    default:  () => [],
+  }),
+  results: Annotation<ReviewResult[]>({
+    reducer:  (prev, next) => [...prev, ...next],  // KEY: accumulates from all branches
+    default:  () => [],
+  }),
+});
+
+// Worker state — one Send carries this into the analyzeReview node
+const WorkerState = Annotation.Root({
+  review:  Annotation<string>({         reducer: (_, n) => n, default: () => ''  }),
+  results: Annotation<ReviewResult[]>({ reducer: (a, b) => [...a, ...b], default: () => [] }),
+});
+
+// ROUTER: return one Send per review — LangGraph executes them all in parallel
+function fanOut(state: typeof BatchState.State): Send[] {
+  return state.reviews.map(
+    (review) => new Send('analyzeReview', { review, results: [] })
+  );
+}
+
+// WORKER NODE: called once per review, in parallel
+async function analyzeReview(state: typeof WorkerState.State) {
+  const res = await client.messages.create({
+    model:      'claude-haiku-4-5-20251001',
+    max_tokens: 128,
+    system:     'Reply with JSON only: {"sentiment":"positive|negative|neutral","score":1,"summary":"..."}',
+    messages:   [{ role: 'user', content: state.review }],
+  });
+  try {
+    const raw    = res.content[0].type === 'text' ? res.content[0].text : '{}';
+    const parsed = JSON.parse(raw) as ReviewResult;
+    return { results: [parsed] };  // wrap in array — the add reducer accumulates across branches
+  } catch {
+    return { results: [{ sentiment: 'neutral', score: 3, summary: 'parse error' }] };
+  }
+}
+
+// AGGREGATOR NODE: all parallel results are already merged in state.results by the time we arrive here
+function aggregate(state: typeof BatchState.State) {
+  const avg = state.results.reduce((s, r) => s + r.score, 0) / state.results.length;
+  console.log(\`Processed \${state.results.length} reviews | avg score: \${avg.toFixed(1)}/5\`);
+  return {};
+}
+
+const graph = new StateGraph(BatchState)
+  .addNode('analyzeReview', analyzeReview)
+  .addNode('aggregate',     aggregate)
+  .addConditionalEdges(START,          fanOut)        // fan-out: N parallel branches via Send
+  .addEdge('analyzeReview',            'aggregate')   // fan-in: all branches converge here
+  .addEdge('aggregate',                END)
+  .compile();
+
+const result = await graph.invoke({
+  reviews: [
+    'Arrived damaged — very disappointed.',
+    'Exactly as described, fast shipping!',
+    'Average product, does the job.',
+  ],
+  results: [],
+});
+// Processed 3 reviews | avg score: 3.0/5
+`.trim();
+
+const subgraphCode = `
+import { StateGraph, START, END } from '@langchain/langgraph';
+import { Annotation } from '@langchain/langgraph';
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+// Subgraph composition: a self-contained sub-workflow with its OWN state shape
+// is compiled and invoked from a node in the parent graph.
+// Real-world use: entity extraction subgraph reused inside a document processor,
+// a summarizer, and a classification pipeline — without duplicating the logic.
+
+// ── SUBGRAPH: Entity Extraction ──────────────────────────────────────────────
+// Owns a different state shape from the parent — this is the key benefit.
+const ExtractionState = Annotation.Root({
+  text:     Annotation<string>({   reducer: (_, n) => n, default: () => '' }),
+  rawJson:  Annotation<string>({   reducer: (_, n) => n, default: () => '' }),
+  entities: Annotation<string[]>({ reducer: (_, n) => n, default: () => [] }),
+});
+
+async function extractRaw(state: typeof ExtractionState.State) {
+  const res = await client.messages.create({
+    model:      'claude-haiku-4-5-20251001',
+    max_tokens: 256,
+    system:     'Extract named entities (people, places, orgs). Reply with a JSON array of strings only.',
+    messages:   [{ role: 'user', content: state.text }],
+  });
+  return { rawJson: res.content[0].type === 'text' ? res.content[0].text : '[]' };
+}
+
+function parseEntities(state: typeof ExtractionState.State) {
+  try {
+    return { entities: JSON.parse(state.rawJson) as string[] };
+  } catch {
+    return { entities: [] };
+  }
+}
+
+// Compile the subgraph — it becomes a standalone callable unit.
+const extractionSubgraph = new StateGraph(ExtractionState)
+  .addNode('extractRaw',    extractRaw)
+  .addNode('parseEntities', parseEntities)
+  .addEdge(START,           'extractRaw')
+  .addEdge('extractRaw',    'parseEntities')
+  .addEdge('parseEntities', END)
+  .compile();
+
+// ── PARENT GRAPH: Document Processor ────────────────────────────────────────
+const DocumentState = Annotation.Root({
+  document: Annotation<string>({   reducer: (_, n) => n, default: () => '' }),
+  entities: Annotation<string[]>({ reducer: (_, n) => n, default: () => [] }),
+  summary:  Annotation<string>({   reducer: (_, n) => n, default: () => '' }),
+});
+
+// Bridge function: translates parent state → subgraph state → back to parent state
+async function runExtraction(state: typeof DocumentState.State) {
+  const out = await extractionSubgraph.invoke({
+    text:     state.document,
+    rawJson:  '',
+    entities: [],
+  });
+  return { entities: out.entities };   // map subgraph output back to parent state field
+}
+
+async function summarise(state: typeof DocumentState.State) {
+  const entityList = state.entities.join(', ') || 'no named entities';
+  const res = await client.messages.create({
+    model:      'claude-haiku-4-5-20251001',
+    max_tokens: 128,
+    messages:   [{
+      role: 'user',
+      content: \`Summarise this in one sentence, mentioning: \${entityList}\\n\${state.document}\`,
+    }],
+  });
+  return { summary: res.content[0].type === 'text' ? res.content[0].text : '' };
+}
+
+const docProcessor = new StateGraph(DocumentState)
+  .addNode('runExtraction', runExtraction)
+  .addNode('summarise',     summarise)
+  .addEdge(START,           'runExtraction')
+  .addEdge('runExtraction', 'summarise')
+  .addEdge('summarise',     END)
+  .compile();
+
+const result = await docProcessor.invoke({
+  document: 'Anthropic and OpenAI both announced new model releases this week in San Francisco.',
+  entities: [],
+  summary:  '',
+});
+// entities: ['Anthropic', 'OpenAI', 'San Francisco']
+// summary:  'Anthropic and OpenAI each released new models in San Francisco this week.'
+`.trim();
+
+const mindMap = `
+# Agentic Workflow Patterns
+## Design Principles
+### Start with workflow map
+### One responsibility per node
+### Control fields in state
+### Validation nodes everywhere
+## Six Canonical Patterns
+### Sequential Pipeline
+### Triage Router
+### Fan-out / Fan-in
+### Looping Refiner
+### Subgraph Composition
+### Map-Reduce
+## Pattern 1 — Sequential Pipeline
+### addEdge chains
+### Model tiering per step
+### Pure functions as steps
+## Pattern 2 — Fan-out / Fan-in
+### Send API for fan-out
+### Add reducer for fan-in
+### Workers return arrays
+## Pattern 3 — Subgraph Composition
+### Own state shape
+### Bridge function required
+### Compile once, reuse
+## Parallelism Approaches
+### Send API (full node execution)
+### Promise.all (concurrent I/O)
+### Worker threads (CPU-bound)
+## Tensions
+### Fan-out (low latency) vs Sequential (lower API load)
+### Many subgraphs (modular) vs Flat graph (simpler)
+## Pitfalls
+### Worker returning scalar when reducer expects array
+### Fan-out over 100+ without concurrency control
+### Bridge functions passing full parent state
+### Sequential steps that could be parallel
+`;
+---
+
+<LessonLayout
+  title="L28 — Agentic Workflow Patterns"
+>
+  <LessonHeader
+    num="L28"
+    title="Agentic Workflow Patterns"
+    subtitle="Four slide-sourced design principles, routing function rules, six canonical topologies with TypeScript code, three approaches to parallelism, and a decision guide."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§3.1, §3.2 — Workflow design best practices</h2>
+    <p>
+      Before choosing a pattern, four design principles from the course slides apply to
+      every graph you build — regardless of topology.
+    </p>
+
+    <div class="bp-grid">
+      <div class="bp-card">
+        <div class="bp-num">1</div>
+        <div class="bp-label">Start with a workflow map</div>
+        <p>Sketch the flow and design the state schema <em>before</em> writing any code. Identify
+        every decision point and loop on paper first. Coding before mapping leads to graph rewrites
+        when you discover a missing branch mid-implementation.</p>
+      </div>
+      <div class="bp-card">
+        <div class="bp-num">2</div>
+        <div class="bp-label">One responsibility per node</div>
+        <p>Each node handles exactly one concern and should be independently testable without
+        invoking the graph. A node that classifies AND responds AND logs is three nodes disguised
+        as one — split it so each unit can be tested, replaced, and debugged in isolation.</p>
+      </div>
+      <div class="bp-card">
+        <div class="bp-num">3</div>
+        <div class="bp-label">Include control fields in state</div>
+        <p>Add <code>iterationCount</code>, <code>phase</code>, and <code>errors</code> to your
+        state schema from the start. These fields are what your router functions read to decide
+        whether to loop, retry, abort, or hand off to a human. Retrofitting them later touches
+        every node.</p>
+      </div>
+      <div class="bp-card">
+        <div class="bp-num">4</div>
+        <div class="bp-label">Validation nodes + fallback paths everywhere</div>
+        <p>Add a lightweight validation node at every major decision point. For every conditional
+        edge, map <em>every</em> possible route key — including a catch-all fallback for unexpected
+        model outputs. An unmapped key throws at runtime with no graceful degradation.</p>
+      </div>
+    </div>
+
+    <h3 class="lesson-heading">Routing function rules (§3.1)</h3>
+    <p>
+      The function passed to <code>addConditionalEdges</code> has its own set of rules that the
+      course slides call out specifically:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Rule</th><th>Why it matters</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Keep routing logic simple and readable</td>
+            <td>Complex router logic is invisible in the graph trace and impossible to unit-test without running the full graph</td>
+          </tr>
+          <tr>
+            <td>No LLM calls or I/O inside the router</td>
+            <td>Side effects make routing non-deterministic and expensive — put them in nodes, not edges</td>
+          </tr>
+          <tr>
+            <td>Store the routing decision in state</td>
+            <td>Writing <code>category</code> or <code>intent</code> into state makes the route visible in logs and to downstream nodes</td>
+          </tr>
+          <tr>
+            <td>Use descriptive path names in the map</td>
+            <td><code>"billing"</code> beats <code>"path_a"</code> — the edge map is documentation for the next engineer</td>
+          </tr>
+          <tr>
+            <td>Test each routing path independently</td>
+            <td>A router function is a pure function — unit test it directly without invoking the graph; every path needs a test case</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">§3.2, §4.5, §4.6 — The six canonical patterns</h2>
+    <p>
+      Every LangGraph workflow is a variation on a small set of topologies. Recognising
+      the pattern first makes the graph design obvious — and reveals the right primitive
+      to reach for.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Pattern</th>
+            <th>Graph shape</th>
+            <th>Key primitive</th>
+            <th>Covered in</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Sequential Pipeline</strong></td>
+            <td>A → B → C → D</td>
+            <td><code>addEdge</code></td>
+            <td>This lesson §1</td>
+          </tr>
+          <tr>
+            <td><strong>Triage Router</strong></td>
+            <td>Dispatcher → one of N specialists</td>
+            <td><code>addConditionalEdges</code></td>
+            <td><a href="/lessons/0018-conditional-edges-and-custom-workflows">L18</a></td>
+          </tr>
+          <tr>
+            <td><strong>Fan-out / Fan-in</strong></td>
+            <td>Router → N parallel workers → aggregator</td>
+            <td><code>Send</code> + add reducer</td>
+            <td>This lesson §2</td>
+          </tr>
+          <tr>
+            <td><strong>Looping Refiner</strong></td>
+            <td>Generate → critique → revise → (repeat)</td>
+            <td><code>addConditionalEdges</code> + loop</td>
+            <td><a href="/lessons/0022-reflection-pattern">L22</a></td>
+          </tr>
+          <tr>
+            <td><strong>Subgraph Composition</strong></td>
+            <td>Parent node invokes a compiled child graph</td>
+            <td>Compiled subgraph as callable</td>
+            <td>This lesson §3</td>
+          </tr>
+          <tr>
+            <td><strong>Map-Reduce</strong></td>
+            <td>Fan-out + explicit reduce step that transforms results</td>
+            <td><code>Send</code> + reduce node</td>
+            <td>This lesson §2 (variant)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">§3.2 — Pattern 1: Sequential Pipeline</h2>
+    <p>
+      The simplest topology: each node depends on the previous node's output.
+      Steps are strictly ordered — step 2 cannot start until step 1 completes.
+      Despite the simplicity, this is the right choice more often than not.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  S([START]):::entry --> A["Detect\nLanguage"]:::node
+  A --> B["Classify\nSentiment"]:::node
+  B --> C["Summarise"]:::node
+  C --> D["Build\nReport"]:::node
+  D --> E([END]):::exit
+
+  classDef entry fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef exit  fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+  classDef node  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="sequential-pipeline.ts" code={sequentialCode} />
+
+    <LessonCallout variant="tip" title="Pure functions as pipeline steps">
+      <p>
+        Not every node needs an LLM call. <code>buildReport</code> in the example is a
+        pure function that assembles the structured output from upstream state fields.
+        Reserve LLM calls for steps that genuinely need language understanding —
+        this cuts latency and cost on every run.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">When to use a sequential pipeline</h3>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Use sequential when…</th><th>Avoid it when…</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Each step's input comes from the previous step's output</td>
+            <td>Steps are independent — you're adding unnecessary latency</td>
+          </tr>
+          <tr>
+            <td>The data transformation chain is clear and stable</td>
+            <td>The path depends on the content — use a triage router instead</td>
+          </tr>
+          <tr>
+            <td>You need a simple audit trail of intermediate state</td>
+            <td>Output quality needs iteration — use a looping refiner instead</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="key" title="Model tiering in pipelines">
+      <p>
+        Assign the cheapest capable model to each step. Classification steps (detect
+        language, classify sentiment) need <code>claude-haiku-4-5-20251001</code>.
+        Final synthesis or complex reasoning steps get <code>claude-opus-4-8</code>.
+        A 4-step pipeline that runs all steps on Opus costs ~10× more than one
+        that only uses Opus for the final step.
+      </p>
+    </LessonCallout>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">§4.5 — Pattern 2: Fan-out / Fan-in (Parallel Map)</h2>
+    <p>
+      When you have a <em>list of independent items</em> to process, a sequential loop
+      is the wrong tool. The <strong>Send API</strong> lets you dispatch one worker node
+      invocation per item — they all execute in parallel, and results automatically
+      accumulate in state via an add reducer. This is LangGraph's parallel map.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart TD
+  S([START]):::entry --> R["fanOut\nrouter"]:::router
+  R -->|Send| W1["analyzeReview\nreview 1"]:::worker
+  R -->|Send| W2["analyzeReview\nreview 2"]:::worker
+  R -->|Send| W3["analyzeReview\nreview N"]:::worker
+  W1 --> A["aggregate\nfan-in"]:::agg
+  W2 --> A
+  W3 --> A
+  A --> E([END]):::exit
+
+  classDef entry  fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef exit   fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+  classDef router fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef worker fill:#fefce8,color:#713f12,stroke:#d97706,stroke-width:2px
+  classDef agg    fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="fan-out-fan-in.ts" code={parallelCode} />
+
+    <h3 class="lesson-heading">The two mechanisms that make parallelism work</h3>
+    <div class="wf-grid">
+      <div class="wf-card">
+        <div class="wf-label">Send API — the fan-out</div>
+        <p>
+          When a conditional edge function returns <code>Send[]</code> instead of a string,
+          LangGraph executes all of them in parallel. Each <code>Send("node", data)</code>
+          creates an independent branch with its own isolated state payload. The number of
+          parallel branches is determined at runtime — you can fan out to 2 or 200 based
+          on the input list length.
+        </p>
+      </div>
+      <div class="wf-card">
+        <div class="wf-label">Add reducer — the fan-in</div>
+        <p>
+          The <code>results</code> field uses <code>reducer: (prev, next) =&gt; [...prev, ...next]</code>.
+          As each parallel branch completes, its return value is merged into the parent state
+          using this reducer. By the time the <code>aggregate</code> node runs,
+          <code>state.results</code> contains every parallel result — automatically, without
+          any custom merge code.
+        </p>
+      </div>
+    </div>
+
+    <LessonCallout variant="warn" title="Worker nodes must return an array, not a scalar">
+      <p>
+        If the parent state field uses an add reducer (<code>[...prev, ...next]</code>),
+        the worker must return <strong>an array containing one result</strong>:
+        <code>return &#123; results: [singleResult] &#125;</code>, not
+        <code>return &#123; results: singleResult &#125;</code>. Returning a scalar when
+        the reducer expects an array produces a silent type error — the state field
+        becomes corrupted with spread scalar values.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Map-Reduce: fan-out/fan-in + transform</h3>
+    <p>
+      When you need to <em>transform</em> the accumulated results (not just collect them),
+      add an explicit reduce node after the fan-in. The aggregate node in the example above
+      is already a reduce step — it computes the average score from all parallel results.
+      A full map-reduce wires: <code>router (fanOut) → N workers → reducer (transform) → END</code>.
+    </p>
+
+    <h3 class="lesson-heading">When to use fan-out / fan-in</h3>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Use fan-out when…</th><th>Avoid it when…</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Processing a list of items that don't depend on each other</td>
+            <td>Items depend on each other's results — process sequentially</td>
+          </tr>
+          <tr>
+            <td>Latency matters and items take similar time to process</td>
+            <td>One item is slow; it still gates the fan-in (slowest branch wins)</td>
+          </tr>
+          <tr>
+            <td>The number of items is known at router time</td>
+            <td>You're generating new items dynamically during processing — use a loop</td>
+          </tr>
+          <tr>
+            <td>API rate limits allow parallel calls</td>
+            <td>You're at the rate limit ceiling — throttle with a queue instead</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="lesson-heading">§4.5 — Three approaches to parallelism</h3>
+    <p>
+      The Send API is not the only parallelism tool in LangGraph. The course slides distinguish
+      three approaches — choose based on whether each item needs its own graph execution or just
+      concurrent I/O within a single node.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Approach</th><th>Where it runs</th><th>Best for</th><th>Key constraint</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Send API</strong></td>
+            <td>Multiple nodes — full LangGraph execution per item</td>
+            <td>Complex per-item processing that itself needs node transitions, state updates, and checkpointing</td>
+            <td>Requires add reducer on result field; worker must return an array</td>
+          </tr>
+          <tr>
+            <td><strong>AsyncIO</strong> (<code>Promise.all</code>)</td>
+            <td>Inside one node — concurrent I/O, single state update</td>
+            <td>Batching I/O-bound operations (API calls, DB queries) that don't need their own LangGraph state</td>
+            <td>No per-item checkpointing; all work is atomic to that node</td>
+          </tr>
+          <tr>
+            <td><strong>Worker threads / thread pool</strong></td>
+            <td>Inside one node — true OS-level parallelism</td>
+            <td>CPU-bound work, rate-limited APIs needing pool size control, integrating legacy sync code</td>
+            <td>Use Node.js <code>worker_threads</code> for CPU; <code>p-limit</code> for rate control</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="Promise.all is right 80% of the time">
+      <p>
+        If you need to make 5 independent API calls inside a single node and combine their results,
+        <code>await Promise.all([callA(), callB(), callC(), ...])</code> is simpler, faster to write,
+        and sufficient. Reach for the Send API only when each item genuinely needs its own LangGraph
+        node transitions, sub-state, or checkpoint — not just concurrent I/O.
+      </p>
+    </LessonCallout>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">§4.4 — Pattern 3: Subgraph Composition</h2>
+    <p>
+      A subgraph is a fully compiled LangGraph that is invoked as a step inside a
+      parent graph. The key benefit: the subgraph has its <strong>own state shape</strong>
+      — you bridge between parent and child state via a wrapper function. This lets
+      you build and test sub-workflows independently, then compose them into larger
+      orchestrators without coupling state schemas.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  S([START]):::entry --> RX["runExtraction\n(bridge fn)"]:::outer
+
+  subgraph sg [Extraction Subgraph]
+    direction LR
+    ER["extractRaw"]:::inner --> PE["parseEntities"]:::inner
+  end
+
+  RX -.->|invoke| ER
+  PE -.->|entities| RX
+
+  RX --> SU["summarise"]:::outer
+  SU --> E([END]):::exit
+
+  classDef entry fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef exit  fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+  classDef outer fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef inner fill:#fefce8,color:#713f12,stroke:#d97706,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="subgraph-composition.ts" code={subgraphCode} />
+
+    <LessonCallout variant="key" title="The bridge function pattern">
+      <p>
+        The wrapper node (<code>runExtraction</code>) is the bridge between the two state
+        shapes. It: (1) constructs a fresh subgraph input from relevant parent state fields,
+        (2) calls <code>subgraph.invoke()</code>, and (3) maps the subgraph output back
+        to parent state fields. This boundary is where you enforce the interface between
+        the two workflows — keep it explicit and narrow.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">When to use subgraph composition</h3>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Use subgraphs when…</th><th>Avoid them when…</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>A sub-workflow is reused in multiple parent graphs</td>
+            <td>The sub-workflow is only ever used in one place — add it as nodes directly</td>
+          </tr>
+          <tr>
+            <td>Different parts of the workflow need different state shapes</td>
+            <td>All nodes share the same state — there's no benefit to a subgraph boundary</td>
+          </tr>
+          <tr>
+            <td>Teams own different sub-workflows independently</td>
+            <td>You need to pass state bidirectionally between parent and child</td>
+          </tr>
+          <tr>
+            <td>You want to test the sub-workflow in isolation</td>
+            <td>The subgraph adds indirection without isolation benefit</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="Compile once, reuse everywhere">
+      <p>
+        Call <code>.compile()</code> on the subgraph once at module initialisation time
+        and export the compiled instance. Invoking the same compiled instance from multiple
+        parent graph nodes is safe — LangGraph compiled graphs are stateless between
+        invocations (each <code>.invoke()</code> starts from the provided initial state).
+      </p>
+    </LessonCallout>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <h2 class="lesson-heading">Pattern decision guide</h2>
+    <p>
+      Start with the question that eliminates the most options first.
+    </p>
+
+    <div class="decision-tree">
+      <div class="dt-node dt-question">Is the input a list of independent items to process?</div>
+      <div class="dt-branch">
+        <div class="dt-yes">YES → <strong>Fan-out / Fan-in</strong> (Send API)</div>
+        <div class="dt-no">
+          <div class="dt-node dt-question">Does output quality need iteration / feedback?</div>
+          <div class="dt-branch">
+            <div class="dt-yes">YES → <strong>Looping Refiner</strong> (see L22)</div>
+            <div class="dt-no">
+              <div class="dt-node dt-question">Does the path branch based on content?</div>
+              <div class="dt-branch">
+                <div class="dt-yes">YES → <strong>Triage Router</strong> (see L18)</div>
+                <div class="dt-no">
+                  <div class="dt-node dt-question">Is there a reusable sub-workflow with a different state shape?</div>
+                  <div class="dt-branch">
+                    <div class="dt-yes">YES → <strong>Subgraph Composition</strong></div>
+                    <div class="dt-no">DEFAULT → <strong>Sequential Pipeline</strong></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Pattern</th>
+            <th>Real-world examples</th>
+            <th>Key cost signal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Sequential Pipeline</strong></td>
+            <td>Content moderation, translation + classification, ETL enrichment</td>
+            <td>Step count × avg latency (optimise slowest step)</td>
+          </tr>
+          <tr>
+            <td><strong>Triage Router</strong></td>
+            <td>Customer support, content classification, intent detection</td>
+            <td>Classifier accuracy × misrouting cost</td>
+          </tr>
+          <tr>
+            <td><strong>Fan-out / Fan-in</strong></td>
+            <td>Batch review analysis, multi-source research, document set processing</td>
+            <td>N × per-item cost; latency = slowest item (not sum)</td>
+          </tr>
+          <tr>
+            <td><strong>Looping Refiner</strong></td>
+            <td>Essay drafting, code generation + test, data extraction + validation</td>
+            <td>Expected iterations × per-loop cost</td>
+          </tr>
+          <tr>
+            <td><strong>Subgraph Composition</strong></td>
+            <td>Entity extraction in multiple pipelines, reusable RAG sub-workflow</td>
+            <td>Bridge function overhead is negligible — same as sequential</td>
+          </tr>
+          <tr>
+            <td><strong>Map-Reduce</strong></td>
+            <td>Summarising a large corpus, aggregating multi-agent research</td>
+            <td>Map cost (parallel) + reduce cost (sequential)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Build a sequential pipeline with model tiering — cheaper models for classification, stronger for synthesis',
+        'Use the <code>Send</code> API to fan out a list of items for parallel processing',
+        'Wire an accumulating reducer (<code>[...prev, ...next]</code>) so parallel results merge automatically',
+        'Compile a subgraph with its own state shape and invoke it from a bridge node in the parent graph',
+        'Apply the decision tree to choose the right pattern before writing any graph code',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'A fanOut router function returns Send[] instead of a string. What does LangGraph do?',
+        options: [
+          'Routes to the first Send destination and ignores the rest',
+          'Executes all Send destinations in parallel, then merges their outputs via reducers',
+          'Throws an error — conditional edge functions must return a string',
+          'Queues the Send objects and executes them sequentially',
+        ],
+        answer:  1,
+        explain: 'When addConditionalEdges receives Send[], LangGraph dispatches all of them simultaneously. Each Send creates an independent execution branch with its own state payload. Results are merged back into the parent state using each field\'s reducer when the branch completes.',
+      },
+      {
+        q:       'A worker node returns { results: singleResult } but the parent state results field has a [...prev, ...next] reducer. What happens?',
+        options: [
+          'The reducer spreads the scalar into the array correctly',
+          'The state field becomes corrupted — the scalar is spread character-by-character into the array',
+          'LangGraph throws a type error at compile time',
+          'The scalar is wrapped in an array automatically',
+        ],
+        answer:  1,
+        explain: 'The add reducer calls [...prev, ...next] where next is a scalar (e.g. an object). Spreading a non-iterable with ... produces either an error or silent corruption. Worker nodes must return an array wrapping the single result: { results: [singleResult] }.',
+      },
+      {
+        q:       'You want to reuse an entity extraction workflow in three different parent graphs, each with a different state schema. What is the best approach?',
+        options: [
+          'Copy the entity extraction nodes into each parent graph',
+          'Compile the entity extraction as a subgraph and invoke it from a bridge node in each parent',
+          'Put all three parent schemas in a union type and share one graph',
+          'Use a triage router to dispatch between the three parent graphs',
+        ],
+        answer:  1,
+        explain: 'Subgraph composition is designed for exactly this case: a self-contained workflow with its own state shape, reused in multiple parents via bridge functions. Copying nodes creates maintenance debt. A union type state becomes unwieldy and untestable. A triage router picks one path — it doesn\'t help with reuse.',
+      },
+      {
+        q:       'You need to process 5 customer reviews. Sequential analysis takes 3s each (15s total). What does fan-out/fan-in give you?',
+        options: [
+          '~3s total — limited by the slowest single review',
+          '~15s total — the Send API does not actually parallelise',
+          '~1s total — LangGraph batches the LLM calls into one request',
+          '~7.5s total — two workers process in parallel',
+        ],
+        answer:  0,
+        explain: 'Fan-out/fan-in runs all 5 reviews simultaneously. The total wall-clock time is bounded by the slowest single review (~3s), not the sum (15s). All five LLM calls are dispatched in parallel — the first to complete writes its result; the last one to complete gates the fan-in.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.2, §4.5, §4.6"
+      tensions={[
+        { a: 'Fan-out parallelism (low latency)',      b: 'Sequential processing (lower peak API load)' },
+        { a: 'Many small subgraphs (modular, reusable)', b: 'One flat graph (simpler, fewer bridge functions)' },
+      ]}
+      questions={[
+        {
+          q:    'You have a fan-out/fan-in graph that processes 50 documents simultaneously. Your Anthropic API tier allows 60 requests per minute. How do you prevent rate limit errors without losing parallelism?',
+          hint: 'Think about batching Send objects and controlling concurrency at the graph level.',
+          answer: '<p>Two complementary approaches: (1) <strong>Chunk the input</strong> — instead of fanning out all 50 at once, fan out in batches of 10. After each fan-in completes, trigger the next batch. Add a <code>batchIndex</code> field to state and a looping outer wrapper that feeds batches sequentially. (2) <strong>p-limit concurrency control inside the worker</strong> — import <code>p-limit</code> (L11 pattern) and wrap the Anthropic client call with a limiter set to 10 concurrent requests. Even if 50 Send branches start simultaneously, only 10 call the API at any moment. The remaining branches queue until a slot opens. Approach (1) reduces peak parallelism but is simpler. Approach (2) preserves the full fan-out graph shape and is better when item processing time varies widely.</p>',
+        },
+        {
+          q:    'A colleague proposes using subgraphs for every step of a 6-node pipeline to "improve modularity." What is the real cost, and when would you push back?',
+          hint: 'Think about what subgraphs actually buy you versus what they cost.',
+          answer: '<p>Subgraphs have real costs: (1) <strong>Bridge function overhead</strong> — every subgraph boundary requires a bridge node that translates state in and out. For a 6-node pipeline, 6 bridge functions add boilerplate and become serialisation bugs waiting to happen. (2) <strong>Debuggability</strong> — a flat graph shows all nodes in one graph trace; subgraphs create nested traces that are harder to follow in LangSmith or console output. (3) <strong>No isolation benefit if state is the same</strong> — if all nodes share the same state schema, a subgraph boundary gives you nothing you couldn\'t get from a named helper function. Push back when: the sub-workflow is used in only one place, all nodes share the same state shape, and the "modularity" is achievable with plain TypeScript modules (extract the node functions, import them). Accept subgraphs when: the sub-workflow is genuinely reused across multiple parent graphs, or the sub-workflow has a fundamentally different state shape that would pollute the parent state if merged.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Returning a scalar from a fan-out worker node when the reducer expects an array — silent state corruption, not a runtime error.',
+        'Fan-out over 100+ items without concurrency control — exhausts API rate limits and gets all branches throttled simultaneously.',
+        'Subgraph bridge functions that pass the entire parent state instead of a minimal input — couples the subgraph to the parent state shape, defeating the reuse benefit.',
+        'Sequential pipeline where two adjacent steps are independent — missing an obvious parallelism opportunity; replace with fan-out or Promise.all.',
+        'Using a looping refiner when a sequential pipeline would do — adds iteration cost and sycophancy risk for tasks that don\'t benefit from self-critique.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .bp-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin: 0.75rem 0;
+  }
+  .bp-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.85rem 1rem;
+    font-size: 0.88rem;
+    position: relative;
+    padding-top: 1rem;
+  }
+  .bp-num {
+    position: absolute;
+    top: -0.65rem;
+    left: 0.85rem;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    width: 1.3rem;
+    height: 1.3rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .bp-label {
+    font-family: monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+
+  .wf-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin: 0.75rem 0;
+  }
+  .wf-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.85rem 1rem;
+    font-size: 0.88rem;
+  }
+  .wf-label {
+    font-family: monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+
+  .decision-tree {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    font-size: 0.88rem;
+    line-height: 1.6;
+  }
+  .dt-node {
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    display: inline-block;
+    margin-bottom: 0.4rem;
+  }
+  .dt-question {
+    background: #ede9fe;
+    color: #4c1d95;
+    font-weight: 600;
+  }
+  .dt-branch {
+    padding-left: 1.5rem;
+    border-left: 2px solid var(--border);
+    margin: 0.4rem 0 0.4rem 0.5rem;
+  }
+  .dt-yes {
+    color: #14532d;
+    margin-bottom: 0.5rem;
+  }
+  .dt-no {
+    color: #374151;
+  }
+
+  @media (max-width: 640px) {
+    .wf-grid { grid-template-columns: 1fr; }
+  }
+</style>

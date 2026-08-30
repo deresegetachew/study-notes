@@ -1,0 +1,275 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const hitlCode = `
+import { StateGraph, END, interrupt } from '@langchain/langgraph';
+import { Annotation } from '@langchain/langgraph';
+import { MemorySaver } from '@langchain/langgraph';
+
+// MemorySaver persists state between interrupt and resume
+const checkpointer = new MemorySaver();
+
+const HITLState = Annotation.Root({
+  task:       Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  plan:       Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  approved:   Annotation<boolean | null>({ reducer: (_, n) => n, default: () => null }),
+  result:     Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+});
+
+// Node 1: generate a plan
+async function generatePlan(state: typeof HITLState.State) {
+  const plan = await llm.plan(state.task);
+  return { plan };
+}
+
+// Node 2: pause and wait for human approval
+async function awaitApproval(state: typeof HITLState.State) {
+  // interrupt() suspends the graph here and saves a checkpoint.
+  // The graph resumes when .invoke() is called again with the same thread_id
+  // and an updated state where approved is true or false.
+  const approved = interrupt({
+    message: 'Please review the plan and approve or reject.',
+    plan: state.plan,
+  });
+  return { approved };
+}
+
+// Node 3: execute only if approved
+async function execute(state: typeof HITLState.State) {
+  if (!state.approved) return { result: 'Task rejected by reviewer.' };
+  const result = await llm.execute(state.plan);
+  return { result };
+}
+
+function shouldExecute(state: typeof HITLState.State) {
+  return state.approved === null ? 'awaitApproval' : 'execute';
+}
+
+const graph = new StateGraph(HITLState)
+  .addNode('generatePlan',  generatePlan)
+  .addNode('awaitApproval', awaitApproval)
+  .addNode('execute',       execute)
+  .addEdge('__start__',     'generatePlan')
+  .addConditionalEdges('generatePlan', shouldExecute, {
+    awaitApproval: 'awaitApproval',
+    execute:       'execute',
+  })
+  .addEdge('awaitApproval', 'execute')
+  .addEdge('execute',       END)
+  .compile({ checkpointer });
+
+// ── First invocation: runs until interrupt ──────────────────────────────────
+const threadId = 'thread-1';
+const config = { configurable: { thread_id: threadId } };
+
+const firstRun = await graph.invoke({ task: 'Delete all records from the orders table' }, config);
+// firstRun.approved === null — graph is paused, checkpoint saved
+
+// ── Human reviews the plan out-of-band ─────────────────────────────────────
+console.log('Plan to review:', firstRun.plan);
+// Human decision: approve or reject
+
+// ── Resume with human decision ──────────────────────────────────────────────
+const finalRun = await graph.invoke(
+  { approved: true },   // inject human decision
+  config,               // same thread_id restores the checkpoint
+);
+console.log('Result:', finalRun.result);
+`.trim();
+
+const mindMap = `
+# Human-in-the-Loop
+## Why HITL Matters
+### Irreversible actions need gates
+### High-value decisions
+### No agent logic rewrite needed
+## Action Autonomy Levels
+### Read-only — full automation
+### Reversible writes — usually auto
+### Irreversible writes — needs approval
+### Financial / legal — human decides
+## Interrupt / Resume Pattern
+### interrupt() suspends graph
+### Checkpointer saves state
+### Same thread_id restores checkpoint
+### Second invoke resumes execution
+## Checkpointer Types
+### MemorySaver — in-process only
+### PostgresSaver — survives restarts
+### RedisSaver — survives restarts
+## NestJS API Design
+### POST /tasks — starts graph
+### POST /tasks/:id/approve — resumes
+### thread_id = task DB id
+## Tensions
+### Fewer approval gates vs more gates
+### Async review vs synchronous blocking
+## Pitfalls
+### MemorySaver in production
+### Not persisting thread_id
+### No timeout on pending approvals
+### Stale state after long approval delay
+`;
+---
+
+<LessonLayout
+  title="L20 — Human-in-the-Loop"
+>
+  <LessonHeader
+    num="L20"
+    title="Human-in-the-Loop"
+    subtitle="Pause graph execution at critical decision points, save state with a checkpointer, and resume after a human approves or rejects."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§3.8 — Why HITL matters</h2>
+    <p>
+      Fully autonomous agents are powerful but dangerous for irreversible actions —
+      deleting data, sending emails, making purchases. Human-in-the-Loop (HITL) adds
+      a <strong>mandatory approval gate</strong> before the agent takes consequential actions,
+      without requiring a full rewrite of the agent logic.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Action type</th><th>Autonomy level</th><th>HITL needed?</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Read-only queries (search, summarise)</td><td>Full automation</td><td>No</td></tr>
+          <tr><td>Reversible writes (create draft, add tag)</td><td>Full automation</td><td>Usually no</td></tr>
+          <tr><td>Irreversible writes (delete, send email)</td><td>Semi-automated</td><td>Yes</td></tr>
+          <tr><td>High-value decisions (financial, legal)</td><td>Human decides</td><td>Yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">The interrupt / resume pattern</h2>
+
+    <LessonDiagram definition={`
+sequenceDiagram
+  participant A as App
+  participant G as Graph
+  participant H as Human
+  participant DB as Checkpointer
+
+  A->>G: invoke(task, thread_id)
+  G->>G: generatePlan()
+  G->>DB: save checkpoint
+  G-->>A: return (plan, approved=null)
+  A->>H: show plan for review
+  H->>A: approve / reject
+  A->>G: invoke({approved: true}, thread_id)
+  G->>DB: restore checkpoint
+  G->>G: execute()
+  G-->>A: return result
+`} />
+
+    <CodeBlock lang="typescript" label="hitl-graph.ts" code={hitlCode} />
+
+    <LessonCallout variant="key" title="The checkpointer is the memory">
+      <p>
+        <code>interrupt()</code> suspends the graph and saves all state to the checkpointer.
+        The <code>thread_id</code> is the key that links the two separate <code>invoke</code>
+        calls. Without the same <code>thread_id</code>, the second invocation starts a fresh
+        graph — it will not resume from the checkpoint.
+      </p>
+    </LessonCallout>
+
+    <LessonCallout variant="warn" title="MemorySaver is in-process only">
+      <p>
+        <code>MemorySaver</code> stores checkpoints in memory — they are lost if the
+        process restarts. For production use a persistent checkpointer:
+        <code>PostgresSaver</code> or <code>RedisSaver</code> from the LangGraph
+        checkpointing packages.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">HITL in a NestJS API</h3>
+    <p>
+      In a real API, the two invocations happen across separate HTTP requests:
+    </p>
+    <ul>
+      <li><strong>POST /tasks</strong> — starts the graph, returns the plan for review (graph paused)</li>
+      <li><strong>POST /tasks/:id/approve</strong> — resumes with <code>approved: true/false</code></li>
+    </ul>
+    <p>
+      The <code>thread_id</code> is typically the task's database ID. Store it
+      alongside the pending task so the approval endpoint can look it up.
+    </p>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Use <code>interrupt()</code> to pause a LangGraph at a checkpoint node',
+        'Configure a <code>MemorySaver</code> checkpointer for in-process development',
+        'Resume a paused graph with the same <code>thread_id</code> and a human decision in state',
+        'Identify which action types require HITL vs. full automation',
+        'Design a two-endpoint API (start + approve) for NestJS HITL workflows',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'What happens to graph state when interrupt() is called?',
+        options: [
+          'State is deleted and the graph restarts on the next invoke',
+          'State is saved to the checkpointer and the graph suspends',
+          'State is sent to the human reviewer as-is',
+          'The current node re-runs until approved is set',
+        ],
+        answer:  1,
+        explain: 'interrupt() saves the full graph state to the checkpointer (keyed by thread_id) and suspends execution. The graph does not delete, restart, or loop — it freezes at that point. The second invoke() with the same thread_id restores state from the checkpoint and continues from where it left off.',
+      },
+      {
+        q:       'You restart the NestJS process and try to resume a paused graph using MemorySaver. What happens?',
+        options: [
+          'The graph resumes from the saved checkpoint',
+          'The graph throws — the checkpoint is gone because MemorySaver is in-memory',
+          'The graph restarts from the beginning with the original input',
+          'MemorySaver automatically persists to disk on process exit',
+        ],
+        answer:  1,
+        explain: 'MemorySaver stores checkpoints only in the process heap. A restart wipes all checkpoints. For production HITL workflows that must survive restarts, use PostgresSaver or RedisSaver which persist to an external datastore.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.8"
+      tensions={[
+        { a: 'Fewer approval gates (faster UX)',       b: 'More approval gates (safer)' },
+        { a: 'Async human review (non-blocking)',       b: 'Synchronous blocking (simpler)' },
+      ]}
+      questions={[
+        {
+          q:    'A human approval takes hours. During that time, the underlying data the plan depends on changes. How do you handle stale state at resume time?',
+          hint: 'Think about what the graph knows vs. what the world knows when resume is called.',
+          answer: '<p>State staleness is a real HITL risk. Mitigations: (1) <strong>Re-validate before execute</strong> — add a validation node between awaitApproval and execute that re-reads the relevant resources and checks they haven\'t changed since the plan was generated. If they have, re-generate the plan and interrupt again. (2) <strong>State TTL</strong> — include a <code>planGeneratedAt</code> timestamp in state. The execute node rejects plans older than N minutes and requests a re-plan. (3) <strong>Optimistic lock</strong> — if the action touches a specific record, include that record\'s version/updated_at in the plan. The execute node checks the current version matches; if not, it aborts. This is the same pattern as database optimistic locking.</p>',
+        },
+        {
+          q:    'You need HITL for 1 in 100 tasks (only high-risk ones). How do you avoid adding approval latency to the 99 routine tasks?',
+          hint: 'Think about how the conditional edge pattern can make approval optional.',
+          answer: '<p>Conditional HITL: (1) <strong>Risk classifier node</strong> — before generatePlan, classify the task as high-risk or routine using a fast heuristic (keyword match, confidence score, or Haiku classifier call). Store <code>requiresApproval: boolean</code> in state. (2) <strong>Conditional edge from generatePlan</strong> — if <code>requiresApproval</code> is true, route to awaitApproval; otherwise skip directly to execute. (3) <strong>Audit log both paths</strong> — even auto-approved tasks should be logged with the plan that was executed, so you can review them after the fact. This keeps the HITL machinery in place (and testable) without slowing down routine work.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Using MemorySaver in production — checkpoints are lost on restart, breaking in-flight approval workflows.',
+        'Not storing thread_id persistently — you cannot resume a paused graph if you lose the thread_id.',
+        'No timeout on pending approvals — tasks waiting for human review can accumulate indefinitely.',
+        'Resuming with stale state after a long approval delay — the plan may no longer be valid.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

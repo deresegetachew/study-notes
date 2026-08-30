@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+<article class="lesson-article">
+
+  <lesson-header
+    num="L1"
+    title="What is an AI Agent?"
+    subtitle="LLM + Tools + Memory · Agent vs Chain · The 4-step loop"
+    source-label="Anthropic — Build effective agents"
+    source-href="https://www.anthropic.com/research/building-effective-agents"
+  ></lesson-header>
+
+  <div class="lesson-content">
+
+    <p>An <strong>AI agent</strong> is a software system that uses an LLM as its reasoning engine, can call external tools, and loops until it completes a goal — rather than answering a single prompt. The shift from "call the LLM once" to "loop until done" is what makes something an agent.</p>
+    <p>Three things combine to make an agent: the <strong>LLM</strong> (the brain that decides), <strong>tools</strong> (the hands that act), and <strong>memory</strong> (the messages array that carries context between turns).</p>
+
+    <lesson-heading>LLM Call vs Chain vs Agent</lesson-heading>
+
+    <lesson-table>
+      <table>
+        <caption>Where does the decision live?</caption>
+        <thead>
+          <tr><th></th><th>LLM Call</th><th>Chain</th><th>Agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Decisions</td><td>None — one shot</td><td>Fixed by developer</td><td>Dynamic — LLM decides</td></tr>
+          <tr><td>Tool use</td><td>No</td><td>Possible</td><td>Yes, driven by LLM</td></tr>
+          <tr><td>Loop</td><td>No</td><td>No</td><td>Yes — until goal met</td></tr>
+          <tr><td>Predictability</td><td>High</td><td>High</td><td>Lower — emergent path</td></tr>
+          <tr><td>Best for</td><td>Classification, extraction</td><td>Known multi-step flows</td><td>Open-ended tasks</td></tr>
+        </tbody>
+      </table>
+    </lesson-table>
+
+    <lesson-heading>The 4-Step Agent Loop</lesson-heading>
+
+    <lesson-diagram>
+flowchart TD
+  A["THINK — LLM reasons over messages array"] --> B{stop_reason?}
+  B -->|end_turn| C["Return final answer to user ✓"]
+  B -->|tool_use| D["ACT — execute the tool call"]
+  D --> E["OBSERVE — append tool_result to messages"]
+  E --> A
+    </lesson-diagram>
+
+    <p>The <code>messages</code> array <em>is</em> the agent's state. The LLM is stateless — it sees only what you send each turn. Each loop iteration appends the assistant response and tool result, building up context.</p>
+
+    <lesson-heading>The Three Components</lesson-heading>
+
+    <lesson-table>
+      <table>
+        <thead>
+          <tr><th>Component</th><th>Role</th><th>In TypeScript</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>LLM</strong></td><td>Decides what to do next</td><td><code>client.messages.create()</code></td></tr>
+          <tr><td><strong>Tools</strong></td><td>Interact with the outside world</td><td>Functions + JSON Schema definitions</td></tr>
+          <tr><td><strong>Memory</strong></td><td>Carries context across turns</td><td>The <code>MessageParam[]</code> array</td></tr>
+        </tbody>
+      </table>
+    </lesson-table>
+
+    <lesson-heading>Minimal Agent in ~20 lines</lesson-heading>
+
+    <code-block lang="typescript" label="agent.ts">
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+const messages: Anthropic.MessageParam[] = [];
+
+async function runAgent(userMessage: string) {
+  messages.push({ role: 'user', content: userMessage });
+
+  while (true) {
+    const response = await client.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 1024,
+      tools,        // your tool definitions
+      messages,
+    });
+
+    if (response.stop_reason === 'end_turn') {
+      const text = response.content.find(b => b.type === 'text');
+      return text?.text ?? '';
+    }
+
+    // tool_use — execute each tool call and loop
+    messages.push({ role: 'assistant', content: response.content });
+    const results = response.content
+      .filter(b => b.type === 'tool_use')
+      .map(t => ({
+        type: 'tool_result' as const,
+        tool_use_id: t.id,
+        content: executeTool(t.name, t.input),
+      }));
+    messages.push({ role: 'user', content: results });
+  }
+}
+    </code-block>
+
+    <lesson-callout variant="key" title="The mental model">
+      <p>An agent is a <code>while</code> loop around an LLM call. The loop exits when <code>stop_reason === 'end_turn'</code>. Everything else — tools, memory, multi-agent — is detail on top of that loop.</p>
+    </lesson-callout>
+
+    <lesson-heading>Quick-check quiz</lesson-heading>
+
+    <lesson-quiz>
+      <quiz-item>
+        <quiz-q>What two stop_reason values does the agent loop care about?</quiz-q>
+        <quiz-option correct>end_turn and tool_use</quiz-option>
+        <quiz-option>done and tool_call</quiz-option>
+        <quiz-option>finish and function</quiz-option>
+        <quiz-option>complete and action</quiz-option>
+        <quiz-explain>end_turn = LLM is done, return the answer. tool_use = LLM wants to call a function, continue the loop.</quiz-explain>
+      </quiz-item>
+
+      <quiz-item>
+        <quiz-q>What is the messages array in an agent?</quiz-q>
+        <quiz-option correct>The agent's entire working state</quiz-option>
+        <quiz-option>A log of past API calls</quiz-option>
+        <quiz-option>The list of available tools</quiz-option>
+        <quiz-option>The system prompt history</quiz-option>
+        <quiz-explain>The LLM is stateless. The messages array is the only memory it has — it sees exactly what you send each turn.</quiz-explain>
+      </quiz-item>
+
+      <quiz-item>
+        <quiz-q>When should you use a single LLM call instead of an agent loop?</quiz-q>
+        <quiz-option correct>Classification or extraction with a fixed schema</quiz-option>
+        <quiz-option>Any task involving user input</quiz-option>
+        <quiz-option>When you need to call external APIs</quiz-option>
+        <quiz-option>When building with NestJS</quiz-option>
+        <quiz-explain>Single calls are cheaper, faster, and more predictable. Use agents only when the task path cannot be known in advance.</quiz-explain>
+      </quiz-item>
+
+      <quiz-item>
+        <quiz-q>Which component decides which tool to call?</quiz-q>
+        <quiz-option correct>The LLM</quiz-option>
+        <quiz-option>The tool registry</quiz-option>
+        <quiz-option>The messages array</quiz-option>
+        <quiz-option>The stop_reason value</quiz-option>
+        <quiz-explain>The LLM reads the tool definitions in the request and decides — the developer only provides the implementations.</quiz-explain>
+      </quiz-item>
+    </lesson-quiz>
+
+  </div>
+
+  <deep-dive sources="l1_1.1, l1_1.2">
+
+    <dd-tension a="Capability" b="Controllability"></dd-tension>
+    <dd-tension a="Latency" b="Quality"></dd-tension>
+    <dd-tension a="Autonomy" b="Explainability"></dd-tension>
+    <dd-tension a="Context length" b="Token cost"></dd-tension>
+    <dd-tension a="Prompt specificity" b="LLM flexibility"></dd-tension>
+
+    <dd-question hint="Think about latency budget, schema certainty, and cost at scale.">
+      When would you choose a single LLM call over a full agent loop?
+      <dd-answer>
+        <p>Single call when: response must be &lt;2s, task is classification or extraction with a fixed schema, cost per query matters at scale, or auditability requires deterministic paths.</p>
+        <p>Agent loop when: task requires tool use, multi-step reasoning, or the path through the problem cannot be known in advance.</p>
+      </dd-answer>
+    </dd-question>
+
+    <dd-question hint="Think about what the agent sees when a tool fails repeatedly.">
+      How do you prevent an agent from looping infinitely on a buggy tool?
+      <dd-answer>
+        <p>Set a <code>maxTurns</code> counter and return a graceful error string from the tool — do not throw. Throwing unhandled exceptions breaks the loop; returning <code>"Error: ..."</code> lets the LLM decide to give up or try something else.</p>
+        <p>Also: exponential back-off on transient failures, circuit-breaker pattern for persistent ones.</p>
+      </dd-answer>
+    </dd-question>
+
+    <dd-question hint="One is about one response, the other is about a system that runs over time.">
+      What is the difference between prompt engineering and agent engineering?
+      <dd-answer>
+        <p>Prompt engineering optimises a single LLM response. Agent engineering designs a system: what tools exist, how errors propagate, what gets stored in memory, how the loop terminates, how the agent behaves on unexpected inputs. The system prompt is one small input to a much larger design problem.</p>
+      </dd-answer>
+    </dd-question>
+
+    <dd-question hint="Think about how transformers process tokens.">
+      Why does a growing messages array increase cost non-linearly?
+      <dd-answer>
+        <p>Transformer attention is O(n²) in sequence length. Every turn of the agent loop appends more tokens — the 10th turn re-attends to turns 1–9. This is why trimming strategies (sliding window, summarisation) matter at production scale.</p>
+      </dd-answer>
+    </dd-question>
+
+    <dd-pitfall>Treating <code>stop_reason</code> as a boolean — always compare against the string constant, not truthiness.</dd-pitfall>
+    <dd-pitfall>Appending tool results to a <em>copy</em> of the messages array instead of the original — silent state loss, agent loops forever.</dd-pitfall>
+    <dd-pitfall>Writing tool descriptions that say <em>what</em> the tool does instead of <em>when</em> to call it — the LLM needs the latter to make routing decisions.</dd-pitfall>
+    <dd-pitfall>Using <code>throw</code> inside tool implementations — unhandled exceptions abort the loop; return error strings instead.</dd-pitfall>
+
+  </deep-dive>
+
+  <lesson-nav
+    next-href="./0002-your-first-agent-in-nodejs.html"
+    next-title="Your First Agent in Node.js"
+  ></lesson-nav>
+
+</article>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: false, theme: 'neutral' });</script>
+<script src="./assets/components.js"></script>
+</body>
+</html>

@@ -1,0 +1,316 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const planExecuteCode = `
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+interface Step {
+  id:          number;
+  description: string;
+  tool?:       string;
+  args?:       Record<string, unknown>;
+}
+
+interface Plan {
+  goal:  string;
+  steps: Step[];
+}
+
+// ── Phase 1: Plan ────────────────────────────────────────────────────────────
+async function plan(goal: string): Promise<Plan> {
+  const res = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 1024,
+    system: \`You are a planning agent. Given a goal, output a JSON plan with concrete steps.
+Each step specifies the tool to call and its arguments.
+Available tools: web_search, read_file, write_file, send_email, calculate.
+Format: { "goal": "...", "steps": [{ "id": 1, "description": "...", "tool": "web_search", "args": { "query": "..." } }] }\`,
+    messages: [{ role: 'user', content: goal }],
+  });
+  const text = res.content[0].type === 'text' ? res.content[0].text : '{}';
+  return JSON.parse(text) as Plan;
+}
+
+// ── Phase 2: Execute ─────────────────────────────────────────────────────────
+async function execute(plan: Plan): Promise<Map<number, unknown>> {
+  const results = new Map<number, unknown>();
+
+  for (const step of plan.steps) {
+    console.log(\`Executing step \${step.id}: \${step.description}\`);
+
+    // Call the appropriate tool
+    const result = step.tool
+      ? await callTool(step.tool, step.args ?? {})
+      : null;
+
+    results.set(step.id, result);
+    console.log(\`Step \${step.id} complete:\`, result);
+  }
+  return results;
+}
+
+// ── Optional: Re-plan on failure ─────────────────────────────────────────────
+async function planAndExecuteWithReplan(goal: string, maxReplans = 2) {
+  let currentPlan = await plan(goal);
+  let replanCount = 0;
+
+  while (replanCount <= maxReplans) {
+    try {
+      const results = await execute(currentPlan);
+      return { plan: currentPlan, results, replanned: replanCount > 0 };
+    } catch (err) {
+      if (replanCount >= maxReplans) throw err;
+
+      // A step failed — ask the planner to revise
+      const failure = String(err);
+      const replanRes = await client.messages.create({
+        model: 'claude-opus-4-8',
+        max_tokens: 1024,
+        system: 'You are a replanning agent. Revise the plan to work around the failure.',
+        messages: [{
+          role: 'user',
+          content: \`Original goal: \${goal}
+Original plan: \${JSON.stringify(currentPlan)}
+Failure: \${failure}
+Provide a revised plan.\`,
+        }],
+      });
+      const text = replanRes.content[0].type === 'text' ? replanRes.content[0].text : '{}';
+      currentPlan = JSON.parse(text) as Plan;
+      replanCount++;
+    }
+  }
+}
+
+declare function callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+`.trim();
+
+const mindMap = `
+# Plan-and-Execute Agent
+## Plan vs ReAct Comparison
+### ReAct — step by step
+### Plan-and-Execute — upfront plan
+### ReAct — high adaptability
+### Plan-and-Execute — parallel steps
+## Decision Framework
+### Can all steps be enumerated?
+### Does step N need step N-1 output?
+### Any independent parallel steps?
+### More than 5 tool calls?
+## Two-Phase Architecture
+### Phase 1: Planner — one LLM call
+### Phase 2: Executor — N tool calls
+### Opus for planning, Haiku for execution
+## Re-planning on Failure
+### Catch step failure
+### Send goal + plan + error to replanner
+### Cap replans at 2-3
+## Hybrid Pattern
+### ReAct for exploration phase
+### Plan-and-Execute for execution phase
+### State carries gathered context
+## Tensions
+### Detailed plan vs flexible execution
+### Re-plan on any failure vs fail fast
+## Pitfalls
+### Planning without knowing available tools
+### No re-plan cap — infinite loop
+### Destructive steps without validation
+### Expensive model for all execution steps
+`;
+---
+
+<LessonLayout
+  title="L23 — Plan-and-Execute Agent"
+>
+  <LessonHeader
+    num="L23"
+    title="Plan-and-Execute Agent"
+    subtitle="Separate planning from execution — generate a full step-by-step plan first, then execute each step in sequence, with optional re-planning on failure."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§3.6 — Plan-and-Execute vs. ReAct</h2>
+    <p>
+      ReAct interleaves reasoning with action — it decides the next step only after
+      seeing the last observation. Plan-and-Execute does the opposite: it generates
+      the <em>entire plan upfront</em>, then executes each step deterministically.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>ReAct</th><th>Plan-and-Execute</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Planning</strong></td><td>One step at a time</td><td>Full plan before execution</td></tr>
+          <tr><td><strong>Adaptability</strong></td><td>High — re-reasons after each step</td><td>Low — committed to initial plan</td></tr>
+          <tr><td><strong>Token cost</strong></td><td>Higher — reasoning at every step</td><td>Lower — plan once, execute cheaply</td></tr>
+          <tr><td><strong>Parallelism</strong></td><td>Sequential only</td><td>Can identify parallel steps upfront</td></tr>
+          <tr><td><strong>Best for</strong></td><td>Uncertain environments</td><td>Well-defined, predictable tasks</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="lesson-heading">Decision framework — which pattern to use</h3>
+    <p>Answer these questions in order. Stop at the first definitive answer.</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>#</th><th>Question</th><th>Yes →</th><th>No →</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td>Can you enumerate all the steps <em>before</em> calling the first tool?</td>
+            <td>Plan-and-Execute candidate — continue to Q2</td>
+            <td><strong>ReAct.</strong> You need to discover next steps from tool outputs.</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>Does step N's input depend <em>unpredictably</em> on step N-1's output — the exact value, not just the fact it succeeded?</td>
+            <td><strong>ReAct.</strong> The plan can't specify arguments for step N until N-1 runs.</td>
+            <td>Plan-and-Execute — continue to Q3</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td>Are any steps independent of each other (could run at the same time)?</td>
+            <td><strong>Plan-and-Execute.</strong> The plan can identify parallel steps upfront; ReAct is always sequential.</td>
+            <td>Continue to Q4</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>Is this more than ~5 tool calls?</td>
+            <td><strong>Plan-and-Execute.</strong> ReAct reasons at every step — 10+ reasoning cycles is expensive and error-prone.</td>
+            <td>Either works. Prefer ReAct for its simplicity.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="Hybrid: ReAct for gathering, Plan-and-Execute for execution">
+      <p>
+        Many real tasks have two phases with different properties:
+        <strong>exploration</strong> (discovering preferences, understanding scope, asking clarifying questions)
+        and <strong>execution</strong> (a set of known steps once the scope is clear).
+      </p>
+      <p>
+        The right answer is often a hybrid: use ReAct for the conversational preference-gathering phase
+        where you don't yet know what steps are needed, then switch to Plan-and-Execute once you have
+        enough information to plan the full execution. The state carries the confirmed preferences
+        from Phase 1 into the planner in Phase 2. See EX4 (Trip Planner Agent) for this pattern applied
+        end-to-end.
+      </p>
+    </LessonCallout>
+
+    <LessonDiagram definition={`
+flowchart LR
+  G["Goal"]:::input --> P["Planner\n(one LLM call)"]:::planner
+  P --> S1["Step 1"]:::step
+  S1 --> S2["Step 2"]:::step
+  S2 --> S3["Step N"]:::step
+  S3 --> R["Result"]:::output
+
+  S2 -->|failure| RP["Re-planner\n(revise)"]:::planner
+  RP --> S2b["Revised\nStep 2"]:::step
+  S2b --> S3
+
+  classDef input   fill:#f8fafc,color:#475569,stroke:#e2e8f0
+  classDef planner fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef step    fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef output  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="plan-execute.ts" code={planExecuteCode} />
+
+    <LessonCallout variant="tip" title="Use a powerful model to plan, a fast model to execute">
+      <p>
+        The planner needs deep reasoning — use Opus. Individual execution steps are
+        simpler tool calls — use Haiku. This splits cost: one expensive planning call
+        + N cheap execution calls, instead of N expensive ReAct reasoning calls.
+      </p>
+    </LessonCallout>
+
+    <LessonCallout variant="warn" title="Re-planning has a limit">
+      <p>
+        Re-planning is useful for handling one or two unexpected failures, but cascading
+        re-plans indicate the original goal was too ambiguous. Cap re-plans at 2–3 and
+        surface the failure to the user if the revised plan also fails.
+      </p>
+    </LessonCallout>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Build a two-phase agent: plan (one call) → execute (N tool calls)',
+        'Use separate models for planner (Opus) and executor (Haiku)',
+        'Implement re-planning: catch step failures and ask the planner to revise',
+        'Decide when plan-and-execute beats ReAct based on task predictability',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'Plan-and-Execute uses fewer reasoning tokens than ReAct. Why?',
+        options: [
+          'Plan-and-Execute uses a smaller model for all steps',
+          'Plan-and-Execute reasons once upfront; execution steps do not require re-reasoning',
+          'Plan-and-Execute skips tool calls entirely',
+          'ReAct always uses more tools than Plan-and-Execute',
+        ],
+        answer:  1,
+        explain: 'In ReAct, the model reasons at every step — Thought → Action → Observation → Thought → ... Each Thought costs reasoning tokens. In Plan-and-Execute, reasoning happens once (the planner call). Each execution step just calls a tool with pre-determined arguments — no further reasoning required.',
+      },
+      {
+        q:       'A Plan-and-Execute agent fails at step 3. What is the correct next action?',
+        options: [
+          'Restart the entire plan from step 1',
+          'Skip step 3 and continue with step 4',
+          'Invoke the re-planner with the original goal, current plan, and failure details',
+          'Switch to ReAct mode for the remaining steps',
+        ],
+        answer:  2,
+        explain: 'The re-planner receives the original goal, the failed plan, and the error message, then generates a revised plan that works around the failure. Restarting from step 1 wastes work already done. Skipping a failed step produces incorrect results. Switching to ReAct mid-execution is complex and rarely needed.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.6"
+      tensions={[
+        { a: 'Detailed plan (less ambiguity)', b: 'Coarse plan (more flexible execution)' },
+        { a: 'Re-plan on any failure (resilient)', b: 'Fail fast on step failure (predictable)' },
+      ]}
+      questions={[
+        {
+          q:    'A Plan-and-Execute agent generates a 10-step plan. Steps 4 and 7 depend on the real-time result of step 3 (a web search). How does the upfront plan handle this?',
+          hint: 'Think about what information the planner has vs. what the executor discovers.',
+          answer: '<p>This is the core limitation of plan-first: the planner cannot know the content of step 3\'s result when generating the plan. Solutions: (1) <strong>Abstract step arguments</strong> — the planner writes step 4 as "analyse the results from step 3" rather than specifying exact arguments. The executor resolves the reference at runtime. This requires the executor to track step outputs and substitute them into later step args. (2) <strong>Hybrid approach</strong> — plan at the high level (phases), use ReAct within each phase. The planner generates 3 phases; each phase is a mini ReAct loop that adapts to its inputs. (3) <strong>Checkpoint-and-replan</strong> — execute steps 1–3, then call the planner again with the actual step 3 result to generate steps 4–10 with full information.</p>',
+        },
+        {
+          q:    'How do you validate that the generated plan is safe before executing it — especially for destructive steps like "delete file" or "send email"?',
+          hint: 'Think about HITL and pre-execution checks.',
+          answer: '<p>Pre-execution plan validation: (1) <strong>Tool allowlist per context</strong> — the planner only has access to "safe" tools by default; destructive tools (delete, send, write) are in a separate "escalated" tool set that requires approval. The planner must explicitly request escalation. (2) <strong>Plan review step</strong> — after planning and before execution, add a HITL node (L17 pattern) that shows the human the full plan. They approve or reject before any step runs. (3) <strong>Dry-run mode</strong> — implement each destructive tool with a <code>dryRun</code> flag. Execute the entire plan in dry-run first, log what would happen, then ask for approval before the real run. (4) <strong>Scope check</strong> — validate that step args are within expected bounds: delete only files in /tmp/, send email only to addresses in an allowlist.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Planning with insufficient context — the planner generates steps it cannot execute because it doesn\'t know what tools are actually available.',
+        'No re-plan cap — cascading failures trigger infinite re-planning.',
+        'Executing destructive steps without validation — plan-and-execute is fast, which means irreversible actions happen fast too.',
+        'Using the same expensive model for both planning and execution — most execution steps don\'t need Opus-level reasoning.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

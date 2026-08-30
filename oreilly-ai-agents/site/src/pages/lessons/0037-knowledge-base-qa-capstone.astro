@@ -1,0 +1,459 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const stateCode = `
+import { StateGraph, Annotation, END } from '@langchain/langgraph';
+import { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
+
+interface DocumentChunk {
+  id:         string;
+  content:    string;
+  source:     string;
+  similarity: number;
+}
+
+const KBState = Annotation.Root({
+  question:        Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  sanitized:       Annotation<string | null>({ reducer: (_, n) => n, default: () => null }),
+  chunks:          Annotation<DocumentChunk[]>({ reducer: (_, n) => n, default: () => [] }),
+  context:         Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  answer:          Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  citations:       Annotation<string[]>({ reducer: (_, n) => n, default: () => [] }),
+  guardrailPassed: Annotation<boolean>({ reducer: (_, n) => n, default: () => false }),
+  blockedReason:   Annotation<string | null>({ reducer: (_, n) => n, default: () => null }),
+});
+`.trim();
+
+const ingestCode = `
+async function ingestDocument(filePath: string, source: string) {
+  const raw = await fs.readFile(filePath, 'utf-8');
+
+  // Chunk: 500 tokens, 50-token overlap (L14)
+  const chunks = chunkText(raw, { size: 500, overlap: 50 });
+
+  // Embed all chunks in parallel — asyncio.gather pattern (L11)
+  const embeddings = await Promise.all(
+    chunks.map(chunk =>
+      openai.embeddings.create({ model: 'text-embedding-3-small', input: chunk })
+    )
+  );
+
+  // Store in pgvector
+  await Promise.all(
+    chunks.map((chunk, i) =>
+      pool.query(
+        \`INSERT INTO documents (id, content, source, embedding)
+         VALUES ($1, $2, $3, $4::vector)\`,
+        [crypto.randomUUID(), chunk, source,
+         \`[\${embeddings[i].data[0].embedding.join(',')}]\`]
+      )
+    )
+  );
+  console.log(\`Ingested \${chunks.length} chunks from \${source}\`);
+}
+`.trim();
+
+const queryNodesCode = `
+async function inputGuard(state: typeof KBState.State) {
+  // L12 + L29: sanitise input, classify topic
+  const sanitized = state.question
+    .replace(/<[^>]*>/g, '')   // strip HTML (injection defence)
+    .trim()
+    .slice(0, 500);            // hard length cap
+
+  const res = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 16,
+    messages: [{ role: 'user', content:
+      \`Is this a question about software documentation or technical topics?
+Reply YES or NO only. Question: "\${sanitized}"\` }],
+  });
+  const verdict = res.content[0].type === 'text' ? res.content[0].text.trim() : 'NO';
+  return verdict === 'YES'
+    ? { sanitized, guardrailPassed: true }
+    : { guardrailPassed: false, blockedReason: 'off-topic' };
+}
+
+async function retrieve(state: typeof KBState.State) {
+  // L14: embed question, cosine search with similarity threshold
+  const { data } = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: state.sanitized!,
+  });
+  const vec = \`[\${data[0].embedding.join(',')}]\`;
+  const { rows } = await pool.query<DocumentChunk>(
+    \`SELECT id, content, source,
+            1 - (embedding <=> $1::vector) AS similarity
+     FROM documents
+     WHERE 1 - (embedding <=> $1::vector) > 0.7
+     ORDER BY similarity DESC
+     LIMIT 5\`,
+    [vec],
+  );
+  const context = rows.map(r => \`[\${r.source}]\\n\${r.content}\`).join('\\n\\n---\\n\\n');
+  return { chunks: rows, context };
+}
+
+async function generate(state: typeof KBState.State) {
+  // L10: multi-step chain — context already built by retrieve node
+  const res = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1024,
+    system: \`You answer questions using only the provided documentation context.
+If the answer is not in the context say: "I don't have that in the documentation."
+Always cite sources inline using [source-name].\`,
+    messages: [{
+      role: 'user',
+      content: \`Context:\\n\${state.context}\\n\\nQuestion: \${state.sanitized}\`,
+    }],
+  });
+  const answer = res.content[0].type === 'text' ? res.content[0].text : '';
+  return { answer, citations: [...new Set(state.chunks.map(c => c.source))] };
+}
+`.trim();
+
+const graphCode = `
+function routeAfterGuard(state: typeof KBState.State) {
+  return state.guardrailPassed ? 'allowed' : 'blocked';
+}
+
+const checkpointer = new PostgresSaver(pool);
+await checkpointer.setup();
+
+export const kbGraph = new StateGraph(KBState)
+  .addNode('inputGuard', inputGuard)
+  .addNode('retrieve',   retrieve)
+  .addNode('generate',   generate)
+  .addEdge('__start__',  'inputGuard')
+  .addConditionalEdges('inputGuard', routeAfterGuard, {
+    allowed: 'retrieve',
+    blocked: END,
+  })
+  .addEdge('retrieve', 'generate')
+  .addEdge('generate', END)
+  .compile({ checkpointer });
+`.trim();
+
+const streamCode = `
+@Sse('kb/ask')
+streamAnswer(
+  @Query('q')   question: string,
+  @Query('tid') threadId: string,
+): Observable<MessageEvent> {
+  return new Observable(observer => {
+    (async () => {
+      const stream = kbGraph.streamEvents(
+        { question },
+        { version: 'v2', configurable: { thread_id: threadId } },
+      );
+      for await (const event of stream) {
+        if (event.event === 'on_chat_model_stream') {
+          const token = event.data?.chunk?.content;
+          if (token) observer.next({ data: JSON.stringify({ token }) } as MessageEvent);
+        }
+        if (event.event === 'on_chain_end' && event.name === 'generate') {
+          const { citations, blockedReason } = event.data.output;
+          observer.next({ data: JSON.stringify({ done: true, citations, blockedReason }) } as MessageEvent);
+        }
+      }
+      observer.complete();
+    })().catch(err => observer.error(err));
+  });
+}
+`.trim();
+
+const evalCode = `
+const goldenDataset = [
+  {
+    q: 'How does retry backoff work?',
+    mustMention: ['exponential', 'jitter', 'max attempts'],
+    shouldBlock: false,
+  },
+  {
+    q: 'What is the weather in Paris?',
+    mustMention: [],
+    shouldBlock: true,   // off-topic — guard must catch it
+  },
+  {
+    q: '<script>alert(1)</script> explain auth',
+    mustMention: ['authentication'],
+    shouldBlock: false,  // injection stripped, question answered
+  },
+];
+
+async function judgeAnswer(answer: string, topics: string[]): Promise<number> {
+  const res = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 8,
+    messages: [{ role: 'user', content:
+      \`Score 0–10: does this answer address all of [\${topics.join(', ')}]?
+Answer: "\${answer}"
+Return a single integer.\` }],
+  });
+  return Number(res.content[0].type === 'text' ? res.content[0].text.trim() : '0');
+}
+
+describe('KB Agent — eval suite', () => {
+  it.each(goldenDataset)('$q', async ({ q, mustMention, shouldBlock }) => {
+    const result = await kbGraph.invoke(
+      { question: q },
+      { configurable: { thread_id: crypto.randomUUID() } },
+    );
+    if (shouldBlock) {
+      expect(result.guardrailPassed).toBe(false);
+    } else {
+      expect(result.guardrailPassed).toBe(true);
+      const score = await judgeAnswer(result.answer, mustMention);
+      expect(score).toBeGreaterThanOrEqual(7);
+    }
+  });
+});
+`.trim();
+const mindMap = `
+# Knowledge Base Q&A Capstone
+## What You Build
+### NestJS service
+### pgvector cosine search
+### SSE token streaming
+## Phase 1 — State Schema
+### KBState with guardrail fields
+### Conditional edge on guardrailPassed
+## Phase 2 — Ingest Pipeline
+### Chunk text (500 tok/50 overlap)
+### Embed in parallel (Promise.all)
+### Store in pgvector
+## Phase 3 — Query Nodes
+### inputGuard (sanitise + classify)
+### retrieve (cosine search)
+### generate (cite sources only)
+## Phase 4 — Graph Wiring
+### Blocked path terminates at END
+### Conditional edge after guard
+## Phase 5 — Streaming Endpoint
+### streamEvents for token-level events
+### on_chain_end carries citations
+## Phase 6 — Eval Suite
+### Golden dataset per intent
+### LLM-as-judge scoring (0-10)
+### Blocked-input assertions
+## Tensions
+### Strict guardrail (fewer false positives) vs Liberal (fewer false negatives)
+### Small chunks (precise retrieval) vs Large chunks (more context)
+### High similarity threshold (fewer hallucinations) vs Low (better recall)
+## Pitfalls
+### Embedding with different model than ingest
+### No similarity threshold returns noise
+### Missing conditional edge for blocked path
+`;
+
+---
+
+<LessonLayout
+  title="Phase 2 Capstone: Knowledge Base Q&A Service"
+>
+  <LessonHeader
+    num="C1"
+    title="Phase 2 Capstone: Knowledge Base Q&A Service"
+    subtitle="Put everything from Phase 2 together — LangGraph, RAG, streaming, guardrails, and evals — into one production-grade NestJS service."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">What you will build</h2>
+    <p>
+      A NestJS service that lets a team ask questions against their internal technical documentation.
+      It accepts a plaintext question, retrieves relevant document chunks from pgvector,
+      generates a cited answer with Claude, and streams the response token-by-token via SSE.
+      Off-topic questions and injection attempts are caught by a guardrail layer before reaching the LLM.
+    </p>
+    <p>
+      Every Phase 2 concept appears in this project in a realistic context — not as an isolated
+      exercise, but wired together into a system you could deploy.
+    </p>
+
+    <h2 class="lesson-heading">Skills exercised</h2>
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Lesson</th><th>Concept</th><th>Where it appears</th></tr></thead>
+        <tbody>
+          <tr><td>L08</td><td>Task decomposition</td><td>Pipeline split into ingest and query sub-flows</td></tr>
+          <tr><td>L09</td><td>LangGraph StateGraph</td><td>KBState + 3 nodes + conditional edge</td></tr>
+          <tr><td>L10</td><td>Multi-step chain</td><td>guard → retrieve → generate sequence</td></tr>
+          <tr><td>L11</td><td>Streaming + async</td><td>SSE endpoint + parallel chunk embedding</td></tr>
+          <tr><td>L12</td><td>Guardrails &amp; error handling</td><td>Input sanitisation, topic classifier</td></tr>
+          <tr><td>L29</td><td>Security</td><td>HTML stripping, length cap, injection defence</td></tr>
+          <tr><td>L13</td><td>Testing &amp; evaluation</td><td>Vitest eval suite with golden dataset</td></tr>
+          <tr><td>L30</td><td>EDD + LLM-as-judge</td><td>Claude Haiku scores each answer 0–10</td></tr>
+          <tr><td>L14</td><td>RAG pipeline</td><td>pgvector cosine search + chunk retrieval</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Architecture</h2>
+    <LessonDiagram definition={`
+flowchart TD
+  ING([POST /kb/ingest]):::e --> CH[Chunk\n500 tok / 50 overlap]:::s
+  CH --> EM[Embed\ntext-embedding-3-small]:::s
+  EM --> PG[(pgvector)]:::s
+
+  ASK([GET /kb/ask SSE]):::e --> IG[Input Guard\nstrip + classify]:::s
+  IG -->|off-topic or injection| BLK([blocked]):::w
+  IG -->|passed| RET[Retrieve\ncosine search]:::s
+  RET --> PG
+  RET --> GEN[Generate\nClaude Sonnet]:::s
+  GEN --> SSE([token stream\n+ citations]):::d
+
+  classDef e   fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef s   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef w   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef d   fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+    `} />
+
+    <h2 class="lesson-heading">Phase 1 — State schema</h2>
+    <p>
+      Design the state first, before writing any node. Each field maps to a stage of the pipeline.
+      The guardrail fields (<code>guardrailPassed</code>, <code>blockedReason</code>) give the
+      conditional edge something clean to read.
+    </p>
+    <CodeBlock lang="typescript" label="kb-state.ts" code={stateCode} />
+
+    <h2 class="lesson-heading">Phase 2 — Ingest pipeline</h2>
+    <p>
+      Ingestion runs offline — not part of the query graph. Chunk each document, embed all chunks
+      in parallel (<code>Promise.all</code> — the asyncio.gather pattern from L11), and store in
+      pgvector. Run this once per document set, or on a schedule when docs change.
+    </p>
+    <CodeBlock lang="typescript" label="ingest.ts" code={ingestCode} />
+
+    <h2 class="lesson-heading">Phase 3 — Query nodes</h2>
+    <p>
+      Three nodes in sequence: <strong>inputGuard</strong> classifies and sanitises the question,
+      <strong>retrieve</strong> does a cosine search with a similarity threshold (0.7 — tune this),
+      <strong>generate</strong> synthesises the answer from context only and cites sources.
+    </p>
+    <CodeBlock lang="typescript" label="kb-nodes.ts" code={queryNodesCode} />
+
+    <LessonCallout variant="warn" title="Similarity threshold is a quality lever">
+      <p>
+        The <code>&gt; 0.7</code> threshold in the retrieve node prevents low-quality chunks from
+        reaching the LLM. If the agent frequently says "I don't have that", lower it to 0.6.
+        If it hallucinates from weak context, raise it to 0.75. This is a tunable parameter —
+        add it to your eval loop, not hardcoded.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Phase 4 — Graph wiring</h2>
+    <p>
+      The conditional edge after <code>inputGuard</code> implements the L12 guardrail pattern:
+      blocked inputs terminate at <code>END</code> without ever hitting the LLM or the database.
+    </p>
+    <CodeBlock lang="typescript" label="kb-graph.ts" code={graphCode} />
+
+    <h2 class="lesson-heading">Phase 5 — Streaming endpoint</h2>
+    <p>
+      Use <code>streamEvents</code> (not <code>stream</code>) to get token-level events from the
+      generate node. The <code>on_chain_end</code> event carries the full final state including
+      citations — send it as the closing frame so the client knows when to stop the SSE listener.
+    </p>
+    <CodeBlock lang="typescript" label="kb.controller.ts" code={streamCode} />
+
+    <h2 class="lesson-heading">Phase 6 — Eval suite</h2>
+    <p>
+      Build your golden dataset before going to production. Include happy-path questions,
+      off-topic questions (must be blocked), and injection attempts (must be sanitised and answered).
+      Run the suite on every prompt change — this is L30's Evaluation-Driven Development in practice.
+    </p>
+    <CodeBlock lang="typescript" label="kb.eval.ts" code={evalCode} />
+
+    <LessonCallout variant="key" title="The eval suite is the spec">
+      <p>
+        The golden dataset defines what "correct" means for this agent. When a stakeholder says
+        "the agent feels off", turn it into a failing eval case. When the case passes, the
+        improvement is verifiable. This is what separates engineering from vibes.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Stretch goals</h2>
+    <ul>
+      <li>Add a re-rank node between <code>retrieve</code> and <code>generate</code> that calls a cross-encoder to reorder the top-5 chunks by relevance.</li>
+      <li>Add an <code>outputGuard</code> node that checks the generated answer for hallucination by verifying every factual claim is present in <code>state.context</code>.</li>
+      <li>Extend the ingest pipeline to support PDF (use <code>pdf-parse</code>) and HTML (use <code>cheerio</code>) in addition to plaintext.</li>
+      <li>Add a feedback endpoint (<code>POST /kb/feedback</code>) that stores thumbs-up/down per <code>threadId</code> — the foundation for L36's fine-tuning loop.</li>
+    </ul>
+
+    <LessonChecklist
+      title="What this capstone demonstrates"
+      items={[
+        'LangGraph StateGraph with typed Annotation.Root and conditional edge',
+        'RAG pipeline: chunk → embed (parallel) → pgvector cosine search → generate',
+        'Input guardrail: HTML stripping + Haiku topic classifier + conditional routing',
+        'SSE streaming from LangGraph streamEvents in a NestJS @Sse endpoint',
+        'Golden dataset eval suite with LLM-as-judge scoring and blocked-input assertions',
+        'Similarity threshold as a tunable quality lever, not a magic constant',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'The retrieve node uses a 0.7 similarity threshold. A question about a topic that IS in the docs returns zero chunks. What is the most likely cause?',
+        options: [
+          'The embedding model changed since the docs were ingested — vectors are incompatible',
+          'The LLM temperature is too high',
+          'The question is off-topic',
+          'The pgvector extension is not installed',
+        ],
+        answer:  0,
+        explain: 'If you re-embed using a different model (or a different model version), the vector space changes and old stored embeddings become incompatible with new query embeddings. Always re-ingest all documents when switching embedding models. This is one of the most common production RAG failures.',
+      },
+      {
+        q:       'You want to reduce LLM costs by 40% without changing answer quality. Which change has the biggest impact?',
+        options: [
+          'Switch the generate node from Sonnet to Haiku',
+          'Reduce the similarity threshold from 0.7 to 0.5 to retrieve more chunks',
+          'Reduce max retrieved chunks from 5 to 3 — less context, shorter prompts',
+          'Batch ingest requests to reduce embed API calls',
+        ],
+        answer:  2,
+        explain: 'Reducing retrieved chunks from 5 to 3 directly shrinks every prompt sent to the LLM — the context section is typically 60–70% of total token cost. Switching to Haiku (option A) also helps but degrades quality for complex technical questions. Embed API calls are cheap compared to LLM inference.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§1.10, §2.10, §2.12, §2.16, §3.4, §4.11"
+      tensions={[
+        { a: 'Strict guardrail (fewer false positives)', b: 'Liberal guardrail (fewer false negatives)' },
+        { a: 'Small chunks (precise retrieval)', b: 'Large chunks (more context per chunk)' },
+        { a: 'High similarity threshold (fewer hallucinations)', b: 'Low threshold (better recall)' },
+      ]}
+      questions={[
+        {
+          q:    'Your retrieval returns 5 chunks but 3 of them are from the same document section, drowning out context from 2 other relevant sections. How do you fix this without dropping the similarity threshold?',
+          hint: 'Think about what property of the retrieved chunks you could use to diversify.',
+          answer: '<p><strong>Max Marginal Relevance (MMR)</strong>: after retrieving the top-K by similarity, re-rank to penalise chunks that are too similar to each other. A chunk already selected makes the next chunk from the same source less likely to be chosen. Most vector store clients expose an <code>mmrSearch</code> option. Alternatively: (1) <strong>Source capping</strong> — limit to max 2 chunks per source in post-processing. (2) <strong>Hybrid retrieval</strong> — combine dense (cosine) with sparse (BM25 keyword) retrieval to surface lexically relevant but semantically distant chunks.</p>',
+        },
+        {
+          q:    'The inputGuard uses a Haiku classifier that costs ~$0.001 per request. At 50,000 questions/day that is $50/day just for the guard. How would you reduce this cost while maintaining the security property?',
+          hint: 'Think about when you actually need the LLM in a guardrail vs. cheaper alternatives.',
+          answer: '<p>Three approaches in order of cost reduction: (1) <strong>Rule-based pre-filter first</strong> — check length, character set, common injection patterns with a regex. Only send to Haiku what passes the cheap filter. At 50K queries/day, ~80% of injection attempts are pattern-matchable, reducing LLM guard calls to 10K. (2) <strong>Cache the guard verdict</strong> — hash sanitised questions; common questions asked repeatedly get a cached verdict. (3) <strong>Smaller fine-tuned classifier</strong> — fine-tune a tiny open-source model (e.g. distilbert) on your golden dataset to run locally at near-zero marginal cost. The Haiku classifier is the right starting point; optimise it once you have real traffic data to measure against.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Embedding the question with a different model than the one used during ingest — produces incompatible vectors and zero retrieval.',
+        'No similarity threshold — retrieving chunks with 0.3 similarity fills the context with noise and causes hallucination.',
+        'Missing the blocked path — if inputGuard sets guardrailPassed: false but there is no conditional edge, the graph routes to retrieve anyway.',
+        'Counting ingestion tokens against your eval budget — ingestion is a one-time cost; eval scoring is per-question.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

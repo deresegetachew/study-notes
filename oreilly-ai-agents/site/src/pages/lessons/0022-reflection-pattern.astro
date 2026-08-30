@@ -1,0 +1,300 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const reflectionCode = `
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+interface ReflectionResult {
+  output:       string;
+  quality:      number;   // 0–10
+  passed:       boolean;
+  critique:     string;
+  iterations:   number;
+}
+
+// The reflector is a separate model call that critiques the generator's output
+async function reflect(output: string, criteria: string): Promise<{
+  quality: number;
+  critique: string;
+  passed: boolean;
+}> {
+  const res = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 512,
+    messages: [{
+      role: 'user',
+      content: \`Critique the following output against these criteria:
+Criteria: \${criteria}
+
+Output to critique:
+\${output}
+
+Return JSON:
+{
+  "quality": <0-10>,
+  "critique": "<specific improvements needed>",
+  "passed": <true if quality >= 7>
+}\`,
+    }],
+  });
+  const text = res.content[0].type === 'text' ? res.content[0].text : '';
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('Reflector did not return JSON.');
+  return JSON.parse(match[0]);
+}
+
+// Generator + Reflector loop
+async function generateWithReflection(
+  task:       string,
+  criteria:   string,
+  maxLoops = 3,
+): Promise<ReflectionResult> {
+  let output    = '';
+  let iteration = 0;
+
+  while (iteration < maxLoops) {
+    // 1. Generate (or revise based on previous critique)
+    const genPrompt = iteration === 0
+      ? task
+      : \`Task: \${task}
+
+Previous attempt:
+\${output}
+
+Critique:
+\${lastCritique}
+
+Please revise to address the critique.\`;
+
+    const genRes = await client.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: genPrompt }],
+    });
+    output = genRes.content[0].type === 'text' ? genRes.content[0].text : '';
+
+    // 2. Reflect
+    const { quality, critique, passed } = await reflect(output, criteria);
+    lastCritique = critique;
+    iteration++;
+
+    if (passed) {
+      return { output, quality, passed: true, critique, iterations: iteration };
+    }
+  }
+
+  // Max loops reached — return best attempt
+  return { output, quality: 0, passed: false, critique: lastCritique, iterations: iteration };
+}
+
+let lastCritique = '';
+
+const result = await generateWithReflection(
+  'Write a 3-sentence product description for a noise-cancelling headphone.',
+  'Must mention: price range, target audience, and one key differentiator. No jargon.',
+);
+
+console.log(\`Passed after \${result.iterations} iteration(s):\`, result.passed);
+console.log(result.output);
+`.trim();
+
+const mindMap = `
+# Reflection Pattern
+## What Is Reflection
+### Generator produces draft
+### Reflector critiques output
+### Loop until quality passes
+## Reflector Design
+### Separate system prompt
+### Adversarial persona
+### Explicit scoring 0-10
+## Reflection Variants
+### Self-reflection — same model
+### Cross-reflection — separate model
+### Reflexion — accumulates all critiques
+### Constitutional AI — fixed principles
+## When to Use
+### Good: writing, code, structured data
+### Poor: real-time chat, simple Q&A
+### Token cost doubles per loop
+## Loop Control
+### Max iteration cap required
+### Pass threshold (e.g. score >= 7)
+### Return best attempt on timeout
+## Tensions
+### More loops vs lower latency
+### Strict threshold vs faster termination
+## Pitfalls
+### No maximum iteration cap
+### Sycophantic reflector — same persona
+### Vague criteria — no actionable direction
+### Reflection on low-stakes tasks
+### Not tracking iteration count
+`;
+---
+
+<LessonLayout
+  title="L22 — Reflection Pattern"
+>
+  <LessonHeader
+    num="L22"
+    title="Reflection Pattern"
+    subtitle="A second model call critiques the generator's output and drives revision — letting the agent self-improve without human intervention."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§3.9 — What is reflection?</h2>
+    <p>
+      Reflection is a loop where a <strong>generator</strong> produces an output and a
+      <strong>reflector</strong> critiques it. The generator then revises based on the
+      critique. This loop repeats until the output passes quality criteria or a maximum
+      iteration count is reached.
+    </p>
+
+    <LessonCallout variant="key" title="Generator ≠ Reflector">
+      <p>
+        The most effective reflection uses a <em>separate system prompt</em> for the
+        reflector — ideally a different persona or model. A reflector using the same
+        system prompt as the generator tends to be sycophantic (agrees with its own output).
+        Use a critical, adversarial persona for the reflector.
+      </p>
+    </LessonCallout>
+
+    <LessonDiagram definition={`
+flowchart LR
+  T["Task"]:::input --> G["Generator\n(produce draft)"]:::gen
+  G --> R{"Reflector\n(critique + score)"}:::reflect
+  R -->|quality < 7| G
+  R -->|quality >= 7| O["Final output"]:::output
+
+  classDef input   fill:#f8fafc,color:#475569,stroke:#e2e8f0
+  classDef gen     fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef reflect fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef output  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="reflection.ts" code={reflectionCode} />
+
+    <h2 class="lesson-heading">Variants of the reflection pattern</h2>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Variant</th><th>Description</th><th>Use case</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Self-reflection</strong></td>
+            <td>Same model critiques its own output</td>
+            <td>Quick quality checks on simple outputs</td>
+          </tr>
+          <tr>
+            <td><strong>Cross-reflection</strong></td>
+            <td>Separate model or system prompt critiques</td>
+            <td>Higher quality, less sycophancy</td>
+          </tr>
+          <tr>
+            <td><strong>Reflexion (with memory)</strong></td>
+            <td>Critique is stored; next attempt uses all past critiques</td>
+            <td>Complex multi-attempt tasks like code generation</td>
+          </tr>
+          <tr>
+            <td><strong>Constitutional AI</strong></td>
+            <td>Reflector uses a fixed set of principles as criteria</td>
+            <td>Safety, policy compliance, brand voice</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="warn" title="Reflection is not free">
+      <p>
+        Each reflection loop doubles the API calls and tokens. A 3-loop reflection
+        on a 1000-token task uses 6000+ tokens total. Set a maximum loop count,
+        and only use reflection for tasks where quality matters more than speed.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">When to use reflection</h3>
+    <ul>
+      <li><strong>Good fit:</strong> Writing tasks, code generation, structured data extraction, creative content</li>
+      <li><strong>Poor fit:</strong> Real-time chat, low-latency APIs, simple Q&A, tasks where a single good prompt suffices</li>
+    </ul>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Implement a generate → reflect → revise loop with a max iteration cap',
+        'Write a reflector prompt with explicit scoring criteria (0–10 + pass threshold)',
+        'Use a separate adversarial persona for the reflector to avoid sycophancy',
+        'Accumulate past critiques in the Reflexion variant for multi-attempt tasks',
+        'Decide when reflection ROI justifies its token cost',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'Why does using the same system prompt for generator and reflector reduce reflection quality?',
+        options: [
+          'The model cannot read its own output',
+          'The reflector is sycophantic — it tends to approve outputs that match its own style',
+          'Using the same system prompt causes a context length error',
+          'The model confuses the generator and reflector roles',
+        ],
+        answer:  1,
+        explain: 'A model critiquing output generated under the same system prompt has an inherent bias toward approving it — the output already matches its own style and constraints. An adversarial or neutral reflector persona catches issues the generator overlooked because it has different success criteria.',
+      },
+      {
+        q:       'What is the primary cost of adding more reflection loops?',
+        options: [
+          'The generator model becomes unavailable after 3 calls',
+          'Each loop doubles API calls and token usage',
+          'Reflection loops break LangGraph checkpointing',
+          'The model\'s context window fills up after 2 loops',
+        ],
+        answer:  1,
+        explain: 'Each reflection iteration requires at least 2 API calls (generate + reflect). 3 loops = 6+ calls and 3x the tokens of a single generation. This is why reflection should be reserved for tasks where quality improvements justify the cost.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.9"
+      tensions={[
+        { a: 'More reflection loops (higher quality)', b: 'Fewer loops (lower latency & cost)' },
+        { a: 'Strict pass threshold (quality gate)',   b: 'Lenient threshold (terminates faster)' },
+      ]}
+      questions={[
+        {
+          q:    'After 3 reflection loops, the output quality plateau — each revision scores 6/10 but never passes the 7/10 threshold. What is happening and how do you fix it?',
+          hint: 'Think about what the generator is optimising for vs. what the reflector is asking for.',
+          answer: '<p>This is a generator-reflector misalignment plateau. The generator is revising toward the critique, but the critique itself is either (1) <strong>too vague</strong> to produce actionable revisions ("improve clarity" is not actionable; "replace the passive voice in sentence 2" is), or (2) <strong>inconsistent</strong> — the reflector scores different dimensions each loop, so fixing one issue reveals another without net progress. Fixes: (1) Require the reflector to produce numbered, specific revision instructions, not general feedback. (2) Cap what the reflector can critique per loop — one dimension at a time (structure, then accuracy, then tone). (3) If quality plateaus, escape the loop early: return the best attempt and flag it for human review rather than burning tokens on no-progress iterations.</p>',
+        },
+        {
+          q:    'How would you use the Reflexion variant (memory of all past critiques) for code generation tasks?',
+          hint: 'Think about what information accumulates across attempts that would be lost with reset-per-loop.',
+          answer: '<p>Standard reflection forgets previous critiques on each loop — the generator only sees the most recent feedback. For code generation, earlier failures carry useful signal: "the function throws on empty arrays" is still relevant on attempt 3 even if attempt 2\'s critique was about naming. Reflexion: (1) Accumulate all critiques in a list in state: <code>critiques: string[]</code>. (2) On each generation attempt, include the full history: "Previous attempts failed for these reasons: [list]. Ensure the new attempt addresses all of them." (3) Also accumulate the test results (failing test names, error messages) alongside prose critiques — concrete failure modes are more actionable than reflector summaries. This way, attempt 3 doesn\'t re-introduce a bug that was fixed in attempt 1.</p>',
+        },
+      ]}
+      pitfalls={[
+        'No maximum iteration cap — a stubborn generator-reflector pair can loop indefinitely.',
+        'Sycophantic reflector — same persona as generator almost always passes its own output.',
+        'Vague criteria — "make it better" produces inconsistent scores and no actionable revision direction.',
+        'Using reflection for low-stakes tasks — 3x the cost for marginal quality gains on simple Q&A.',
+        'Not tracking iteration count — no way to know if reflection actually improved quality over time.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

@@ -1,0 +1,479 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import LessonDiagram from '@/components/LessonDiagram.astro';
+import CodeBlock     from '@/components/CodeBlock.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+import LessonQuiz    from '@/components/LessonQuiz.astro';
+import DeepDive      from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const mindMap = `
+# Building a NestJS Agent Service
+## Why HTTP Service
+### Any client can connect
+### Concurrent users per thread
+### NestJS DI and validation free
+## Module Structure
+### DTO: request validation
+### ThreadRepository: load and save
+### AgentService: loop orchestration
+### AgentController: HTTP boundary only
+## Agent Service
+### Inject ThreadRepository
+### Tool definitions inline
+### Loop unchanged from L2
+## Thread Persistence
+### In-memory Map for now
+### Swap to Postgres later
+### Service code stays identical
+## Tensions
+### Speed to prototype vs Observability
+### Cheaper model vs More capable model
+### Log verbosity vs Storage cost
+## Pitfalls
+### Temperature 1.0 on agents
+### No observability wrapper
+### PII in logs
+### Model version unpinned
+`;
+---
+
+<LessonLayout title="L5 — Building a NestJS Agent Service"
+>
+
+  <LessonHeader
+    num="L05"
+    title="Building a NestJS Agent Service"
+    subtitle="Lessons 1–4 assembled into a real API — agent loop, tool use, thread persistence, HTTP endpoint."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">Why expose an agent as an HTTP service</h2>
+
+    <p>
+      The scripts from lessons 2–4 run on your machine from a terminal.
+      An HTTP service means:
+    </p>
+    <ul>
+      <li>Any client — web app, mobile, Slack bot, another service — can talk to your agent</li>
+      <li>Multiple users concurrently, each with their own thread</li>
+      <li>NestJS handles request parsing, validation, error serialisation, and DI for free</li>
+    </ul>
+
+    <h2 class="lesson-heading">Module structure — 4 files, clear separation of concerns</h2>
+
+    <LessonDiagram definition={`
+flowchart TD
+  C["POST /agent/chat\nHTTP client"]:::step --> A
+  A["AgentController\nvalidates DTO · delegates"]:::step --> B
+  B["AgentService\nagent loop + tool execution"]:::step --> R
+  R["ThreadRepository\nload / save messages"]:::done
+  B --> S["Anthropic SDK\n+ tools"]:::step
+
+  classDef step fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>File</th><th>Responsibility</th></tr></thead>
+        <tbody>
+          <tr><td><code>chat.dto.ts</code></td><td>Request/response shape + validation</td></tr>
+          <tr><td><code>thread.repository.ts</code></td><td>Load and save message history (swappable)</td></tr>
+          <tr><td><code>agent.service.ts</code></td><td>Agent loop — pure orchestration, no HTTP concerns</td></tr>
+          <tr><td><code>agent.controller.ts</code></td><td>HTTP endpoint — delegates immediately to service</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Setup</h2>
+
+    <CodeBlock lang="bash" label="terminal" code={`
+nest new agent-api --package-manager npm
+cd agent-api
+npm install @anthropic-ai/sdk @nestjs/config class-validator class-transformer
+nest g module agent
+nest g controller agent --no-spec
+nest g service agent --no-spec
+    `} />
+
+    <CodeBlock lang="typescript" label="src/main.ts" code={`
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+  await app.listen(3000);
+}
+bootstrap();
+    `} />
+
+    <h2 class="lesson-heading">1 — The DTO</h2>
+
+    <p>
+      NestJS equivalent of a Pydantic model. Validates the request body before it reaches
+      your service — bad input is rejected at the boundary with a clear error.
+    </p>
+
+    <CodeBlock lang="typescript" label="src/agent/chat.dto.ts" code={`
+import { IsString, IsNotEmpty, IsOptional, MaxLength } from 'class-validator';
+
+export class ChatRequestDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(4000)
+  message: string;
+
+  @IsString()
+  @IsOptional()
+  threadId?: string; // omit to start a new thread
+}
+
+export class ChatResponseDto {
+  reply: string;
+  threadId: string;
+}
+    `} />
+
+    <h2 class="lesson-heading">2 — The thread repository</h2>
+
+    <p>
+      In-memory for now. To swap to Postgres, replace the <code>Map</code> with a TypeORM or
+      Prisma repository — the service code does not change.
+    </p>
+
+    <CodeBlock lang="typescript" label="src/agent/thread.repository.ts" code={`
+import { Injectable } from '@nestjs/common';
+
+export type Message = { role: 'user' | 'assistant'; content: string };
+
+@Injectable()
+export class ThreadRepository {
+  private readonly store = new Map<string, Message[]>();
+
+  load(threadId: string): Message[] {
+    return this.store.get(threadId) ?? [];
+  }
+
+  save(threadId: string, messages: Message[]): void {
+    this.store.set(threadId, messages);
+  }
+}
+    `} />
+
+    <h2 class="lesson-heading">3 — The agent service</h2>
+
+    <p>
+      The core. It combines the agent loop (L2), tool execution (L3), and thread persistence (L4)
+      into one injectable service.
+    </p>
+
+    <CodeBlock lang="typescript" label="src/agent/agent.service.ts" code={`
+import { Injectable } from '@nestjs/common';
+import Anthropic from '@anthropic-ai/sdk';
+import { randomUUID } from 'crypto';
+import { ThreadRepository, Message } from './thread.repository';
+import { ChatResponseDto } from './chat.dto';
+
+@Injectable()
+export class AgentService {
+  private readonly client: Anthropic;
+
+  // ── TOOL DEFINITIONS ───────────────────────────────────────────────────────
+  private readonly tools: Anthropic.Tool[] = [
+    {
+      name: 'get_current_time',
+      description:
+        'Returns the current UTC date and time as an ISO 8601 string. ' +
+        'Use when the user asks about the current time or date.',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'calculate',
+      description:
+        'Evaluate a simple mathematical expression and return the numeric result. ' +
+        'Use for arithmetic. Do NOT use for anything non-numeric.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          expression: {
+            type: 'string',
+            description: 'A safe mathematical expression, e.g. "12 * 4 + 7"',
+          },
+        },
+        required: ['expression'],
+      },
+    },
+  ];
+
+  constructor(private readonly threads: ThreadRepository) {
+    this.client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+
+  // ── TOOL EXECUTION ─────────────────────────────────────────────────────────
+  private executeTool(name: string, input: Record<string, unknown>): string {
+    switch (name) {
+      case 'get_current_time':
+        return new Date().toISOString();
+      case 'calculate': {
+        try {
+          // Safe eval: only allow digits and math operators
+          const expr = (input.expression as string).replace(/[^0-9+\\-*/.() ]/g, '');
+          return String(Function('"use strict"; return (' + expr + ')')());
+        } catch {
+          return 'Error: invalid expression';
+        }
+      }
+      default:
+        return 'Unknown tool';
+    }
+  }
+
+  // ── AGENT LOOP ─────────────────────────────────────────────────────────────
+  async chat(userMessage: string, threadId?: string): Promise<ChatResponseDto> {
+    const tid = threadId ?? randomUUID();
+    const history = this.threads.load(tid);
+
+    const messages: Anthropic.MessageParam[] = [
+      ...history,
+      { role: 'user', content: userMessage },
+    ];
+
+    let reply = '';
+
+    while (true) {
+      const response = await this.client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        system: 'You are a helpful assistant. You have access to tools for time and arithmetic.',
+        tools: this.tools,
+        messages,
+      });
+
+      if (response.stop_reason === 'end_turn') {
+        reply = response.content
+          .filter(b => b.type === 'text')
+          .map(b => b.text)
+          .join('');
+        break;
+      }
+
+      if (response.stop_reason === 'tool_use') {
+        messages.push({ role: 'assistant', content: response.content });
+
+        const results = response.content
+          .filter(b => b.type === 'tool_use')
+          .map(t => ({
+            type: 'tool_result' as const,
+            tool_use_id: t.id,
+            content: this.executeTool(t.name, t.input as Record<string, unknown>),
+          }));
+
+        messages.push({ role: 'user', content: results });
+      }
+    }
+
+    // Persist the updated thread
+    this.threads.save(tid, [
+      ...history,
+      { role: 'user', content: userMessage },
+      { role: 'assistant', content: reply },
+    ]);
+
+    return { reply, threadId: tid };
+  }
+}
+    `} />
+
+    <h2 class="lesson-heading">4 — The controller</h2>
+
+    <p>
+      Thin by design — validate input via the DTO, call the service, return. No agent logic lives here.
+    </p>
+
+    <CodeBlock lang="typescript" label="src/agent/agent.controller.ts" code={`
+import { Body, Controller, Post } from '@nestjs/common';
+import { AgentService } from './agent.service';
+import { ChatRequestDto, ChatResponseDto } from './chat.dto';
+
+@Controller('agent')
+export class AgentController {
+  constructor(private readonly agent: AgentService) {}
+
+  @Post('chat')
+  chat(@Body() dto: ChatRequestDto): Promise<ChatResponseDto> {
+    return this.agent.chat(dto.message, dto.threadId);
+  }
+}
+    `} />
+
+    <h2 class="lesson-heading">5 — Wire up the module</h2>
+
+    <CodeBlock lang="typescript" label="src/agent/agent.module.ts" code={`
+import { Module } from '@nestjs/common';
+import { AgentController } from './agent.controller';
+import { AgentService } from './agent.service';
+import { ThreadRepository } from './thread.repository';
+
+@Module({
+  controllers: [AgentController],
+  providers: [AgentService, ThreadRepository],
+})
+export class AgentModule {}
+    `} />
+
+    <p>Import <code>AgentModule</code> into <code>AppModule</code> and set <code>ANTHROPIC_API_KEY</code> in your environment.</p>
+
+    <h2 class="lesson-heading">Test it</h2>
+
+    <CodeBlock lang="bash" label="terminal" code={`
+npm run start:dev
+
+# First message — no threadId, server creates one
+curl -s -X POST http://localhost:3000/agent/chat \\
+  -H "Content-Type: application/json" \\
+  -d '{"message": "What time is it, and what is 144 divided by 12?"}' | jq
+
+# Continue the thread — paste the threadId from above
+curl -s -X POST http://localhost:3000/agent/chat \\
+  -H "Content-Type: application/json" \\
+  -d '{"message": "What was my first question?", "threadId": "PASTE-ID-HERE"}' | jq
+    `} />
+
+    <CodeBlock lang="json" label="expected response" code={`
+{
+  "reply": "The current UTC time is 2026-06-15T08:42:11.000Z. And 144 divided by 12 is 12.",
+  "threadId": "f3a9c2b1-..."
+}
+    `} />
+
+    <LessonCallout variant="tip" title="The loop is unchanged">
+      <p>
+        The LLM calls both tools in the same turn, your code executes them, results go back in,
+        the LLM synthesises one answer. NestJS just gave you the HTTP envelope around the same
+        loop from Lesson 2.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Swapping the thread store for Postgres</h2>
+
+    <p>
+      When you need persistence across server restarts, replace <code>ThreadRepository</code>
+      internals only. The service and controller do not change at all:
+    </p>
+
+    <CodeBlock lang="typescript" label="thread.repository.ts — Postgres version" code={`
+@Injectable()
+export class ThreadRepository {
+  constructor(
+    @InjectRepository(ThreadEntity)
+    private repo: Repository<ThreadEntity>,
+  ) {}
+
+  async load(threadId: string): Promise<Message[]> {
+    const thread = await this.repo.findOne({ where: { id: threadId } });
+    return thread?.messages ?? [];
+  }
+
+  async save(threadId: string, messages: Message[]): Promise<void> {
+    await this.repo.upsert({ id: threadId, messages }, ['id']);
+  }
+}
+    `} />
+
+    <h2 class="lesson-heading">Quick-check quiz</h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'A new request arrives with no threadId in the body. What should the service do?',
+        options: [
+          'Generate a new UUID and start a fresh thread',
+          'Return a 400 error — threadId is required',
+          'Reuse the last thread ID seen by the server',
+          'Send the message without any thread context',
+        ],
+        answer:  0,
+        explain: 'No threadId means a new conversation. Generate a UUID, start with empty history, and return the new threadId so the client can continue the thread on the next request.',
+      },
+      {
+        q:       'Where should you NOT put agent loop logic?',
+        options: [
+          'In the controller — it should stay thin and delegate',
+          'In the service — it already has too much',
+          'In the repository — persistence and logic can be combined',
+          'Anywhere is fine — NestJS does not enforce separation',
+        ],
+        answer:  0,
+        explain: 'Controllers are the HTTP boundary — validate, delegate, return. Putting agent logic there couples it to HTTP concerns and makes it harder to test independently.',
+      },
+      {
+        q:       'You want to swap the in-memory thread store for Postgres. Which files need to change?',
+        options: [
+          'thread.repository.ts only — service and controller are decoupled from the storage layer',
+          'agent.service.ts, agent.controller.ts, and thread.repository.ts',
+          'agent.controller.ts only — it is closest to the request',
+          'All files — the storage type affects the whole stack',
+        ],
+        answer:  0,
+        explain: 'The repository is the only storage-aware layer. The service calls load() and save() without knowing whether those hit a Map or Postgres.',
+      },
+      {
+        q:       'ValidationPipe({ whitelist: true }) is configured globally. A request arrives with { message: "hi", threadId: "abc", isAdmin: true }. What happens to isAdmin?',
+        options: [
+          'It is silently stripped — only DTO-defined fields are allowed',
+          'It is passed through to the service as an extra field',
+          'The request is rejected with a 400 error',
+          'It is logged and then passed through',
+        ],
+        answer:  0,
+        explain: 'whitelist: true strips any property not decorated in the DTO. isAdmin is silently removed — a useful security default. Add forbidNonWhitelisted: true if you want a 400 error instead.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="l2_2.1, l2_2.9"
+    tensions={[
+      { a: 'Speed to prototype (create_agent)',    b: 'Production observability' },
+      { a: 'Log verbosity (full trace)',            b: 'Log storage cost' },
+      { a: 'Cheaper model (fast routing)',          b: 'More capable model (complex reasoning)' },
+      { a: 'LangSmith convenience',                b: 'Data residency / privacy requirements' },
+    ]}
+    questions={[
+      {
+        q:      'Your agent starts hallucinating tool call arguments for a specific query pattern. Walk through the debugging process.',
+        hint:   'Tool call arguments come from the LLM\'s output. The LLM generates what it was instructed to generate.',
+        answer: '<p><strong>Step 1:</strong> Log the exact prompt and response at the point of hallucination — what did the LLM receive?</p><p><strong>Step 2:</strong> Check the tool schema — is the parameter name or type ambiguous? A parameter called <code>id</code> could mean product ID, order ID, or user ID. Make it specific.</p><p><strong>Step 3:</strong> Check if the query contains words that confuse argument generation. Add examples to the description: "order_id: the numeric ID only, e.g. 1234 not \'order-1234\'."</p><p><strong>Step 4:</strong> Add a few-shot example for this exact query pattern in the system prompt.</p><p><strong>Step 5:</strong> Add output validation — before executing the tool, validate that arguments match expected types and formats.</p>',
+      },
+      {
+        q:      'Design a cost optimisation strategy for an agent handling both simple and complex queries.',
+        hint:   'Not all queries need the same model. Route to the cheapest model that can handle the task correctly.',
+        answer: '<p><strong>Two-tier routing:</strong> classify query complexity first (cheap, fast operation).</p><p>Simple queries (single-fact lookup, standard templates) → cheap model (Haiku). Complex queries (multi-step reasoning, ambiguous intent) → capable model (Sonnet or Opus).</p><p>Complexity classifier: a fast, cheap LLM call or a heuristic (query length, presence of conjunctions, number of entities).</p><p>Track quality by tier: measure output quality for both tiers to verify the cheap model handles simple queries adequately.</p><p>Additional optimisations: cache responses for repeated identical queries; reduce context for simple queries; set <code>max_tokens</code> per tier.</p>',
+      },
+      {
+        q:      'What temperature should you set for each component of your agent, and why do different components need different temperatures?',
+        hint:   'Temperature controls randomness. Different components need different levels of randomness.',
+        answer: '<p><strong>Temperature 0:</strong> routing decisions, tool selection, structured output, classification. These need deterministic, reproducible behaviour — the same input must produce the same routing decision.</p><p><strong>Temperature 0.1–0.3:</strong> factual Q&A, code generation, data extraction. Slight randomness allows different phrasings, but answers should remain stable.</p><p><strong>Temperature 0.7–1.0:</strong> creative tasks, brainstorming. High variance is desired.</p><p>In practice: most agent components run at temperature 0. Never use the default temperature (often 0.7–1.0) for agent decision-making — it makes behaviour non-reproducible and hard to test.</p>',
+      },
+      {
+        q:      'Design a logging schema that lets you replay any production run and compute cost per successful run without logging PII.',
+        hint:   'You need enough to reconstruct the run without capturing sensitive content.',
+        answer: '<p>Schema per log event: <code>{ run_id, timestamp, level, node_name, tool_name, tool_input_schema (not values), tool_output_status, input_tokens, output_tokens, latency_ms, customer_id_hash }</code>.</p><p>For replay: log every state transition with state snapshots; mask any PII fields before writing (<code>user_name → "[REDACTED]"</code>).</p><p>For cost: <code>input_tokens × price + output_tokens × price</code> per event, summed by <code>run_id</code>.</p><p>Test: run 10 production cases, attempt replay from logs only. If replay succeeds, your logging is sufficient.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Temperature 1.0 on agents — default temperature on most SDKs is 0.7–1.0. An agent with high temperature makes different routing decisions for identical inputs. Always set <code>temperature: 0</code> for agent decision-making.',
+      'No observability wrapper — the agent service is a black box without instrumentation. Log every tool call with name/input-type/latency/status. Without this you are flying blind in production.',
+      'PII in logs — an agent that processes customer data will have PII in its state, prompts, and tool results. Implement log sanitisation at the source — mask PII fields before writing.',
+      'Model version unpinned — using <code>"claude-haiku"</code> instead of <code>"claude-haiku-4-5-20251001"</code> means silent model updates can change agent behaviour in production. Always pin the exact model version string.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

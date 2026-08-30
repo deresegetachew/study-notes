@@ -1,0 +1,288 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const deepAgentCode = `
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+// A deep agent executes multi-step tasks autonomously over minutes or hours.
+// It needs: a task queue, per-step context, progress tracking, and safe abort.
+
+interface Task {
+  id:          string;
+  goal:        string;
+  steps:       string[];   // discovered dynamically
+  completed:   string[];
+  scratchpad:  string;     // accumulated observations and notes
+  status:      'running' | 'done' | 'failed' | 'aborted';
+  iterations:  number;
+}
+
+const MAX_ITERATIONS = 50; // hard cap — never let a deep agent run forever
+
+async function runDeepAgent(goal: string): Promise<Task> {
+  const task: Task = {
+    id:          crypto.randomUUID(),
+    goal,
+    steps:       [],
+    completed:   [],
+    scratchpad:  '',
+    status:      'running',
+    iterations:  0,
+  };
+
+  while (task.status === 'running' && task.iterations < MAX_ITERATIONS) {
+    task.iterations++;
+
+    // Each iteration: decide next action based on accumulated scratchpad
+    const res = await client.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 2048,
+      system: \`You are an autonomous agent executing a long-horizon task.
+Your goal: \${task.goal}
+
+Completed steps:
+\${task.completed.join('\\n') || 'None yet'}
+
+Notes and observations:
+\${task.scratchpad || 'None yet'}
+
+Decide the SINGLE next action. Output JSON:
+{
+  "action": "tool_call" | "update_scratchpad" | "done" | "abort",
+  "tool": "<tool name if action=tool_call>",
+  "args": { ... },
+  "note": "<observation to add to scratchpad>",
+  "stepDescription": "<description of what you did>"
+}\`,
+      messages: [{ role: 'user', content: 'What is the next action?' }],
+    });
+
+    const text = res.content[0].type === 'text' ? res.content[0].text : '{}';
+    let decision: {
+      action:          string;
+      tool?:           string;
+      args?:           Record<string, unknown>;
+      note?:           string;
+      stepDescription?: string;
+    };
+    try {
+      decision = JSON.parse(text);
+    } catch {
+      task.scratchpad += '\\nParse error — retrying.';
+      continue;
+    }
+
+    switch (decision.action) {
+      case 'tool_call':
+        if (decision.tool && decision.args) {
+          const result = await callTool(decision.tool, decision.args);
+          task.scratchpad += \`\\n[\${decision.tool}] \${JSON.stringify(result)}\`;
+          if (decision.stepDescription) task.completed.push(decision.stepDescription);
+        }
+        break;
+      case 'update_scratchpad':
+        if (decision.note) task.scratchpad += \`\\n\${decision.note}\`;
+        break;
+      case 'done':
+        task.status = 'done';
+        break;
+      case 'abort':
+        task.status = 'aborted';
+        break;
+    }
+  }
+
+  if (task.iterations >= MAX_ITERATIONS) task.status = 'failed';
+  return task;
+}
+
+declare function callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+`.trim();
+
+const mindMap = `
+# Deep Agents
+## What is a Deep Agent
+### Long-horizon autonomous tasks
+### Minutes or hours of execution
+### Multi-step with persistence
+## Core Loop
+### Tool call decision
+### Scratchpad update
+### Done or abort actions
+## Scratchpad Pattern
+### Accumulated observations
+### Replaces unbounded messages
+### Compress every N iterations
+## Guardrails
+### Hard iteration cap (MAX_ITERATIONS)
+### Token budget tracking
+### Abort triggers HITL
+## Progress & Recovery
+### Checkpoint completed steps
+### Resume without re-doing work
+## Tensions
+### High iteration cap (completes more) vs Low cap (limits cost)
+### Full scratchpad (context) vs Compressed scratchpad (fits window)
+## Pitfalls
+### No iteration cap — agent runs until budget exhausted
+### Not persisting scratchpad on failure
+### Allowing destructive tools without approval
+### No scratchpad compression after many iterations
+### Restarting from scratch on abort
+`;
+---
+
+<LessonLayout
+  title="L27 — Deep Agents"
+>
+  <LessonHeader
+    num="L27"
+    title="Deep Agents"
+    subtitle="Autonomous agents that execute complex, multi-hour tasks — with a scratchpad for observations, a hard iteration cap, and safe abort."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§3.7 / §4.17 — What is a deep agent?</h2>
+    <p>
+      A deep agent executes <strong>long-horizon tasks</strong> — tasks that require dozens
+      of steps, accumulate observations over time, and may run for minutes or hours.
+      Unlike a simple ReAct loop, a deep agent needs persistent working memory (a scratchpad),
+      progress tracking, and safe mechanisms to abort or hand off to a human.
+    </p>
+
+    <LessonCallout variant="key" title="Deep ≠ autonomous forever">
+      <p>
+        Deep agents are powerful but dangerous without guardrails. Always set a hard
+        iteration cap, a budget limit (tokens or wall-clock time), and a clear abort
+        condition. An agent that runs for hours without a cap <em>will</em> exhaust
+        your API budget eventually.
+      </p>
+    </LessonCallout>
+
+    <LessonDiagram definition={`
+flowchart TD
+  G["Long-horizon\ngoal"]:::input --> A["Agent loop\n(max 50 iterations)"]:::agent
+  A --> D{"Decide\nnext action"}:::decide
+  D -->|tool_call| T["Execute\ntool"]:::tool
+  T --> S["Update\nscratchpad"]:::scratch
+  S --> A
+  D -->|update_scratchpad| S
+  D -->|done| R["Return\nresult"]:::output
+  D -->|abort| E["Abort\n(HITL or fail)"]:::fail
+  A -->|iteration >= 50| E
+
+  classDef input   fill:#f8fafc,color:#475569,stroke:#e2e8f0
+  classDef agent   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef decide  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef tool    fill:#fefce8,color:#713f12,stroke:#fde68a,stroke-width:2px
+  classDef scratch fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef output  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef fail    fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="deep-agent.ts" code={deepAgentCode} />
+
+    <h3 class="lesson-heading">The scratchpad pattern</h3>
+    <p>
+      A scratchpad is a string field in agent state that accumulates observations,
+      tool results, and intermediate conclusions across iterations. It solves the
+      context window problem: instead of re-including every tool call result in the
+      messages array (which grows unboundedly), the agent distils key learnings into
+      the scratchpad and passes that instead.
+    </p>
+
+    <LessonCallout variant="tip" title="Summarise the scratchpad periodically">
+      <p>
+        After every 10 iterations, run a compression call: ask the model to summarise
+        the scratchpad into the most relevant observations. This keeps the scratchpad
+        from growing too large while preserving the key facts needed for future steps.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Deep agent checklist</h3>
+    <ul>
+      <li><strong>Hard iteration cap</strong> — MAX_ITERATIONS, never unbounded</li>
+      <li><strong>Token budget tracking</strong> — track cumulative token usage, abort near the limit</li>
+      <li><strong>Scratchpad compression</strong> — summarise every N iterations to prevent overflow</li>
+      <li><strong>Abort → HITL</strong> — on abort, surface to a human with full scratchpad context</li>
+      <li><strong>Progress checkpointing</strong> — save completed steps so a resumed agent doesn't redo work</li>
+    </ul>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Build a deep agent loop with a scratchpad for accumulated observations',
+        'Set a hard iteration cap and fail-safe abort condition',
+        'Track completed steps to prevent redundant work on resume',
+        'Trigger HITL when the agent aborts or hits its limit',
+        'Compress the scratchpad periodically to avoid context overflow',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'Why does a deep agent use a scratchpad instead of the full messages array?',
+        options: [
+          'The messages array is read-only in LangGraph',
+          'A scratchpad accumulates distilled observations without unbounded message growth',
+          'Scratchpads are automatically compressed by the Anthropic API',
+          'The messages array cannot contain tool results',
+        ],
+        answer:  1,
+        explain: 'Each tool call result added to messages[] grows the context linearly. Over 50 iterations, this overflows the context window. A scratchpad is a single string field that the agent actively maintains — it can distil, summarise, and prune as it goes, keeping the context bounded.',
+      },
+      {
+        q:       'A deep agent hits its 50-iteration cap without completing the task. What is the correct response?',
+        options: [
+          'Double the iteration cap and try again automatically',
+          'Return an error and discard the scratchpad',
+          'Mark as failed, persist the scratchpad and completed steps for human review or resumption',
+          'Switch to a more powerful model and restart',
+        ],
+        answer:  2,
+        explain: 'The scratchpad and completed steps are valuable — they represent significant work. Discarding them is wasteful. Persist the state, surface it for human review, and allow resumption from where the agent stopped (using the checkpointer from L20). Automatically doubling the cap risks runaway execution.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.7, §4.17"
+      tensions={[
+        { a: 'High iteration cap (completes more)',   b: 'Low cap (limits runaway cost)' },
+        { a: 'Full scratchpad (complete context)',    b: 'Compressed scratchpad (fits context)' },
+      ]}
+      questions={[
+        {
+          q:    'A deep agent is running a 2-hour task. How do you monitor and report progress to the user without blocking?',
+          hint: 'Think about async progress reporting — the agent runs in the background.',
+          answer: '<p>Decouple execution from reporting: (1) <strong>Background queue</strong> — run the deep agent as a background job (BullMQ, etc.) identified by a job ID. The POST /tasks endpoint returns the job ID immediately. (2) <strong>Progress events</strong> — after each iteration, emit a progress event (to a Redis pub/sub channel or database row) with the current iteration count, last completed step, and scratchpad summary. (3) <strong>SSE progress stream</strong> — expose a GET /tasks/:id/progress endpoint that streams these events to the browser via SSE (L11 pattern). (4) <strong>Webhook on completion</strong> — when the task finishes (done, failed, aborted), call a user-configured webhook or send a notification. The user never polls; they receive updates as the agent progresses.</p>',
+        },
+        {
+          q:    'How do you prevent a deep agent from taking irreversible actions (deleting files, sending emails) without human review mid-task?',
+          hint: 'Think about tool categorisation and HITL integration.',
+          answer: '<p>Two-tier tool access: (1) <strong>Classify tools by reversibility</strong> — "safe" tools (read, search, calculate) run automatically. "Destructive" tools (delete, send, write external) require approval. (2) <strong>Approval gate for destructive tools</strong> — when the agent decides on a destructive action, instead of executing it, emit an approval request: save the pending action in state, interrupt the agent (L17 pattern), notify the human, and resume only on explicit approval. (3) <strong>Dry-run first</strong> — for the first N runs of a new deep agent, execute all tool calls in dry-run mode (log what would happen, don\'t do it). Graduate to live execution only after reviewing several dry runs. (4) <strong>Scope constraints</strong> — restrict the agent\'s file access to a sandbox directory, email sending to an allowlisted domain, etc. The agent can be fully autonomous within its sandbox.</p>',
+        },
+      ]}
+      pitfalls={[
+        'No iteration cap — a stuck agent will run until you manually kill it or exhaust your API budget.',
+        'Not persisting the scratchpad — on failure, all accumulated work is lost.',
+        'Allowing destructive tools without approval — irreversible actions happen at agent speed, not human speed.',
+        'No scratchpad compression — after 30+ iterations the scratchpad overflows the context window.',
+        'Starting from scratch on abort — the agent re-does completed work instead of resuming from progress.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

@@ -1,0 +1,484 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const truncationCode = `
+import { BaseMessage } from '@langchain/core/messages';
+
+// Strategy 1 — Simple truncation: keep last N messages + system message
+function truncateMessages(
+  messages: BaseMessage[],
+  keepLast: number = 10,
+): BaseMessage[] {
+  const system  = messages.filter(m => m._getType() === 'system');
+  const history = messages.filter(m => m._getType() !== 'system');
+  const kept    = history.slice(-keepLast);
+  return [...system, ...kept];
+}
+
+// Strategy 2 — Token-aware truncation: stay within a token budget
+// (uses tiktoken or a rough character-based estimate)
+function truncateToTokenBudget(
+  messages: BaseMessage[],
+  maxTokens: number = 4_000,
+): BaseMessage[] {
+  const system  = messages.filter(m => m._getType() === 'system');
+  const history = messages.filter(m => m._getType() !== 'system').reverse(); // newest first
+
+  let budget = maxTokens - estimateTokens(system);
+  const kept: BaseMessage[] = [];
+
+  for (const msg of history) {
+    const cost = estimateTokens([msg]);
+    if (budget - cost < 0) break;
+    kept.unshift(msg);   // restore chronological order
+    budget -= cost;
+  }
+  return [...system, ...kept];
+}
+
+// Rough estimate: 1 token ≈ 4 characters
+function estimateTokens(msgs: BaseMessage[]): number {
+  return msgs.reduce((sum, m) => sum + Math.ceil(String(m.content).length / 4), 0);
+}
+`.trim();
+
+const summarizationCode = `
+import Anthropic from '@anthropic-ai/sdk';
+import { BaseMessage, HumanMessage, AIMessage } from '@langchain/core/messages';
+
+const client = new Anthropic();
+
+// Strategy 3 — Summarization: compress old messages into a summary block
+async function summarizeOldMessages(
+  messages: BaseMessage[],
+  keepRecent: number = 6,
+): Promise<BaseMessage[]> {
+  const system  = messages.filter(m => m._getType() === 'system');
+  const history = messages.filter(m => m._getType() !== 'system');
+
+  if (history.length <= keepRecent) return messages;  // nothing to compress
+
+  const toSummarize = history.slice(0, -keepRecent);
+  const recent      = history.slice(-keepRecent);
+
+  const summaryResponse = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',   // cheap model for compression
+    max_tokens: 256,
+    messages: [{
+      role: 'user',
+      content: \`Summarise this conversation history in 3-5 bullet points, preserving key decisions and facts:\\n\\n\${
+        toSummarize.map(m => \`\${m._getType()}: \${m.content}\`).join('\\n')
+      }\`,
+    }],
+  });
+
+  const summaryText = (summaryResponse.content[0] as { type: string; text: string }).text;
+  const summaryMsg  = new HumanMessage(\`[Conversation summary]\\n\${summaryText}\`);
+
+  return [...system, summaryMsg, ...recent];
+}
+`.trim();
+
+const pruningCode = `
+// Strategy 4 — Intelligent pruning: score each message and keep the best
+interface ScoredMessage { message: BaseMessage; score: number; }
+
+function scoredPrune(
+  messages: BaseMessage[],
+  tokenBudget: number = 3_000,
+): BaseMessage[] {
+  const system  = messages.filter(m => m._getType() === 'system');
+  const history = messages.filter(m => m._getType() !== 'system');
+
+  const scored: ScoredMessage[] = history.map((msg, idx) => {
+    let score = 0;
+    const text = String(msg.content);
+
+    // Always keep first and last messages
+    if (idx === 0 || idx === history.length - 1) score += 100;
+    // Prefer recent messages
+    score += idx / history.length * 20;
+    // Tool call results carry important information
+    if (msg._getType() === 'tool') score += 15;
+    // Keywords that signal important decisions
+    if (/decision|conclusion|result|error|failed/i.test(text)) score += 10;
+    // Penalise very short messages (acknowledgements)
+    if (text.length < 30) score -= 5;
+
+    return { message: msg, score };
+  });
+
+  // Sort by score descending, then restore chronological order for kept messages
+  scored.sort((a, b) => b.score - a.score);
+
+  let budget = tokenBudget - estimateTokens(system);
+  const kept = new Set<BaseMessage>();
+
+  for (const { message } of scored) {
+    const cost = estimateTokens([message]);
+    if (budget - cost < 0) break;
+    kept.add(message);
+    budget -= cost;
+  }
+
+  return [...system, ...history.filter(m => kept.has(m))];
+}
+`.trim();
+
+const mindMap = `
+# Context Window Management
+## Why Context Quality Matters
+### Hard limit — API error
+### Performance degrades before limit
+### Lost-in-the-Middle problem
+### Cost and speed always affected
+## Lost-in-the-Middle
+### LLMs favor beginning and end
+### Middle content under-utilized
+### Large window is safety buffer not target
+## Five Strategies
+### Truncation — keep last N messages
+### Token-aware truncation — budget-based
+### Deletion — remove completed phases
+### Summarization — compress old messages
+### Intelligent pruning — score by importance
+## Choosing a Strategy
+### Short sessions — truncation
+### Cost-sensitive — token-aware
+### Distinct phases — deletion
+### Long important history — summarization
+### High-stakes agent — intelligent pruning
+## Pruning Scoring Signals
+### First and last messages — highest priority
+### Recency bonus
+### Tool results — keep prioritized
+### Keywords: decision, error, result
+## Tensions
+### Rich context vs lean focused context
+### Simple truncation vs intelligent pruning quality
+### Summarization history preservation vs extra LLM call cost
+## Pitfalls
+### Trusting large window as quality substitute
+### Summarizing every message not at threshold
+### Discarding tool results in truncation
+### Message-count truncation ignoring length variance
+`;
+---
+
+<LessonLayout
+  title="L25 — Context Window Management"
+>
+
+  <LessonHeader
+    num="L25"
+    title="Context Window Management"
+    subtitle="Why more context degrades performance, the Lost-in-the-Middle problem, and five strategies — from simple truncation to intelligent scoring — to keep agents focused."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      L20 covered conversation threading and fact extraction to <em>store</em> memory across
+      sessions. This lesson covers a different problem: what you feed the LLM in a
+      <em>single call</em>. Context windows have grown to 200K+ tokens, but bigger is not better.
+      More irrelevant context actively degrades the quality of agent reasoning.
+    </p>
+
+    <h2 class="lesson-heading">Why Context Size ≠ Context Quality</h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Problem</th><th>What happens</th><th>At what scale</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Hard limit</strong></td>
+            <td>Exceeding the model's max tokens causes an API error or silent truncation</td>
+            <td>Hits the absolute ceiling</td>
+          </tr>
+          <tr>
+            <td><strong>Performance degradation</strong></td>
+            <td>LLMs lose focus before the hard limit — quality drops well before you run out of tokens</td>
+            <td>Often at 30–50% of window</td>
+          </tr>
+          <tr>
+            <td><strong>Lost in the Middle</strong></td>
+            <td>Information positioned in the middle of long inputs is significantly under-utilized by the LLM</td>
+            <td>Any long context</td>
+          </tr>
+          <tr>
+            <td><strong>Cost &amp; speed</strong></td>
+            <td>Every token you send is billed; longer contexts slow down every call</td>
+            <td>Always</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="warn" title="The Lost-in-the-Middle problem">
+      <p>
+        Research shows LLMs reliably use information at the <strong>beginning</strong> and
+        <strong>end</strong> of their context. Content in the middle gets systematically
+        under-utilized — even when it's the most relevant. A 128 K context window is not
+        an invitation to fill it. Treat large windows as a safety margin, not a target.
+      </p>
+    </LessonCallout>
+
+    <div class="example-box">
+      <div class="example-label">Concrete example</div>
+      <p>
+        A customer has a 40-turn conversation about returning a laptop. The return was
+        completed at turn 35. The customer now asks: <em>"What's your warranty policy on
+        headphones?"</em>
+      </p>
+      <p>
+        What the agent <strong>does not need</strong> in context: laptop model, return
+        shipping details, refund confirmation, 35 turns of unrelated history.
+      </p>
+      <p>
+        What it <strong>does need</strong>: the new question + a tool to query the
+        warranty knowledge base. Feeding the full history adds noise, cost, and the
+        risk of the agent referencing the laptop return in a headphone answer.
+      </p>
+    </div>
+
+    <h2 class="lesson-heading">Five Strategies</h2>
+
+    <div class="strategy-grid">
+      <div class="strat-card">
+        <div class="strat-num">1</div>
+        <div class="strat-name">Truncation</div>
+        <p>Keep last N messages. Always preserve system message.</p>
+        <div class="strat-meta">
+          <span class="strat-trade">Tradeoff: loses older context entirely</span>
+          <span class="strat-best">Best for: short sessions, simple chatbots</span>
+        </div>
+      </div>
+      <div class="strat-card">
+        <div class="strat-num">2</div>
+        <div class="strat-name">Token-Aware Truncation</div>
+        <p>Count actual tokens (not messages) and drop oldest until under budget.</p>
+        <div class="strat-meta">
+          <span class="strat-trade">Tradeoff: still loses context, just more precisely</span>
+          <span class="strat-best">Best for: cost-sensitive, precise budget control</span>
+        </div>
+      </div>
+      <div class="strat-card">
+        <div class="strat-num">3</div>
+        <div class="strat-name">Deletion</div>
+        <p>Remove specific messages: completed sub-tasks, off-topic branches, repetitive acknowledgements.</p>
+        <div class="strat-meta">
+          <span class="strat-trade">Tradeoff: requires logic to identify what to remove</span>
+          <span class="strat-best">Best for: long sessions with clear topic shifts</span>
+        </div>
+      </div>
+      <div class="strat-card">
+        <div class="strat-num">4</div>
+        <div class="strat-name">Summarization</div>
+        <p>Compress old messages into an LLM-generated summary, keep recent messages verbatim.</p>
+        <div class="strat-meta">
+          <span class="strat-trade">Tradeoff: extra LLM call, may lose nuance</span>
+          <span class="strat-best">Best for: long conversations where history matters</span>
+        </div>
+      </div>
+      <div class="strat-card">
+        <div class="strat-num">5</div>
+        <div class="strat-name">Intelligent Pruning</div>
+        <p>Score each message by importance (recency, tool results, keywords) and keep the highest-scoring set.</p>
+        <div class="strat-meta">
+          <span class="strat-trade">Tradeoff: complex scoring logic, computational overhead</span>
+          <span class="strat-best">Best for: mission-critical agents where context quality is paramount</span>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="lesson-heading">Strategies 1 &amp; 2 — Truncation</h2>
+
+    <CodeBlock lang="typescript" label="truncation.ts" code={truncationCode} />
+
+    <h2 class="lesson-heading">Strategy 4 — Summarization</h2>
+
+    <p>
+      Trigger summarization when the message count hits a threshold (e.g. every 20 messages).
+      Use a cheap, fast model for the compression call — you don't need Opus to summarize a conversation.
+    </p>
+
+    <CodeBlock lang="typescript" label="summarization.ts" code={summarizationCode} />
+
+    <h2 class="lesson-heading">Strategy 5 — Intelligent Pruning</h2>
+
+    <CodeBlock lang="typescript" label="pruning.ts" code={pruningCode} />
+
+    <h2 class="lesson-heading">Choosing a Strategy</h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>If your agent…</th><th>Use this strategy</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Has short sessions, simple task (support triage)</td><td>Truncation — simplest, good enough</td></tr>
+          <tr><td>Is cost-sensitive with variable message lengths</td><td>Token-aware truncation</td></tr>
+          <tr><td>Runs multi-step tasks with distinct phases</td><td>Deletion — remove completed phases</td></tr>
+          <tr><td>Has long conversations where history matters (therapist bot, research assistant)</td><td>Summarization</td></tr>
+          <tr><td>Is a high-stakes agent where missing any key fact is costly</td><td>Intelligent pruning</td></tr>
+          <tr><td>Has large, unpredictable context (document processing + chat)</td><td>Hybrid: token-aware + summarization</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="Principle: feed only what's relevant">
+      <p>
+        The core discipline is not picking the right algorithm — it's developing the habit of
+        asking <em>"does the LLM actually need this to answer the next question?"</em> before
+        adding anything to context. More tokens is not more helpful.
+      </p>
+    </LessonCallout>
+
+    <LessonQuiz questions={[
+      {
+        q:       'An LLM has a 200K token context window. A developer fills it to 180K tokens for every request. What is the most likely consequence?',
+        options: [
+          'Faster responses because the model has more information',
+          'Degraded reasoning quality due to Lost-in-the-Middle and noise',
+          'API errors because 180K exceeds the safe limit',
+          'Higher quality answers with no downsides',
+        ],
+        answer:  1,
+        explain: 'Filling the context window with 180K tokens means most of that content lands in the "middle" — the zone LLMs systematically under-utilize. Quality degrades well before the hard limit. The right approach is to feed only the most relevant context, using large windows as a safety buffer, not a target.',
+      },
+      {
+        q:       'You need to preserve key decisions made 50 turns ago in a long customer conversation while keeping the token count low. Which strategy is best suited?',
+        options: ['Simple Truncation', 'Token-Aware Truncation', 'Summarization', 'Deletion'],
+        answer:  2,
+        explain: 'Summarization compresses old messages into a concise summary block while keeping recent messages verbatim. It preserves key decisions from earlier in the conversation (unlike truncation which discards them entirely) at much lower token cost than keeping the full history.',
+      },
+      {
+        q:       'Why should you use a cheap, fast model for the summarization step rather than your primary agent model?',
+        options: [
+          'Cheap models produce better summaries',
+          'The primary model cannot summarize its own context',
+          'Summarization is a simple compression task — the cost and latency of a premium model is wasted',
+          'It is required by LangGraph API constraints',
+        ],
+        answer:  2,
+        explain: 'Summarizing a conversation is a simple extraction task that any capable model handles well. Using a premium model (Opus, GPT-5) adds significant cost and latency for no quality benefit. Claude Haiku or GPT-4o mini is appropriate and keeps the overhead of context management low.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§4.10"
+      tensions={[
+        { a: 'Rich context (accuracy)', b: 'Lean context (cost, speed, focus)' },
+        { a: 'Simple truncation (reliable)', b: 'Intelligent pruning (quality, complexity)' },
+        { a: 'Summarization (preserves history)', b: 'Summarization cost (extra LLM call per threshold)' },
+      ]}
+      questions={[
+        {
+          q:      'You are building a multi-session research agent. Users come back days later to continue a research thread. How would you combine long-term memory (from L20) with context window management to keep each session focused?',
+          hint:   'Think about what belongs in the context window vs. what belongs in external storage.',
+          answer: '<p>The key insight: long-term memory (L20) and context window management solve <em>different</em> problems and should work together. Long-term memory stores facts across sessions in a vector DB or key-value store. Context window management controls what goes into each LLM call. The combined architecture: (1) At session start, query long-term memory for facts relevant to the current query (semantic search) — inject a compact fact summary, not raw history; (2) During the session, apply context management (summarization or pruning) to keep the in-session token count lean; (3) At session end, extract key decisions and facts from the session and write them to long-term memory. The LLM never sees the full history — only what matters right now, plus a compact recall of relevant past facts.</p>',
+        },
+        {
+          q:      'The Lost-in-the-Middle problem means information in the center of long contexts is under-utilized. How can you structure your context to mitigate this, even when you must include a large amount of content?',
+          hint:   'Think about where LLMs perform best within their context window.',
+          answer: '<p>LLMs are most reliable at the <strong>beginning</strong> (priming effect) and <strong>end</strong> (recency effect) of the context. Strategies to exploit this: (1) <strong>Put critical instructions at both ends</strong> — system prompt (beginning) and a brief re-statement of the key task just before the final user message (end); (2) <strong>Put the most relevant retrieved documents last</strong> — immediately before the question, not first; (3) <strong>Summary first, detail later</strong> — when including long tool outputs, lead with a one-line summary so the LLM sees the key finding even if it under-weights the details; (4) <strong>Reduce total length</strong> — every strategy that shortens context also reduces the "middle zone" exposure. The real fix is not optimizing the middle; it is shrinking it.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Trusting the large context window as a substitute for context quality — "200K tokens means I don\'t need to think about what I include" is false.',
+        'Running summarization on every message rather than at a threshold — the extra LLM call overhead can exceed the savings from shorter context.',
+        'Discarding tool call results in truncation — tool results often contain the most important information in the history and should be scored highest.',
+        'Message-count-based truncation when messages have wildly different lengths — a single code block can be 50× longer than an acknowledgement; count tokens, not messages.',
+      ]}
+    />
+
+  </div>
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .example-box {
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-radius: 8px;
+    padding: 1.1rem 1.25rem;
+    margin: 1rem 0 1.5rem;
+    font-size: .88rem;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+  .example-label {
+    font-size: .7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #16a34a;
+    margin-bottom: .6rem;
+  }
+  .example-box p { margin: .4rem 0; }
+  .example-box strong { color: var(--text); }
+
+  .strategy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .strat-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    background: #f8fafc;
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+  }
+  .strat-num {
+    font-family: monospace;
+    font-size: .7rem;
+    font-weight: 700;
+    background: #1a1a2e;
+    color: #a5b4fc;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: .2rem;
+  }
+  .strat-name {
+    font-weight: 700;
+    font-size: .88rem;
+  }
+  .strat-card > p {
+    font-size: .8rem;
+    color: var(--muted);
+    margin: 0;
+    flex: 1;
+  }
+  .strat-meta {
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+    margin-top: .4rem;
+    border-top: 1px solid var(--border);
+    padding-top: .4rem;
+  }
+  .strat-trade, .strat-best {
+    font-size: .72rem;
+    line-height: 1.45;
+  }
+  .strat-trade { color: #dc2626; }
+  .strat-best  { color: #16a34a; }
+</style>

@@ -1,0 +1,303 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const chainCode = `
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+// A "link" is one step: takes input, calls LLM with a template, returns text
+async function link(template: string, vars: Record<string, string>): Promise<string> {
+  const prompt = template.replace(/\\{\\{(\\w+)\\}\\}/g, (_, key) => vars[key] ?? '');
+  const res = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 512,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  return res.content[0].type === 'text' ? res.content[0].text : '';
+}
+
+// Chain: output of each step becomes input to the next
+async function chain(
+  steps: Array<{ template: string; outputKey: string }>,
+  initial: Record<string, string>,
+): Promise<Record<string, string>> {
+  const ctx = { ...initial };
+  for (const step of steps) {
+    ctx[step.outputKey] = await link(step.template, ctx);
+  }
+  return ctx;
+}
+
+// Example: research → analyse → format pipeline
+const result = await chain(
+  [
+    {
+      template: 'Summarise the key facts about {{topic}} in 3 bullet points.',
+      outputKey: 'summary',
+    },
+    {
+      template: 'Given this summary:\\n{{summary}}\\nWhat are the two biggest risks?',
+      outputKey: 'risks',
+    },
+    {
+      template: 'Write a 2-sentence executive briefing using:\\nSummary: {{summary}}\\nRisks: {{risks}}',
+      outputKey: 'briefing',
+    },
+  ],
+  { topic: 'using LLMs in financial trading systems' },
+);
+
+console.log(result.briefing);
+`.trim();
+
+const templateCode = `
+// Prompt templates as typed functions — easy to test, easy to version
+interface SummariseInput {
+  topic:     string;
+  maxPoints: number;
+  audience:  'technical' | 'executive';
+}
+
+function summarisePrompt({ topic, maxPoints, audience }: SummariseInput): string {
+  const audienceNote = audience === 'executive'
+    ? 'Avoid jargon. Focus on business impact.'
+    : 'Include technical details and implementation notes.';
+
+  return \`You are an expert analyst. Summarise the following topic for a \${audience} audience.
+\${audienceNote}
+
+Topic: \${topic}
+Format: exactly \${maxPoints} bullet points, one key fact each.
+Begin:\`;
+}
+
+// Role templates — combine system + user in one place
+interface ChatTemplate {
+  system: string;
+  user:   string;
+}
+
+function roleTemplate(
+  template: ChatTemplate,
+  vars: Record<string, string>,
+): Anthropic.MessageCreateParams {
+  const fill = (t: string) => t.replace(/\\{\\{(\\w+)\\}\\}/g, (_, k) => vars[k] ?? '');
+  return {
+    model:     'claude-haiku-4-5-20251001',
+    max_tokens: 1024,
+    system:    fill(template.system),
+    messages:  [{ role: 'user', content: fill(template.user) }],
+  };
+}
+`.trim();
+
+const mindMap = `
+# Multi-Step Chains & Prompt Templates
+## Chain Pattern
+### Output feeds next step
+### One responsibility per link
+### Sequential vs parallel steps
+## When to Chain
+### Single prompt for simple Q&A
+### Chain for multiple transformations
+### Promise.all for parallel steps
+## Prompt Templates
+### Typed function inputs
+### Separate system and user roles
+### One template per task
+## Template Best Practices
+### Output format instructions
+### Edge case testing
+### Version and pin model
+## Tensions
+### Many small steps vs fewer lower-latency steps
+### Reusable typed templates vs inline prompts
+## Pitfalls
+### Too many steps for simple tasks
+### Raw LLM output passed unvalidated
+### Branching logic inside templates
+### Model not pinned in template
+`;
+---
+
+<LessonLayout
+  title="L11 — Multi-Step Chains & Prompt Templates"
+>
+  <LessonHeader
+    num="L11"
+    title="Multi-Step Chains & Prompt Templates"
+    subtitle="Pipe LLM outputs into the next prompt, and build reusable template functions you can test and version."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§2.4 — Multi-Step LLM Chains</h2>
+    <p>
+      A chain is a sequence of LLM calls where <strong>the output of one step becomes
+      the input to the next</strong>. Each step focuses on a single task — summarise,
+      critique, reformat — keeping prompts small and outputs predictable.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  I["Input\ntopic"]:::input --> S["Step 1\nSummarise"]:::step
+  S --> R["Step 2\nIdentify risks"]:::step
+  R --> B["Step 3\nWrite briefing"]:::step
+  B --> O["Output\nbriefing"]:::output
+
+  classDef input  fill:#f8fafc,color:#64748b,stroke:#e2e8f0,stroke-width:2px
+  classDef step   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef output fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <CodeBlock lang="typescript" label="chain.ts" code={chainCode} />
+
+    <LessonCallout variant="tip" title="One responsibility per link">
+      <p>
+        Each step in a chain should do exactly one thing. A step that summarises <em>and</em>
+        identifies risks <em>and</em> reformats is hard to debug — you can't tell which
+        part produced a bad output. Split it.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">When to use chains vs. a single prompt</h3>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Situation</th><th>Approach</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Simple Q&A, one concept</td>
+            <td>Single prompt</td>
+            <td>Less latency, fewer tokens, easier to debug</td>
+          </tr>
+          <tr>
+            <td>Multiple independent transformations</td>
+            <td>Chain</td>
+            <td>Each step can be tested and swapped independently</td>
+          </tr>
+          <tr>
+            <td>Output requires intermediate reasoning</td>
+            <td>Chain or ReAct</td>
+            <td>Earlier steps ground later ones, reducing hallucination</td>
+          </tr>
+          <tr>
+            <td>Steps can run concurrently</td>
+            <td>Parallel chain (Promise.all)</td>
+            <td>Halves latency when steps share no data dependencies</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">§2.14 — Prompt Templates</h2>
+    <p>
+      Hardcoding prompts inline makes them impossible to test, version, or reuse.
+      A <strong>prompt template</strong> is a function that takes typed inputs and
+      returns a complete prompt string — or a full <code>MessageCreateParams</code> object.
+    </p>
+
+    <CodeBlock lang="typescript" label="templates.ts" code={templateCode} />
+
+    <LessonCallout variant="key" title="Templates are the contract">
+      <p>
+        Treat each template as the interface between your application logic and the LLM.
+        Changing a template is as significant as changing a function signature — version
+        them, write tests with representative inputs, and pin the model alongside the template.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Template best practices</h3>
+    <ul>
+      <li><strong>Use typed inputs</strong> — catch missing variables at compile time, not runtime.</li>
+      <li><strong>Separate system and user roles</strong> — system sets persona/rules; user provides task data.</li>
+      <li><strong>One template per task</strong> — don't branch inside a template; create two templates instead.</li>
+      <li><strong>Include output format instructions</strong> — tell the model exactly what structure to return (JSON schema, bullet count, max words).</li>
+      <li><strong>Test with edge cases</strong> — empty inputs, very long inputs, inputs with special characters.</li>
+    </ul>
+
+    <LessonCallout variant="info" title="LangChain PromptTemplate">
+      <p>
+        LangChain's <code>PromptTemplate</code> and <code>ChatPromptTemplate</code> classes
+        implement this pattern with built-in variable validation and message formatting.
+        They're useful when you need serialisation (saving templates to a prompt registry)
+        but pure TypeScript functions work fine for most projects.
+      </p>
+    </LessonCallout>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Build a sequential chain where each LLM call consumes the previous output',
+        'Write prompt template functions with typed inputs',
+        'Separate system persona from user task data in role templates',
+        'Run independent chain steps in parallel with <code>Promise.all</code>',
+        'Decide when a chain adds value vs. a single well-crafted prompt',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'In a 3-step chain, step 2 receives bad output from step 1. What is the best fix?',
+        options: [
+          'Increase max_tokens in step 2',
+          'Improve the step 1 prompt to produce cleaner output',
+          'Merge steps 1 and 2 into a single prompt',
+          'Add a retry loop around step 2',
+        ],
+        answer:  1,
+        explain: 'Each step in a chain should be responsible for its own output quality. If step 2 receives bad input, the root cause is step 1\'s prompt — fix it there. Merging steps makes both harder to debug. Retrying step 2 treats the symptom, not the cause.',
+      },
+      {
+        q:       'What is the main advantage of typed prompt template functions over inline string literals?',
+        options: [
+          'They automatically cache LLM responses',
+          'They reduce API latency',
+          'Missing variables are caught at compile time, not runtime',
+          'They generate shorter prompts',
+        ],
+        answer:  2,
+        explain: 'TypeScript\'s type system checks that all required template variables are provided when the function is called. An inline `${variable}` in a string only fails silently at runtime when the variable is undefined.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§2.4, §2.14"
+      tensions={[
+        { a: 'Many small focused steps (debuggable)', b: 'Fewer steps (lower latency & cost)' },
+        { a: 'Reusable typed templates (maintainable)', b: 'Inline prompts (faster to write)' },
+      ]}
+      questions={[
+        {
+          q:    'A chain has 5 steps. How do you decide which steps can run in parallel versus which must be sequential?',
+          hint: 'Think in terms of data dependencies — does step B need step A\'s output?',
+          answer: '<p>Draw the dependency DAG: steps that share no data dependency can run in parallel. In practice: (1) identify which outputs are consumed as inputs by which steps; (2) steps with no incoming edges from each other are parallelisable; (3) use <code>Promise.all</code> for parallel waves, <code>await</code> sequentially for dependent steps. Example: "summarise topic A" and "summarise topic B" are independent (parallel), but "compare A and B" must wait for both summaries (sequential).</p>',
+        },
+        {
+          q:    'How do you version prompt templates in a production system so you can A/B test and roll back?',
+          hint: 'Think about what you\'d need to store alongside the template string.',
+          answer: '<p>Treat templates as versioned artefacts, not code strings: (1) <strong>Store in a prompt registry</strong> (database row or file) with version, model, author, and created_at. (2) <strong>Pin model alongside template</strong> — a template written for claude-sonnet-4-6 may produce different output on claude-haiku-4-5; version them together. (3) <strong>A/B via feature flags</strong> — route a % of traffic to template v2 while keeping v1 as control. (4) <strong>Evaluate before promoting</strong> — run both versions against a gold eval set; only promote v2 if it wins on your quality metric. LangSmith and Anthropic\'s Workbench both support this flow.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Chaining too many steps when a single detailed prompt would work — each hop adds latency and cost.',
+        'Passing raw LLM output between steps without validation — a malformed JSON from step 2 crashes step 3 silently.',
+        'Putting branching logic inside a template string — creates two code paths that are impossible to test separately.',
+        'Not pinning the model in the template — a model upgrade changes outputs for all templates simultaneously, with no easy rollback.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

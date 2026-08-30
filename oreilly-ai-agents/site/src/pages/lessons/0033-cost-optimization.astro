@@ -1,0 +1,468 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const modelRouterCode = `
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+type Complexity = 'simple' | 'complex';
+
+// Step 1: classify query complexity with a cheap model
+async function classifyComplexity(query: string): Promise<Complexity> {
+  const msg = await client.messages.create({
+    model:      'claude-haiku-4-5-20251001',   // cheapest model for classification
+    max_tokens: 10,
+    messages: [{
+      role: 'user',
+      content: \`Classify this query as "simple" or "complex".
+Simple: FAQ, short lookup, single-step, no reasoning chain needed.
+Complex: multi-step reasoning, comparison, analysis, ambiguous.
+Query: "\${query}"
+Answer with one word only:\`,
+    }],
+  });
+  const label = (msg.content[0] as { text: string }).text.trim().toLowerCase();
+  return label === 'complex' ? 'complex' : 'simple';
+}
+
+// Step 2: route to appropriate model
+async function routedInference(query: string): Promise<string> {
+  const complexity = await classifyComplexity(query);
+
+  const model = complexity === 'simple'
+    ? 'claude-haiku-4-5-20251001'   // ~40-60% cheaper for simple queries
+    : 'claude-sonnet-4-6';          // full capability for complex ones
+
+  const msg = await client.messages.create({
+    model, max_tokens: 1024,
+    messages: [{ role: 'user', content: query }],
+  });
+  return (msg.content[0] as { text: string }).text;
+}
+`.trim();
+
+const semanticCacheCode = `
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic();
+
+// Semantic cache — match queries by meaning, not exact string
+interface CacheEntry { query: string; embedding: number[]; response: string; }
+const cache: CacheEntry[] = [];
+
+async function embed(text: string): Promise<number[]> {
+  // Use any embedding model — shown as pseudo-call here
+  // Real impl: OpenAI text-embedding-3-small, Voyage, or Cohere
+  return await getEmbedding(text);   // returns float[]
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  const dot  = a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+  const magA = Math.sqrt(a.reduce((s, ai) => s + ai * ai, 0));
+  const magB = Math.sqrt(b.reduce((s, bi) => s + bi * bi, 0));
+  return dot / (magA * magB);
+}
+
+async function cachedInference(
+  query:     string,
+  threshold: number = 0.93,   // 0.90-0.95 typical
+): Promise<string> {
+  const queryEmbedding = await embed(query);
+
+  // Check for a semantically similar cached query
+  for (const entry of cache) {
+    if (cosineSimilarity(queryEmbedding, entry.embedding) >= threshold) {
+      console.log('Cache hit — skipping LLM call');
+      return entry.response;
+    }
+  }
+
+  // Cache miss — call LLM and store result
+  const msg = await client.messages.create({
+    model: 'claude-sonnet-4-6', max_tokens: 1024,
+    messages: [{ role: 'user', content: query }],
+  });
+  const response = (msg.content[0] as { text: string }).text;
+
+  cache.push({ query, embedding: queryEmbedding, response });
+  return response;
+}
+`.trim();
+
+const toolCacheCode = `
+// Tool result cache — reuse expensive external API calls
+interface ToolCacheConfig {
+  ttlSeconds: number;
+}
+
+const TOOL_TTL: Record<string, number> = {
+  'web_search':    900,    // 15 min — news changes fast
+  'db_query':      3600,   // 1 hour — semi-static data
+  'weather':       600,    // 10 min — real-time
+  'static_lookup': 86400,  // 24 hours — reference data
+};
+
+class ToolResultCache {
+  private store = new Map<string, { value: unknown; expiresAt: number }>();
+
+  async get<T>(toolName: string, params: Record<string, unknown>, fn: () => Promise<T>): Promise<T> {
+    const key       = \`\${toolName}:\${JSON.stringify(params)}\`;
+    const cached    = this.store.get(key);
+    const ttl       = TOOL_TTL[toolName] ?? 300;
+
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.value as T;
+    }
+
+    const result = await fn();
+    this.store.set(key, { value: result, expiresAt: Date.now() + ttl * 1000 });
+    return result;
+  }
+}
+
+const toolCache = new ToolResultCache();
+
+// Usage in agent tool execution
+async function webSearch(query: string): Promise<string> {
+  return toolCache.get('web_search', { query }, () => callWebSearchAPI(query));
+}
+`.trim();
+
+const mindMap = `
+# Cost Optimization
+## Where Money Goes
+### LLM API calls (70-80%)
+### Tool execution (10-20%)
+### Infrastructure + embeddings
+## Strategy 1 — Model Routing
+### Classify query complexity
+### Route to cheapest capable model
+### 40-60% cost reduction
+## Strategy 2 — Semantic Caching
+### Match by meaning not string
+### 0.90-0.95 similarity threshold
+### TTLs prevent stale answers
+## Strategy 3 — Tool Result Reuse
+### TTL per data freshness type
+### Real-time: 5-15 min
+### Static reference: 24+ hours
+## Token-Level Optimizations
+### Compress system prompts
+### Limit conversation history
+### Structured output (JSON)
+## Tensions
+### Aggressive caching (savings) vs Cache staleness (quality)
+### Low similarity threshold (more hits) vs False positives
+### Cheapest model (cost) vs Right model (quality)
+## Pitfalls
+### Caching without TTL or invalidation
+### Routing classification costing more than it saves
+### Vector DB query cost overlooked in ROI
+### Same model for classification and routing
+### Tool TTLs too long for high-stakes data
+`;
+---
+
+<LessonLayout
+  title="L33 — Cost Optimization"
+>
+
+  <LessonHeader
+    num="L33"
+    title="Cost Optimization"
+    subtitle="Where agent money goes, intelligent model routing for 40–60% savings, semantic caching, tool result reuse with TTLs, and the cache-invalidation pitfall that quietly ships stale answers."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      At scale, LLM API costs grow linearly with usage. Unlike infrastructure where you can
+      right-size instances, every unnecessary token you send is billed with no refund.
+      This lesson covers the three highest-leverage cost levers available to agent engineers.
+    </p>
+
+    <h2 class="lesson-heading">Where the Money Goes</h2>
+
+    <div class="cost-breakdown">
+      <div class="cb-row">
+        <div class="cb-pct">70–80%</div>
+        <div class="cb-label">LLM API calls</div>
+        <p>The dominant cost. Input and output tokens billed separately. Model choice has an enormous multiplier effect.</p>
+      </div>
+      <div class="cb-row">
+        <div class="cb-pct">10–20%</div>
+        <div class="cb-label">Tool execution</div>
+        <p>Web search ($0.001–0.01/query), external API calls, database queries. Often overlooked in cost estimates.</p>
+      </div>
+      <div class="cb-row">
+        <div class="cb-pct">5–10%</div>
+        <div class="cb-label">Infrastructure + embeddings</div>
+        <p>Compute, storage, bandwidth. Vector generation for caching and RAG retrieval.</p>
+      </div>
+    </div>
+
+    <h2 class="lesson-heading">Strategy 1 — Intelligent Model Routing</h2>
+
+    <p>
+      Not every query needs your most capable (and most expensive) model. A FAQ lookup or
+      short summarisation doesn't need the same model as a multi-step reasoning task.
+      Route queries to the cheapest model that can handle them.
+    </p>
+
+    <div class="savings-callout">
+      <div class="savings-num">40–60%</div>
+      <div class="savings-desc">cost reduction on average workloads with intelligent routing</div>
+    </div>
+
+    <CodeBlock lang="typescript" label="model-router.ts" code={modelRouterCode} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Task type</th><th>Model tier</th><th>Examples</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Simple / FAQ</td><td>Lightweight (Haiku, GPT-4o mini)</td><td>Order status, policy lookup, yes/no classification</td></tr>
+          <tr><td>Standard</td><td>Mid-tier (Sonnet, GPT-4o)</td><td>Summarisation, code generation, multi-tool tasks</td></tr>
+          <tr><td>Complex reasoning</td><td>Premium (Opus, GPT-5)</td><td>Multi-step analysis, strategic planning, ambiguous edge cases</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="Classification overhead is minimal">
+      <p>
+        The classification step (deciding which model to use) adds one cheap Haiku call.
+        That call costs ~100× less than a Sonnet call on complex queries, making it
+        a very good investment even if classification is only 70% accurate.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Strategy 2 — Semantic Caching</h2>
+
+    <p>
+      Traditional caching only hits on exact string matches. Semantic caching matches by
+      <em>meaning</em> — "What's the refund policy?" and "How do returns work?" map to
+      the same cached answer using embedding similarity.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Metric</th><th>Typical value</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Cache hit rate</td><td>10–30% general; up to 50% in narrow, repetitive domains</td></tr>
+          <tr><td>Cost per cache hit</td><td>~$0.0001 (embedding + vector lookup) vs $0.01–0.03 (LLM call)</td></tr>
+          <tr><td>Savings per hit</td><td>~99% — the economics are excellent when hits occur</td></tr>
+          <tr><td>Similarity threshold</td><td>0.90–0.95 cosine similarity recommended</td></tr>
+          <tr><td>Key risk</td><td>False positives — semantic similarity ≠ identical intent</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="typescript" label="semantic-cache.ts" code={semanticCacheCode} />
+
+    <LessonCallout variant="warn" title="Semantic similarity ≠ identical intent">
+      <p>
+        "What's the cancellation policy for orders placed today?" and "What's the cancellation
+        policy for orders placed last year?" may score 0.95 cosine similarity but need
+        different answers if the policy changed. Always implement TTLs and validate that
+        high-similarity matches are actually interchangeable for your domain.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Strategy 3 — Tool Result Reuse</h2>
+
+    <p>
+      External tool calls (web search, database queries, API calls) are often the most
+      expensive and slowest operations in an agent workflow — and many return data that
+      doesn't change minute-to-minute. Cache tool results with TTLs matched to data
+      freshness requirements.
+    </p>
+
+    <CodeBlock lang="typescript" label="tool-cache.ts" code={toolCacheCode} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Data type</th><th>TTL</th><th>Rationale</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Real-time (weather, prices)</td><td>5–15 min</td><td>Stale quickly, but sub-minute freshness is rarely needed</td></tr>
+          <tr><td>Semi-static (product info, docs)</td><td>1–6 hours</td><td>Changes infrequently within a working day</td></tr>
+          <tr><td>Static reference data (country codes, postal formats)</td><td>24+ hours</td><td>Effectively never changes in production</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Additional Token-Level Optimizations</h2>
+
+    <div class="opt-grid">
+      <div class="opt-card">
+        <div class="opt-title">Compress system prompts</div>
+        <p>Remove verbose instructions and examples. Use structured formats (bullet points, XML tags) instead of flowing prose. A 1,000-token system prompt sent on every call adds up fast.</p>
+      </div>
+      <div class="opt-card">
+        <div class="opt-title">Limit conversation history</div>
+        <p>Apply the context window strategies from L32. Every extra message in history is billed as input tokens on every subsequent call.</p>
+      </div>
+      <div class="opt-card">
+        <div class="opt-title">Use structured output</div>
+        <p>JSON output with a schema is typically shorter than prose. Less output tokens = lower cost.</p>
+      </div>
+      <div class="opt-card">
+        <div class="opt-title">Few-shot examples selectively</div>
+        <p>Few-shot examples improve quality but add tokens. Add them only when you have a measured quality gap — not by default.</p>
+      </div>
+    </div>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Intelligent model routing is projected to save 40-60% on average workloads. What is the primary mechanism that produces these savings?',
+        options: [
+          'Running all queries on the cheapest model available',
+          'Routing simple queries to cheaper, smaller models and reserving premium models for complex ones',
+          'Batching all queries and running them once per hour',
+          'Caching LLM responses so the model runs fewer times',
+        ],
+        answer:  1,
+        explain: 'The savings come from matching model capability to task complexity. Simple queries (FAQs, lookups) that work fine on Haiku cost ~10-30× less than the same call on Opus/Sonnet. Since many production workloads are majority simple queries, routing them to cheaper models produces large aggregate savings.',
+      },
+      {
+        q:       'You set the similarity threshold for your semantic cache to 0.80 (lower than the recommended 0.90-0.95). What is the most likely consequence?',
+        options: [
+          'Lower cache hit rate and higher costs',
+          'False positives — semantically similar but meaningfully different queries return wrong cached answers',
+          'Cache runs out of memory faster',
+          'LLM calls become slower due to embedding overhead',
+        ],
+        answer:  1,
+        explain: 'A low threshold (0.80) means the cache treats queries as "the same" even when they have meaningful differences. Queries that are topically related but require different answers will incorrectly return cached responses. The recommended range of 0.90-0.95 balances hit rate against false-positive risk.',
+      },
+      {
+        q:       'A web search tool result is cached with a 24-hour TTL. A user queries your agent about "latest AI news". What is the problem?',
+        options: [
+          'The cache will never hit because news queries are always unique',
+          'The cache returns stale news from up to 24 hours ago as if it were current',
+          'The embedding cost exceeds the savings from caching news queries',
+          'Web search results cannot be cached due to copyright restrictions',
+        ],
+        answer:  1,
+        explain: 'News is real-time data — a 24-hour TTL means the agent confidently reports "latest" news that is actually a day old. TTL must match data freshness requirements. For real-time news, use 5-15 minutes maximum, or avoid caching entirely and accept the tool call cost.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§4.16"
+      tensions={[
+        { a: 'Aggressive caching (cost savings)', b: 'Cache staleness (answer quality)' },
+        { a: 'Low similarity threshold (more hits)', b: 'Low threshold (false positives)' },
+        { a: 'Cheapest model always (cost)', b: 'Right model for task (quality)' },
+      ]}
+      questions={[
+        {
+          q:      'You implement semantic caching and see a 25% cache hit rate. Your PM asks you to increase it to 50%. What levers do you have, and what are the risks of each?',
+          hint:   'Think about both the threshold and the dataset size.',
+          answer: '<p>Three levers: (1) <strong>Lower the similarity threshold</strong> (e.g. 0.90 → 0.85) — more queries match existing cache entries, raising hit rate. Risk: false positives increase. You return cached answers to queries that are topically similar but need different responses. (2) <strong>Grow the cache dataset</strong> — mine production logs to seed the cache with the most common queries. More cache entries = more potential matches at the same threshold. Risk: cache memory usage grows; need eviction policy. (3) <strong>Query normalisation</strong> — strip filler words, normalise capitalisation, resolve synonyms before embedding. "What\'s ur refund policy?" and "What is the refund policy?" get the same embedding. Risk: normalisation logic can be complex and introduce bugs. The safest path to 50%: grow the cache dataset + normalise queries. Lower the threshold only if you have measurement showing false positives are rare and low-risk in your domain.</p>',
+        },
+        {
+          q:      'Your agent uses model routing, semantic caching, and tool caching. You notice total cost is still higher than expected. Where would you look first to diagnose the issue?',
+          hint:   'Think about what metrics tell you where waste is happening.',
+          answer: '<p>In order of likelihood: (1) <strong>Cache hit rates</strong> — if semantic cache is at 5% instead of 25%, most queries are hitting the LLM. Check if your query population is more diverse than expected, or if TTLs are too short. (2) <strong>Model routing accuracy</strong> — log which model each query is routed to. If 80% of queries are classified as "complex," the router is misclassifying and your cheap tier is never used. Review the classification prompt with real production queries. (3) <strong>Token counts per call</strong> — look at the p95 input/output token count. If system prompts or conversation history have grown, every call is billing for more tokens than you expected. (4) <strong>Tool call frequency</strong> — log how many tool calls each agent run makes. Agents can loop and make many more tool calls than designed. A circuit breaker or tool call budget (per run, not per user) prevents runaway tool usage. Start with cache hit rates and model routing distribution — those are usually where the gap is.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Caching without TTL or invalidation — semantic cache hit rates look great until users get last month\'s answers to "what\'s on sale today?"',
+        'Routing classification adding more cost than it saves — if your traffic is mostly complex queries, the Haiku classification call is pure overhead; measure before enabling routing.',
+        'Vector DB query cost overlooked in caching ROI — vector lookup costs $0.0001–0.001 per query; at high volume this adds up and should be included in the savings calculation.',
+        'Using the same model for classification and routing as for inference — defeats the purpose; the classifier must be cheaper than the models it routes between.',
+        'Setting tool TTLs too long for high-stakes data — a cached wrong stock price or medical dosage has consequences far greater than the cost savings.',
+      ]}
+    />
+
+  </div>
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .cost-breakdown {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 1.5rem 0;
+  }
+  .cb-row {
+    display: grid;
+    grid-template-columns: 80px 160px 1fr;
+    gap: 1rem;
+    align-items: start;
+    padding: .9rem 1.1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .cb-row:last-child { border-bottom: none; }
+  .cb-row:nth-child(even) { background: #f8fafc; }
+  .cb-pct {
+    font-size: 1.2rem;
+    font-weight: 900;
+    color: var(--accent);
+    font-family: monospace;
+    padding-top: .1rem;
+  }
+  .cb-label { font-weight: 700; font-size: .88rem; padding-top: .1rem; }
+  .cb-row p { font-size: .8rem; color: var(--muted); margin: 0; line-height: 1.55; }
+
+  .savings-callout {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    background: #1a1a2e;
+    border-radius: 8px;
+    padding: 1.1rem 1.5rem;
+    margin: 1.25rem 0;
+  }
+  .savings-num {
+    font-size: 2.2rem;
+    font-weight: 900;
+    color: #4ade80;
+    font-family: monospace;
+    white-space: nowrap;
+  }
+  .savings-desc {
+    font-size: .88rem;
+    color: #cbd5e1;
+    line-height: 1.5;
+  }
+
+  .opt-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin: 1.25rem 0;
+  }
+  .opt-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    background: #f8fafc;
+  }
+  .opt-title {
+    font-weight: 700;
+    font-size: .88rem;
+    margin-bottom: .4rem;
+  }
+  .opt-card p {
+    font-size: .8rem;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.55;
+  }
+</style>

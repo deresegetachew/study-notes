@@ -1,0 +1,1404 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+// ── Direct vs MCP comparison ──────────────────────────────────────────────────
+const directVsMcpCode = `
+// ── Direct tool calling (no MCP) ─────────────────────────────────────────────
+// The tool is defined INSIDE the agent codebase. Tightly coupled.
+import { tool } from '@langchain/core/tools';
+import { z }    from 'zod';
+
+const checkInventory = tool(
+  async ({ sku }: { sku: string }) => {
+    const stock = await db.query('SELECT stock FROM products WHERE sku = ?', [sku]);
+    return JSON.stringify({ sku, available: stock });
+  },
+  {
+    name:        'check_inventory',
+    description: 'Check available stock for a SKU.',
+    schema:      z.object({ sku: z.string() }),
+  },
+);
+// Second agent needs this tool?  Copy-paste, or create a shared import.
+// Python agent wants to call it? Impossible — different runtime.
+// Claude Desktop wants to use it? No standard interface to plug into.
+// Change the implementation?      Redeploy the whole agent.
+
+// ── MCP tool calling ─────────────────────────────────────────────────────────
+// The tool lives in a SEPARATE server process. Any MCP client can discover it.
+import { Client }              from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+const transport = new StdioClientTransport({ command: 'node', args: ['./sales-tools-server.js'] });
+const mcpClient = new Client({ name: 'chat-specialist', version: '1.0.0' }, { capabilities: {} });
+await mcpClient.connect(transport);
+
+const { tools } = await mcpClient.listTools();  // discovers check_inventory at runtime
+// Chat Specialist, Email Specialist, Claude Desktop — all connect to the same server.
+// Change the implementation?  Redeploy the server only — agents are unchanged.
+// Python agent?               Same MCP protocol — works from any language.
+`.trim();
+
+// ── Server: Tool primitive ────────────────────────────────────────────────────
+const mcpToolServerCode = `
+import { Server }              from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
+
+const server = new Server(
+  { name: 'weather-server', version: '1.0.0' },
+  { capabilities: { tools: {} } },
+);
+
+// Zod schema validates LLM-provided args before any business logic runs
+const GetWeatherSchema = z.object({
+  city:  z.string().min(1).describe('City name'),
+  units: z.enum(['celsius', 'fahrenheit']).default('celsius'),
+});
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [{
+    name:        'get_weather',
+    description: 'Get current weather for a city. Returns temperature, humidity, and conditions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        city:  { type: 'string', description: 'City name' },
+        units: { type: 'string', enum: ['celsius', 'fahrenheit'] },
+      },
+      required: ['city'],   // always list required — LLM omits params not listed here
+    },
+  }],
+}));
+
+server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  if (req.params.name !== 'get_weather') {
+    // Return error as content — never throw; the MCP client must receive a structured response
+    return { content: [{ type: 'text', text: \`Unknown tool: \${req.params.name}\` }], isError: true };
+  }
+
+  const parsed = GetWeatherSchema.safeParse(req.params.arguments);
+  if (!parsed.success) {
+    return {
+      content: [{ type: 'text', text: \`Invalid input: \${parsed.error.message}\` }],
+      isError: true,
+    };
+  }
+
+  const weather = await fetchWeather(parsed.data.city, parsed.data.units);
+  return { content: [{ type: 'text', text: JSON.stringify(weather) }] };
+});
+
+await server.connect(new StdioServerTransport());
+
+declare function fetchWeather(city: string, units: string): Promise<object>;
+`.trim();
+
+// ── Server: Resource primitive ────────────────────────────────────────────────
+const mcpResourcesCode = `
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import {
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+
+// URI scheme reflects the data domain:
+//   product://  →  product catalog data
+//   config://   →  server-side configuration
+//   customer:// →  per-customer records (embed id in path: customer://id/123)
+const RESOURCE_MANIFEST = [
+  {
+    uri:         'product://catalog',
+    name:        'Product catalog',
+    description: 'All active products with prices and SKUs. Refreshed nightly.',
+    mimeType:    'application/json',
+  },
+  {
+    uri:         'config://pricing-rules',
+    name:        'Pricing rules',
+    description: 'Current discount tiers and minimum order quantities.',
+    mimeType:    'application/json',
+  },
+];
+
+server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+  resources: RESOURCE_MANIFEST,
+}));
+
+server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
+  const { uri } = req.params;
+
+  if (uri === 'product://catalog') {
+    // Paginate large datasets — returning 50 000 rows overflows the context window
+    const rows = await db.query(
+      'SELECT sku, name, price, stock FROM products WHERE active = 1 LIMIT 500',
+    );
+    return {
+      contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(rows) }],
+    };
+  }
+
+  if (uri === 'config://pricing-rules') {
+    return {
+      contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(PRICING_RULES) }],
+    };
+  }
+
+  throw new Error(\`Resource not found: \${uri}\`);
+});
+
+declare const server: Server;
+declare const db: { query: (sql: string) => Promise<object[]> };
+declare const PRICING_RULES: object;
+`.trim();
+
+// ── Server: Prompt Template primitive ────────────────────────────────────────
+const mcpPromptsCode = `
+import { ListPromptsRequestSchema, GetPromptRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
+// Templates live server-side — update once, both Chat and Email Specialists pick it up.
+// No code deploy required when wording changes.
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: [
+    {
+      name:        'order-confirmation',
+      description: 'Customer-facing order confirmation message.',
+      arguments: [
+        { name: 'customer_name', required: true  },
+        { name: 'order_id',      required: true  },
+        { name: 'items',         required: true  },
+        { name: 'total',         required: true  },
+        { name: 'channel',       required: false, description: 'chat | email — adjusts word count' },
+      ],
+    },
+    {
+      name:        'low-stock-alert',
+      description: 'Internal alert when a product falls below the reorder threshold.',
+      arguments: [
+        { name: 'product',   required: true },
+        { name: 'qty',       required: true },
+        { name: 'threshold', required: true },
+      ],
+    },
+  ],
+}));
+
+server.setRequestHandler(GetPromptRequestSchema, async (req) => {
+  const { name, arguments: args = {} } = req.params;
+  const a = args as Record<string, string>;
+
+  if (name === 'order-confirmation') {
+    const maxWords = a.channel === 'chat' ? '60' : '120';
+    return {
+      description: 'Order confirmation',
+      messages: [{
+        role: 'user',
+        content: {
+          type: 'text',
+          // Note: task-focused — describes WHAT to write, not WHO the agent is.
+          // Role and identity belong in the calling agent's system prompt, not here.
+          text: \`Write a professional order confirmation.
+Customer: \${a.customer_name}  Order #: \${a.order_id}
+Items: \${a.items}  Total: $\${a.total}
+Under \${maxWords} words. Warm and professional. Include an estimated delivery note.\`,
+        },
+      }],
+    };
+  }
+
+  if (name === 'low-stock-alert') {
+    return {
+      description: 'Low-stock internal alert',
+      messages: [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: \`Write a concise internal stock alert:
+Product: \${a.product}  Current: \${a.qty} units (threshold: \${a.threshold})
+Recommend reorder urgency (low / medium / high) and suggested quantity.\`,
+        },
+      }],
+    };
+  }
+
+  throw new Error(\`Unknown prompt: \${name}\`);
+});
+
+declare const server: Server;
+`.trim();
+
+// ── Server: HTTP+SSE transport ────────────────────────────────────────────────
+const httpServerCode = `
+// Use HTTP+SSE when: multiple agent instances share one server, or it's a deployed microservice.
+import express from 'express';
+import { Server }             from '@modelcontextprotocol/sdk/server/index.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
+const app    = express();
+const server = new Server(
+  { name: 'sales-tools-server', version: '1.0.0' },
+  { capabilities: { tools: {} } },
+);
+
+// Handlers are IDENTICAL to the stdio version — transport is transparent to your logic
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    { name: 'check_inventory', description: 'Check stock for a SKU.',
+      inputSchema: { type: 'object', properties: { sku: { type: 'string' } }, required: ['sku'] } },
+  ],
+}));
+server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  if (req.params.name === 'check_inventory') {
+    const stock = await inventory.check((req.params.arguments as { sku: string }).sku);
+    return { content: [{ type: 'text', text: JSON.stringify({ available: stock }) }] };
+  }
+  return { content: [{ type: 'text', text: \`Unknown: \${req.params.name}\` }], isError: true };
+});
+
+// One SSEServerTransport per connected client session
+const sessions = new Map<string, SSEServerTransport>();
+
+// Client opens persistent SSE stream here
+app.get('/sse', async (req, res) => {
+  const transport = new SSEServerTransport('/message', res);
+  sessions.set(transport.sessionId, transport);
+  res.on('close', () => sessions.delete(transport.sessionId));
+  await server.connect(transport);
+});
+
+// Client sends requests here; sessionId ties message to the SSE stream
+app.post('/message', express.json(), async (req, res) => {
+  const transport = sessions.get(req.query.sessionId as string);
+  if (!transport) { res.status(404).json({ error: 'Session not found' }); return; }
+  await transport.handlePostMessage(req, res);
+});
+
+app.listen(3100, () => console.log('MCP server on :3100'));
+
+declare const inventory: { check: (sku: string) => Promise<number> };
+`.trim();
+
+const httpClientCode = `
+// Connect to a deployed HTTP+SSE MCP server — API is identical to the stdio client.
+// Only the transport instantiation differs.
+import { Client }              from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+
+const transport = new SSEClientTransport(new URL('http://sales-tools.internal:3100/sse'));
+const mcpClient = new Client({ name: 'chat-specialist', version: '1.0.0' }, { capabilities: {} });
+await mcpClient.connect(transport);
+
+const { tools } = await mcpClient.listTools();
+const result    = await mcpClient.callTool({ name: 'check_inventory', arguments: { sku: 'SKU-123' } });
+console.log(result.content);
+
+// Chat Specialist and Email Specialist (separate processes) both connect to the same server.
+// No duplicate tool implementations, no duplicate server processes.
+`.trim();
+
+// ── Client: discovery ─────────────────────────────────────────────────────────
+const mcpClientCode = `
+import { Client }              from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import Anthropic from '@anthropic-ai/sdk';
+
+const transport = new StdioClientTransport({
+  command: 'node',
+  args:    ['./sales-tools-server.js'],
+});
+const mcpClient = new Client({ name: 'sales-agent', version: '1.0.0' }, { capabilities: {} });
+await mcpClient.connect(transport);
+
+// ── Discovery: ask the server what it offers ──────────────────────────────────
+const { tools }     = await mcpClient.listTools();
+const { resources } = await mcpClient.listResources();
+const { prompts }   = await mcpClient.listPrompts();
+console.log('Tools:',     tools.map(t => t.name));
+// e.g. [ 'check_inventory', 'get_order_status', 'search_product_catalog' ]
+console.log('Resources:', resources.map(r => r.uri));
+// e.g. [ 'product://catalog', 'config://pricing-rules', 'config://shipping-zones' ]
+console.log('Prompts:',   prompts.map(p => p.name));
+// e.g. [ 'order-confirmation', 'low-stock-warning' ]
+
+// ── Using Tools: convert schema then call the LLM ─────────────────────────────
+const anthropicTools: Anthropic.Tool[] = tools.map(tool => ({
+  name:         tool.name,
+  description:  tool.description ?? '',
+  input_schema: tool.inputSchema as Anthropic.Tool['input_schema'],
+}));
+
+const anthropic = new Anthropic();
+const response  = await anthropic.messages.create({
+  model: 'claude-opus-4-8', max_tokens: 1024, tools: anthropicTools,
+  messages: [{ role: 'user', content: 'Do we have 50 units of SKU-123 in stock?' }],
+});
+for (const block of response.content) {
+  if (block.type === 'tool_use') {
+    const result = await mcpClient.callTool({
+      name: block.name, arguments: block.input as Record<string, unknown>,
+    });
+    console.log(\`Tool \${block.name} returned:\`, result.content);
+  }
+}
+
+// ── Using Resources: read reference data ──────────────────────────────────────
+const catalog = await mcpClient.readResource({ uri: 'product://catalog' });
+console.log('Catalog snippet:', catalog.contents[0].text?.slice(0, 200));
+
+// ── Using Prompt Templates: get a parameterised messages array ────────────────
+const confirmation = await mcpClient.getPrompt({
+  name:      'order-confirmation',
+  arguments: { customer_name: 'Alice', order_id: 'ORD-42', items: 'Widget x2', total: '49.99', channel: 'chat' },
+});
+// confirmation.messages is already in Anthropic message format — pass directly
+const llmReply = await anthropic.messages.create({
+  model: 'claude-haiku-4-5-20251001', max_tokens: 256,
+  messages: confirmation.messages as Anthropic.MessageParam[],
+});
+console.log('Confirmation text:', llmReply.content[0]);
+
+await mcpClient.close();
+`.trim();
+
+// ── Client: per-node tool filtering ──────────────────────────────────────────
+const mcpPerNodeCode = `
+import { Client }              from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import Anthropic from '@anthropic-ai/sdk';
+
+// ── Graph init — connect ONCE before graph.compile() ─────────────────────────
+const mcpClient = new Client({ name: 'sales-agent', version: '1.0.0' }, { capabilities: {} });
+await mcpClient.connect(new StdioClientTransport({ command: 'node', args: ['./sales-tools-server.js'] }));
+
+const { tools } = await mcpClient.listTools();   // discover ONCE
+const allTools  = tools.map(t => ({              // convert ONCE, cache for the graph lifetime
+  name:         t.name,
+  description:  t.description ?? '',
+  input_schema: t.inputSchema as Anthropic.Tool['input_schema'],
+}));
+
+const anthropic = new Anthropic();
+
+// ── searchNode — sees 2 of the server's tools ─────────────────────────────────
+async function searchNode(state: AgentState) {
+  const nodeTools = allTools.filter(t =>
+    ['check_inventory', 'search_product_catalog'].includes(t.name),
+  );
+  // LLM context: 2 tool descriptions — focused, cheap, unambiguous
+  return anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001', max_tokens: 512,
+    tools: nodeTools,
+    messages: state.messages,
+  });
+}
+
+// ── orderNode — sees 1 tool ───────────────────────────────────────────────────
+async function orderNode(state: AgentState) {
+  const nodeTools = allTools.filter(t => t.name === 'get_order_status');
+  return anthropic.messages.create({
+    model: 'claude-opus-4-8', max_tokens: 1024,
+    tools: nodeTools,
+    messages: state.messages,
+  });
+}
+
+// ── Tool execution — shared client, both nodes call through it ────────────────
+async function executeTool(name: string, args: Record<string, unknown>) {
+  const result = await mcpClient.callTool({ name, arguments: args });
+  return result.content;
+}
+
+declare interface AgentState { messages: Anthropic.MessageParam[] }
+`.trim();
+
+// ── Client: Roots — 4 configurations ─────────────────────────────────────────
+const mcpRootsCode = `
+import { Client }              from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
+// ─── Configuration A: single path ─────────────────────────────────────────────
+// Most common. One project folder; the server must stay inside it.
+const mcpClient = new Client(
+  { name: 'code-agent', version: '1.0.0' },
+  { capabilities: { roots: { listChanged: false } } },
+);
+mcpClient.setRequestHandler(ListRootsRequestSchema, async () => ({
+  roots: [{ uri: 'file:///workspace/src', name: 'Source code' }],
+}));
+
+// ─── Configuration B: multiple paths (monorepo / multi-service) ───────────────
+// Grant access to several directories. Everything outside these URIs is off-limits.
+mcpClient.setRequestHandler(ListRootsRequestSchema, async () => ({
+  roots: [
+    { uri: 'file:///workspace/packages/api/src',    name: 'API service'      },
+    { uri: 'file:///workspace/packages/worker/src', name: 'Worker service'   },
+    { uri: 'file:///workspace/shared/src',          name: 'Shared utilities' },
+    { uri: 'file:///workspace/docs',                name: 'Documentation'    },
+  ],
+}));
+
+// ─── Configuration C: dynamic roots ───────────────────────────────────────────
+// Accessible paths are not fixed at build time — read from config or chosen by user.
+// listChanged: true tells the server to re-call listRoots() when the set changes.
+const mcpClientDynamic = new Client(
+  { name: 'code-agent', version: '1.0.0' },
+  { capabilities: { roots: { listChanged: true } } },
+);
+
+const projectConfig = await loadProjectConfig(); // reads project.json or equivalent
+let currentRoots = projectConfig.sourcePaths.map(p => ({
+  uri:  \`file://\${p.absPath}\`,
+  name: p.label,
+}));
+
+mcpClientDynamic.setRequestHandler(ListRootsRequestSchema, async () => ({
+  roots: currentRoots,
+}));
+
+// When the user opens a new folder mid-session, update and notify the server:
+async function onUserAddsFolder(absPath: string, label: string) {
+  currentRoots.push({ uri: \`file://\${absPath}\`, name: label });
+  await mcpClientDynamic.sendRootsListChanged(); // server re-calls listRoots() immediately
+}
+
+// ─── Configuration D: no roots (block all filesystem access) ─────────────────
+// When you want to explicitly prevent a server from touching the filesystem.
+// Register a handler that returns an empty list — a well-behaved server respects it.
+// If you skip both the capability declaration AND the handler, a filesystem server
+// may attempt to access arbitrary paths with no sandbox enforcement.
+const mcpClientNoAccess = new Client(
+  { name: 'restricted-agent', version: '1.0.0' },
+  { capabilities: { roots: { listChanged: false } } },
+);
+mcpClientNoAccess.setRequestHandler(ListRootsRequestSchema, async () => ({
+  roots: [],  // empty list = server allowed to access nothing on the filesystem
+}));
+
+declare function loadProjectConfig(): Promise<{ sourcePaths: { absPath: string; label: string }[] }>;
+`.trim();
+
+// ── Client: Sampling — 4 scenarios ───────────────────────────────────────────
+const mcpSamplingCode = `
+import { Client }              from '@modelcontextprotocol/sdk/client/index.js';
+import { CreateMessageRequestSchema, McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import Anthropic from '@anthropic-ai/sdk';
+
+const anthropic = new Anthropic();
+
+// ─── Scenario A: simple accept — fulfil, but choose your own model ─────────────
+// The server may suggest a model via req.params.modelPreferences. Ignore it.
+// The client always picks the model and caps the token budget.
+mcpClient.setRequestHandler(CreateMessageRequestSchema, async (req) => {
+  const response = await anthropic.messages.create({
+    model:      'claude-haiku-4-5-20251001',                   // YOUR choice — not the server's
+    max_tokens: Math.min(req.params.maxTokens ?? 512, 512),    // your cap regardless of request
+    system:     req.params.systemPrompt,
+    messages:   req.params.messages as Anthropic.MessageParam[],
+  });
+  return {
+    model:      response.model,
+    role:       'assistant' as const,
+    content:    response.content[0],
+    stopReason: 'endTurn',
+  };
+});
+
+// ─── Scenario B: rate-limited — reject above N calls per session ───────────────
+// Prevents a misbehaving server from triggering unlimited (and expensive) inference.
+const callCount = new Map<string, number>(); // sessionId → count
+
+mcpClient.setRequestHandler(CreateMessageRequestSchema, async (req) => {
+  const sessionId = 'session-1';           // derive from your transport session in practice
+  const count     = callCount.get(sessionId) ?? 0;
+
+  if (count >= 10) {
+    throw new McpError(ErrorCode.InvalidRequest, 'Sampling rate limit (10/session) exceeded');
+  }
+  callCount.set(sessionId, count + 1);
+
+  const response = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001', max_tokens: 512,
+    messages: req.params.messages as Anthropic.MessageParam[],
+  });
+  return { model: response.model, role: 'assistant' as const, content: response.content[0], stopReason: 'endTurn' };
+});
+
+// ─── Scenario C: content-validated — inspect before forwarding ─────────────────
+// Guards against prompt injection hidden inside the server's sampling request.
+mcpClient.setRequestHandler(CreateMessageRequestSchema, async (req) => {
+  const lastMsg = req.params.messages.at(-1);
+  const text    = typeof lastMsg?.content === 'string'
+    ? lastMsg.content
+    : (lastMsg?.content as Array<{ type: string; text?: string }>)?.[0]?.text ?? '';
+
+  // Basic injection heuristic — extend with your real detection logic from L13
+  if (/ignore.{0,20}instructions|system.{0,10}prompt|override/i.test(text)) {
+    throw new McpError(ErrorCode.InvalidRequest, 'Sampling rejected: injection pattern detected');
+  }
+
+  const response = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001', max_tokens: 512,
+    messages: req.params.messages as Anthropic.MessageParam[],
+  });
+  return { model: response.model, role: 'assistant' as const, content: response.content[0], stopReason: 'endTurn' };
+});
+
+// ─── Scenario D: full rejection — never fulfil for this server ────────────────
+// Use for untrusted community servers, or any server that should never need LLM access.
+// You may have registered sampling for other clients — reject this one explicitly.
+mcpClient.setRequestHandler(CreateMessageRequestSchema, async () => {
+  throw new McpError(ErrorCode.MethodNotFound, 'This client does not permit server-initiated LLM inference');
+});
+
+declare const mcpClient: Client;
+`.trim();
+
+const mindMap = `
+# MCP Server Interoperability
+## What MCP Standardises
+### Discovery at runtime
+### Description via JSON Schema
+### Two transports
+## Server Primitives
+### Tools (callables)
+### Resources (readable data)
+### Prompt Templates
+## Which Primitive to Use
+### Noun/verb test
+### Timing test
+## Transport Mechanisms
+### stdio (local/dev)
+### HTTP+SSE (deployed/shared)
+## Client Side
+### Connect once per server
+### Filter tools per node
+## Client Capabilities
+### Roots (filesystem scope)
+### Sampling (server-initiated LLM)
+## Tensions
+### Tools (verbs, action) vs Resources (nouns, data)
+### Stdio (simple, no sharing) vs HTTP+SSE (shared, scalable)
+### Inline tools (one agent) vs MCP server (shared deploy)
+### Sampling accepted (richer logic) vs Sampling rejected (security)
+### Broad roots (convenience) vs Narrow roots (least privilege)
+## Pitfalls
+### Missing required array in inputSchema
+### Throwing from Tool handlers instead of isError
+### Returning full DB tables without pagination
+### Prompt Templates that define agent identity
+### Forwarding server modelPreferences in sampling
+### No Roots handler for filesystem servers
+### Connecting community servers without reading manifest
+### One MCP client per node instead of per server
+`;
+---
+
+<LessonLayout
+  title="L26 — MCP Server Interoperability"
+>
+  <LessonHeader
+    num="L26"
+    title="MCP Server Interoperability"
+    subtitle="MCP is a two-way contract. Servers declare what they expose — Tools, Resources, Prompt Templates. Clients declare what they provide back — Roots, Sampling. Both sides negotiate capabilities at connect time."
+  />
+
+  <div class="lesson-content">
+
+    <!-- ── Introduction ──────────────────────────────────────────── -->
+    <h2 class="lesson-heading">What MCP standardises</h2>
+    <p>
+      Think about what you had to do before MCP existed. Every agent contained its own
+      hardcoded integrations — functions you wrote, wired up, and deployed alongside the
+      agent. When a second agent needed the same database query, you copied the code. When
+      a teammate's Python script wanted to reuse it, they couldn't. When Claude Desktop
+      wanted to surface it to end users, there was no standard way to plug in.
+    </p>
+    <p>
+      MCP (the Model Context Protocol) solves this the same way HTTP solved it for web
+      services: by agreeing on a common language that every participant speaks. Once a
+      capability is wrapped in an MCP server, any MCP client in the world — your Node.js
+      agents, Python scripts, Claude Desktop, tools that don't even exist yet — can
+      discover and use it without any custom adapter code.
+    </p>
+    <p>MCP standardises exactly three things:</p>
+
+    <div class="mcp-grid">
+      <div class="mcp-card">
+        <div class="mcp-label">Discovery</div>
+        <p><code>listTools()</code>, <code>listResources()</code>, <code>listPrompts()</code> — any client asks the server what it offers at runtime. No hardcoded lists in the agent.</p>
+      </div>
+      <div class="mcp-card">
+        <div class="mcp-label">Description</div>
+        <p>Each primitive carries a JSON Schema for inputs and a human-readable description the LLM reads to decide when and how to use it. Same format for every server.</p>
+      </div>
+      <div class="mcp-card">
+        <div class="mcp-label">Connection</div>
+        <p>Two transports: <strong>stdio</strong> (local process) and <strong>HTTP+SSE</strong> (deployed service). Protocol is identical — swap transports without changing handler code.</p>
+      </div>
+    </div>
+
+    <LessonDiagram definition={`
+flowchart LR
+  subgraph CLI ["MCP Client — your agent"]
+    AG["Agent code"]:::client
+    subgraph CPROV ["Client provides TO server"]
+      RO["🌲 Roots\\npath access scope"]:::cap
+      SA["🧠 Sampling\\nLLM on demand"]:::cap
+    end
+  end
+
+  subgraph SRV ["MCP Server"]
+    subgraph SPROV ["Server exposes TO client"]
+      T["🔧 Tools\\ncallable fns"]:::prim
+      R["📄 Resources\\nreadable data"]:::prim
+      P["💬 Prompts\\nparam messages"]:::prim
+    end
+  end
+
+  SRV -->|"listTools / listResources / listPrompts\\ncallTool / readResource / getPrompt"| CLI
+  CLI -->|"listRoots\\nsampling/createMessage"| SRV
+
+  classDef client fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef prim   fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef cap    fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+`} />
+
+    <!-- ── Tool calling vs MCP ──────────────────────────────────── -->
+    <h2 class="lesson-heading">Tool calling vs MCP — what's the difference?</h2>
+    <p>
+      Both approaches result in the same thing at runtime: the LLM receives a
+      <code>tool_use</code> block, your code executes the function, and the result comes
+      back as a message. The LLM doesn't know or care which approach you used.
+    </p>
+    <p>
+      The difference is <strong>where the tool lives</strong> — and what that means for
+      who else can use it. With direct tool calling, the tool is defined inside the agent's
+      codebase. It's fast and simple, but it belongs to that agent alone. The moment a
+      second agent needs the same capability, you're either duplicating code or creating
+      a tightly-coupled shared dependency. MCP moves the tool to a standalone server that
+      any MCP-compatible client can connect to — your agents, Claude Desktop, a Python
+      colleague's script, anything.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Aspect</th><th>Direct tool calling</th><th>MCP</th></tr></thead>
+        <tbody>
+          <tr><td>Tool lives</td><td>Inside the agent codebase</td><td>In a separate MCP server process</td></tr>
+          <tr><td>Discovery</td><td>Hardcoded at build time</td><td>Dynamic: <code>listTools()</code> at runtime</td></tr>
+          <tr><td>Sharing</td><td>One agent only (copy to reuse)</td><td>Any MCP client — agents, Claude Desktop, CI</td></tr>
+          <tr><td>Language</td><td>Same runtime as the agent</td><td>Any language — Python, Go, Rust</td></tr>
+          <tr><td>Deploy</td><td>Change tool → redeploy agent</td><td>Change tool → redeploy server only</td></tr>
+          <tr><td>Use when</td><td>One agent, simple deployment</td><td>Shared tools, multi-agent, external access</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="typescript" label="direct-vs-mcp.ts" code={directVsMcpCode} />
+
+    <LessonCallout variant="tip" title="Start inline, extract when the second agent arrives">
+      <p>
+        Don't build an MCP server speculatively. Start with direct tool calling. Extract
+        to MCP the moment a second agent needs the same tool — that's when the protocol
+        overhead pays for itself.
+      </p>
+    </LessonCallout>
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <div class="lesson-part">Part 1 — Building an MCP Server</div>
+    <!-- ══════════════════════════════════════════════════════════════ -->
+
+    <!-- ── Three primitives overview ─────────────────────────────── -->
+    <h2 class="lesson-heading">The three server primitives</h2>
+    <p>
+      An MCP server doesn't just expose tools. It can expose up to three fundamentally
+      different types of things — and which type you use for a given piece of functionality
+      is the most important design decision when building a server. Use the wrong one and
+      you'll pay unnecessary token costs, return stale results, or introduce subtle prompt
+      conflicts.
+    </p>
+    <p>
+      Each server announces which types it offers in its <code>capabilities</code> object
+      at startup. A server can offer any combination of the three.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Primitive</th><th>Mental model</th><th>Client calls</th><th>When to use</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Tools</strong></td>
+            <td>Verbs — the agent triggers them, something happens</td>
+            <td><code>listTools()</code> · <code>callTool()</code></td>
+            <td>Queries, API calls, writes, any action with a side effect</td>
+          </tr>
+          <tr>
+            <td><strong>Resources</strong></td>
+            <td>Nouns — the agent reads them for context</td>
+            <td><code>listResources()</code> · <code>readResource(uri)</code></td>
+            <td>Static or semi-static reference data — catalogs, config, docs</td>
+          </tr>
+          <tr>
+            <td><strong>Prompt Templates</strong></td>
+            <td>Reusable parameterised message arrays</td>
+            <td><code>listPrompts()</code> · <code>getPrompt(name, args)</code></td>
+            <td>Shared prompt structure across multiple agents</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonDiagram definition={`
+flowchart TD
+  subgraph SRV ["MCP Server — what it exposes to clients"]
+    T["🔧 Tools\\ncallable · side effects · queries\\nparams vary per call"]:::prim
+    R["📄 Resources\\nreadable data · URI-identified\\nstatic or schedule-refreshed"]:::prim
+    P["💬 Prompt Templates\\nparameterised messages · server-side logic\\nshared across agents"]:::prim
+  end
+
+  classDef prim fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <!-- ── Primitive 1: Tools ─────────────────────────────────────── -->
+    <h2 class="lesson-heading">Primitive 1 — Tools (callable functions)</h2>
+    <p>
+      Tools are the primitive you'll use most often. The mental model is simple: a Tool
+      is something that <em>does something</em>. The agent calls it, the server runs code,
+      and a result comes back. Database queries, external API calls, file operations, writes,
+      sending notifications — if an action needs to happen and something in the world might
+      change as a result, it's a Tool.
+    </p>
+    <p>
+      The implementation pattern that matters most is what happens when something goes
+      wrong. LLMs make mistakes — they'll call a tool with a missing parameter, an
+      out-of-range value, or an ID that doesn't exist. Your handler needs to deal with
+      this without crashing the conversation. The approach: validate first with Zod's
+      <code>safeParse()</code>, then if validation fails, <strong>return an error as
+      content</strong> rather than throwing. When you return
+      <code>&#123; isError: true, content: [...] &#125;</code>, the agent reads your
+      message and decides what to do next — retry, ask the user, try a different approach.
+      When you throw, the MCP client receives a protocol-level error and the agent loop dies.
+    </p>
+
+    <CodeBlock lang="typescript" label="weather-tool-server.ts" code={mcpToolServerCode} />
+
+    <LessonCallout variant="warn" title="Return errors as content — never throw from a handler">
+      <p>
+        An unhandled exception in a Tool handler sends a protocol-level error to the
+        client — the agent crashes rather than reasoning about the failure.
+        Always <code>return &#123; isError: true, content: [&#123; type: 'text', text: '...' &#125;] &#125;</code>.
+        The agent reads that message and can decide whether to retry, escalate, or inform the user.
+      </p>
+    </LessonCallout>
+
+    <LessonCallout variant="tip" title="Always declare the required array in inputSchema">
+      <p>
+        JSON Schema's <code>required</code> array is a separate field from
+        <code>properties</code>. If you omit it, every parameter becomes optional —
+        the LLM will happily call your tool without the fields it actually needs,
+        producing confusing errors with no hint of what went wrong. Always list every
+        non-optional field explicitly in <code>required</code>.
+      </p>
+    </LessonCallout>
+
+    <!-- ── Primitive 2: Resources ─────────────────────────────────── -->
+    <h2 class="lesson-heading">Primitive 2 — Resources (readable data)</h2>
+    <p>
+      Resources answer a different question than Tools do. Where a Tool says "do this",
+      a Resource says "here is data you can read". The agent fetches a resource by URI
+      — <code>product://catalog</code>, <code>config://pricing-rules</code>,
+      <code>customer://id/123</code> — and receives text, JSON, or binary content back.
+      Think of it as giving the agent a file it can open.
+    </p>
+    <p>
+      The <strong>noun/verb test</strong> is the clearest way to tell them apart. If you're
+      thinking of something as a <em>thing</em> — the catalog, the pricing rules, the
+      shipping zones — it's probably a Resource. If you're thinking of it as an
+      <em>action</em> — search the catalog for "red widget", look up the price for SKU-123
+      — it's a Tool.
+    </p>
+    <p>
+      The <strong>timing test</strong> gives you a second check: does the answer depend on
+      what the agent knows right now, or is it the same data no matter when you ask? The
+      product catalog refreshed every night is the same content for every agent on every
+      call — that's a Resource. The order status for order #ORD-42 that the customer just
+      mentioned in the conversation — the ID came from the live dialogue — that's a Tool.
+    </p>
+
+    <CodeBlock lang="typescript" label="resource-handler.ts (partial server)" code={mcpResourcesCode} />
+
+    <LessonCallout variant="tip" title="Design URIs to reflect your data domain — and paginate">
+      <p>
+        Keep URIs stable — clients may cache them. Use scheme prefixes that map to your
+        data domain: <code>product://</code>, <code>config://</code>,
+        <code>customer://id/123</code>. For large datasets, always paginate or filter
+        at the database level before returning. A 50 000-row product table returned as
+        one resource will overflow the context window and cost more than the entire
+        conversation is worth.
+      </p>
+    </LessonCallout>
+
+    <!-- ── Primitive 3: Prompt Templates ─────────────────────────── -->
+    <h2 class="lesson-heading">Primitive 3 — Prompt Templates (parameterised messages)</h2>
+    <p>
+      Prompt Templates are the most counterintuitive primitive because they feel like
+      something that should live in the agent, not on a server. But think about what
+      happens when your Chat Specialist and Email Specialist both send order confirmations
+      to customers. They're different agents, possibly different codebases — but the
+      customer experience should be consistent.
+    </p>
+    <p>
+      Without Prompt Templates you have two bad options: duplicate the prompt text in both
+      agents and try to keep them in sync, or share it through a library that requires
+      redeploying both agents whenever a product manager wants to adjust the wording. With a
+      Prompt Template, the prompt logic lives on the MCP server. Each agent calls
+      <code>getPrompt('order-confirmation', &#123; customer_name, order_id, ... &#125;)</code>
+      and gets back a ready-to-send <code>messages</code> array. Update the template once
+      on the server — both agents pick it up on the next call, no deployment required.
+    </p>
+    <p>
+      Notice the <code>channel</code> argument in the code below: the same template produces
+      short chat-friendly text or longer email-appropriate text based on a single parameter.
+      One template, two behaviours, zero duplication across agents.
+    </p>
+
+    <CodeBlock lang="typescript" label="prompt-handler.ts (partial server)" code={mcpPromptsCode} />
+
+    <LessonCallout variant="warn" title="Templates must describe what to write — not who the agent is">
+      <p>
+        A Prompt Template's <code>messages</code> array is injected into the conversation.
+        If the template includes role instructions ("You are a banking agent") that conflict
+        with the calling agent's system prompt, the LLM receives two contradictory identities.
+        Keep templates task-focused — they describe <em>what to produce</em>, not
+        <em>who the agent is</em>. Identity belongs in the system prompt, not in shared templates.
+      </p>
+    </LessonCallout>
+
+    <!-- ── Which primitive? ───────────────────────────────────────── -->
+    <h2 class="lesson-heading">Which primitive should I use?</h2>
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>The data or action is…</th><th>Use</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>An action that runs computation or has a side effect</td>
+            <td><strong>Tool</strong></td>
+            <td><code>check_inventory</code>, <code>create_order</code></td>
+          </tr>
+          <tr>
+            <td>Reference data — same content regardless of agent state, refreshed on a schedule</td>
+            <td><strong>Resource</strong></td>
+            <td><code>product://catalog</code>, <code>config://pricing-rules</code></td>
+          </tr>
+          <tr>
+            <td>A query whose parameters come from the live conversation</td>
+            <td><strong>Tool</strong></td>
+            <td><code>get_order_status(order_id)</code> — the ID came from what the user just said</td>
+          </tr>
+          <tr>
+            <td>A prompt structure used by multiple agents, or one that non-engineers need to edit</td>
+            <td><strong>Prompt Template</strong></td>
+            <td><code>order-confirmation</code> shared by Chat and Email Specialists</td>
+          </tr>
+          <tr>
+            <td>A prompt used by exactly one agent, never changing independently</td>
+            <td><strong>Inline system prompt</strong></td>
+            <td>No MCP needed — keep it in the agent directly</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── Transport mechanisms ──────────────────────────────────── -->
+    <h2 class="lesson-heading">Transport mechanisms</h2>
+    <p>
+      The MCP protocol defines <em>what</em> gets communicated between client and server.
+      Transport defines <em>how</em> those bytes physically move. Your server handler code
+      — all the <code>setRequestHandler</code> calls for Tools, Resources, and Prompts —
+      is completely identical regardless of which transport you use. The only thing that
+      changes is the two lines of setup at startup.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Transport</th><th>How it works</th><th>Use when</th><th>Avoid when</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>stdio</strong></td>
+            <td>Agent spawns server as child process; messages flow over stdin/stdout</td>
+            <td>Local tools, development, Claude Desktop, single-agent deployment</td>
+            <td>Multiple agent instances — each spawns its own process, no sharing</td>
+          </tr>
+          <tr>
+            <td><strong>HTTP+SSE</strong></td>
+            <td>Client opens SSE stream (GET), sends requests via POST; server pushes events</td>
+            <td>Deployed service, multiple agent instances sharing one server, cross-machine access</td>
+            <td>Local-only tools where the HTTP overhead is not worth it</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonDiagram definition={`
+flowchart TD
+  subgraph LOCAL ["stdio — local / development"]
+    A1["Agent process"]:::client -->|"stdin / stdout"| S1["MCP server\\n(child process)"]:::server
+  end
+  subgraph PROD ["HTTP+SSE — deployed / multi-instance"]
+    A2["Agent instance 1"]:::client
+    A3["Agent instance 2"]:::client
+    S2["MCP server\\n(HTTP :3100)"]:::server
+    A2 -->|"GET /sse · POST /message"| S2
+    A3 -->|"GET /sse · POST /message"| S2
+  end
+
+  classDef client fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef server fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+`} />
+
+    <h3 class="lesson-heading">stdio — scenario: local development tool</h3>
+    <p>
+      The stdio transport is what you've been seeing throughout this lesson. The client
+      spawns the server as a child process and they communicate over stdin/stdout. No
+      network config, no port to allocate, no HTTP stack. The natural choice for local
+      tools, development workflows, and Claude Desktop integrations.
+    </p>
+
+    <h3 class="lesson-heading">HTTP+SSE — scenario: shared microservice</h3>
+    <p>
+      HTTP+SSE becomes necessary the moment multiple agent processes need to share a single
+      server. Imagine the Chat Specialist and Email Specialist both running as separate
+      NestJS workers. With stdio, each process spawns its own copy of
+      <code>sales-tools-server</code> — two processes with duplicate code and no shared
+      state. With HTTP+SSE, you deploy one server instance and both agents connect to it
+      over the network. The handler code below is identical to the stdio server — only
+      the transport wiring at the bottom is different.
+    </p>
+
+    <CodeBlock lang="typescript" label="sales-tools-http-server.ts" code={httpServerCode} />
+    <CodeBlock lang="typescript" label="mcp-http-client.ts" code={httpClientCode} />
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <div class="lesson-part">Part 2 — Using an MCP Server (Client Side)</div>
+    <!-- ══════════════════════════════════════════════════════════════ -->
+
+    <!-- ── Connecting and discovering ────────────────────────────── -->
+    <h2 class="lesson-heading">Connecting and discovering</h2>
+    <p>
+      Connecting to an MCP server always follows the same sequence: connect, discover,
+      then use. Your agent asks the server what it offers — tools, resources, prompt
+      templates — and works with whatever it finds. The code below shows the full cycle.
+      Read it once as a whole; the sections above cover each primitive in depth.
+    </p>
+
+    <CodeBlock lang="typescript" label="mcp-client.ts" code={mcpClientCode} />
+
+    <LessonCallout variant="tip" title="MCP schema → Anthropic schema is a direct pass-through">
+      <p>
+        MCP tool <code>inputSchema</code> is JSON Schema. The Anthropic SDK's
+        <code>input_schema</code> is also JSON Schema. No transformation needed — cast
+        and pass it straight through. The same applies to the <code>messages</code> array
+        returned by <code>getPrompt()</code>: it is already in Anthropic message format.
+      </p>
+    </LessonCallout>
+
+    <!-- ── One client, filter per node ───────────────────────────── -->
+    <h2 class="lesson-heading">One MCP client per server — filter tools per node</h2>
+    <p>
+      Here's a question worth pausing on: if your LangGraph graph has five nodes and each
+      one needs to call an MCP server, should you create five MCP connections — one per node?
+    </p>
+    <p>
+      You shouldn't. An MCP connection involves either spawning a child process (stdio) or
+      opening a network session (HTTP+SSE) — both are meaningful setup work. The right
+      pattern is to <strong>create one client per server when the graph initialises</strong>,
+      call <code>listTools()</code> once, cache the result, and reuse that same connection
+      across every node for the lifetime of the graph.
+    </p>
+    <p>
+      But here's the subtlety. Every tool description you pass to
+      <code>messages.create(&#123; tools &#125;)</code> gets loaded into the LLM's context
+      as tokens — name, description, and input schema together run 200–500 tokens per tool.
+      If your MCP server exposes 12 tools but a given node only needs 2, passing all 12
+      wastes roughly 3 000 tokens on every call. Multiply across thousands of invocations
+      and the cost adds up fast. Worse: giving the LLM tools it can't usefully act on here
+      leads to noisier, less reliable decisions.
+    </p>
+    <p>
+      The solution: <strong>connect once, filter per node</strong>. Cache the full tool list
+      at startup, then filter it down to exactly what each node needs before each LLM call.
+      The "3–5 tools per node" rule still applies — it just operates at the
+      <em>tools passed per call</em> level, not the number of connections.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Where</th><th>What to do</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Graph init</strong></td>
+            <td><code>listTools()</code> once → convert → cache as <code>allTools</code></td>
+            <td>Connection setup is expensive; discovery tokens paid once, not per call</td>
+          </tr>
+          <tr>
+            <td><strong>Per LLM call</strong></td>
+            <td>Filter <code>allTools</code> to the subset this node actually uses</td>
+            <td>Each tool description ≈ 300 tokens in context; irrelevant tools waste cost and degrade decisions</td>
+          </tr>
+          <tr>
+            <td><strong>Tool execution</strong></td>
+            <td>All nodes share the same <code>mcpClient</code> instance</td>
+            <td>Execution reuses the established connection — no reconnect overhead</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="typescript" label="mcp-per-node-filtering.ts" code={mcpPerNodeCode} />
+
+    <LessonCallout variant="warn" title="Tool descriptions cost tokens on every LLM call">
+      <p>
+        A filesystem MCP server exposes ~8 tools; a sales server exposes ~6.
+        Passing all 14 to every node = 14 × ~300 tokens = ~4 200 token overhead
+        per call. At 1 000 calls/day that's meaningful cost — plus degraded decision
+        quality. Filter ruthlessly. Each node should see only what it can actually use.
+      </p>
+    </LessonCallout>
+
+    <!-- ── Client capabilities ───────────────────────────────────── -->
+    <h2 class="lesson-heading">What the MCP client provides back to the server</h2>
+    <p>
+      Most MCP tutorials stop after explaining what servers expose to clients. But the
+      diagram at the top of this lesson shows two arrows for a reason. MCP is a two-way
+      contract — clients also declare capabilities that servers can call on.
+    </p>
+    <p>
+      The <strong>server-to-client direction</strong> (top arrow) is what you've been
+      learning: servers expose Tools, Resources, and Prompt Templates. The
+      <strong>client-to-server direction</strong> (bottom arrow) is what most tutorials
+      miss: the client advertises capabilities <em>back</em> to the server, and
+      well-designed servers use them. Both sides declare at connection time:
+    </p>
+
+    <div class="mcp-grid">
+      <div class="mcp-card">
+        <div class="mcp-label">Server declares (what it exposes)</div>
+        <p><code>new Server(info, &#123; capabilities: &#123;<br/>&nbsp;&nbsp;tools: &#123;&#125;,<br/>&nbsp;&nbsp;resources: &#123;&#125;,<br/>&nbsp;&nbsp;prompts: &#123;&#125;<br/>&#125; &#125;)</code></p>
+      </div>
+      <div class="mcp-card">
+        <div class="mcp-label">Client declares (what it provides back)</div>
+        <p><code>new Client(info, &#123; capabilities: &#123;<br/>&nbsp;&nbsp;roots: &#123; listChanged: true &#125;,<br/>&nbsp;&nbsp;sampling: &#123;&#125;<br/>&#125; &#125;)</code></p>
+      </div>
+    </div>
+
+    <!-- ── Roots ──────────────────────────────────────────────────── -->
+    <h3 class="lesson-heading">Roots — controlling filesystem access</h3>
+    <p>
+      Roots are the client's answer to "what parts of the filesystem are you allowed to
+      touch?" When a client declares the <code>roots</code> capability, any filesystem-aware
+      MCP server should call <code>listRoots()</code> before accessing any file path and
+      stay strictly within the returned URIs. Without Roots, a filesystem server can
+      potentially read or write any file on the machine your agent runs on.
+    </p>
+    <p>
+      There are four configurations you'll encounter in practice:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Configuration</th><th>When to use</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Single path</strong></td>
+            <td>One project folder; server stays inside it. Most common case.</td>
+          </tr>
+          <tr>
+            <td><strong>Multiple paths</strong></td>
+            <td>Monorepo or multi-service workspace — several directories, each sandboxed.</td>
+          </tr>
+          <tr>
+            <td><strong>Dynamic roots</strong></td>
+            <td>Accessible paths are not fixed at build time — read from config or chosen by the user at runtime. Use <code>listChanged: true</code> so the server re-fetches when roots update.</td>
+          </tr>
+          <tr>
+            <td><strong>Empty roots</strong></td>
+            <td>Explicitly block all filesystem access from this server. Register the handler but return an empty array.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="typescript" label="mcp-roots-configurations.ts" code={mcpRootsCode} />
+
+    <LessonCallout variant="warn" title="Always declare a Roots handler for filesystem servers">
+      <p>
+        If you register the <code>roots</code> capability but provide no handler, the
+        server's behaviour when it calls <code>listRoots()</code> is undefined. If you
+        skip the capability entirely, some servers fall back to accessing arbitrary paths
+        without asking. Always register an explicit handler — even if it returns an empty
+        array to block all access.
+      </p>
+    </LessonCallout>
+
+    <!-- ── Sampling ───────────────────────────────────────────────── -->
+    <h3 class="lesson-heading">Sampling — server-initiated LLM calls</h3>
+    <p>
+      Sampling is the most powerful and the most dangerous client capability. In the normal
+      MCP flow, the agent calls the server — the agent asks, the server answers. Sampling
+      inverts this: the <em>server</em> can request an LLM call from the <em>client</em>.
+      The server sends a <code>sampling/createMessage</code> request, the client's handler
+      runs, and the LLM result goes back to the server.
+    </p>
+    <p>
+      This opens a door. A malicious server can use sampling to inject arbitrary messages
+      into your LLM context, trigger unlimited inference at your cost, or exfiltrate
+      information from the agent's state. The client holds all the controls: you choose
+      the model, you set the token cap, you validate the request content, and you decide
+      whether to fulfil it at all.
+    </p>
+    <p>
+      The four scenarios below cover the range from fully trusting to fully blocking. In
+      practice you'll usually pick Scenario A for your own servers and Scenario D — or
+      simply not registering sampling — for untrusted community servers.
+    </p>
+
+    <CodeBlock lang="typescript" label="mcp-sampling-scenarios.ts" code={mcpSamplingCode} />
+
+    <LessonCallout variant="warn" title="You choose the model — never let the server choose">
+      <p>
+        The <code>modelPreferences</code> field in a sampling request is advisory.
+        Ignore it. Always specify your own model and token cap in the handler.
+        If you blindly forward the server's model preference, an adversarial server
+        can route your inference to a more expensive model and inflate your bill.
+        Log all sampling invocations — anomaly detection catches abuse patterns early.
+      </p>
+    </LessonCallout>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Explain what MCP standardises: discovery, description, and connection protocol',
+        'State when to use MCP vs direct tool calling — and the trigger (second agent needs the same tool)',
+        'Implement all three server primitives: Tools, Resources, and Prompt Templates',
+        'Apply the noun/verb test and the timing test to decide which primitive to use',
+        'Validate Tool inputs with Zod and return errors as content — never throw',
+        'Design Resource URIs, paginate large datasets, and identify what belongs in a Resource vs a Tool',
+        'Write Prompt Templates that are task-focused — not role-defining',
+        'Choose transport: stdio (local/dev) vs HTTP+SSE (deployed/shared)',
+        'Create one MCP client per server at graph init, discover once, and filter tools per node',
+        'Configure Roots for all four scenarios: single path, multiple paths, dynamic, and empty',
+        'Handle Sampling with rate limiting, content validation, and full rejection for untrusted servers',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'What is the core benefit of MCP over hardcoded tool integrations?',
+        options: [
+          'MCP tool calls are faster than direct function calls',
+          'MCP separates the tool server from the agent — any MCP client discovers and uses it without adapter code',
+          'MCP tools are automatically cached between agent runs',
+          'MCP removes the need for JSON Schema input definitions',
+        ],
+        answer:  1,
+        explain: 'MCP is an interoperability standard. A sales-tools-server built once works with your Chat Specialist, Email Specialist, and Claude Desktop without any agent-specific integration. The same benefit HTTP gave to web services — a common language everyone speaks.',
+      },
+      {
+        q:       'The Sales Order Agent needs to give agents the current product catalog (refreshed nightly). Which primitive is correct?',
+        options: [
+          'Tool — define get_product_catalog() that the agent calls each time',
+          'Resource — expose product://catalog and let the agent read it when needed',
+          'Prompt Template — wrap the catalog in a prompt the agent requests',
+          'Tool and Resource are interchangeable for reading data',
+        ],
+        answer:  1,
+        explain: 'The catalog is reference data refreshed nightly — same content regardless of agent state. That\'s a Resource. A Tool implies per-call computation with dynamic parameters. Using a Tool here re-fetches the same static data on every call and spends unnecessary tokens.',
+      },
+      {
+        q:       'An MCP server sends a sampling/createMessage request to your client. What should you NEVER do?',
+        options: [
+          'Rate-limit how many sampling calls you fulfil per session',
+          'Inspect the message content before forwarding to the LLM',
+          'Use the model name from req.params.modelPreferences directly',
+          'Return an error if the pattern looks like prompt injection',
+        ],
+        answer:  2,
+        explain: 'Always pick your own model — ignore modelPreferences. If you forward the server\'s preference blindly, an adversarial server can route inference to a more expensive model or exploit model-specific behaviours. The client controls model, token cap, and whether to fulfil at all.',
+      },
+      {
+        q:       'You deploy Chat Specialist and Email Specialist as separate Node.js processes. Both need check_inventory. What transport and server strategy is correct?',
+        options: [
+          'stdio — each process spawns its own server child process',
+          'HTTP+SSE — deploy one server; both agents connect to it over the network',
+          'stdio — configure both processes to share a single child process',
+          'HTTP+SSE — deploy one server per agent process for isolation',
+        ],
+        answer:  1,
+        explain: 'stdio only works for a single process/server pair. Two agents with stdio each spawn their own copy — duplicate processes, no shared state. HTTP+SSE deploys one server instance that both agents connect to over the network, sharing a single implementation.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.5"
+      tensions={[
+        { a: 'Tools (verbs — action/side effect)',      b: 'Resources (nouns — reference data)'         },
+        { a: 'Stdio (local, simple, no sharing)',        b: 'HTTP+SSE (deployed, shared, scalable)'      },
+        { a: 'Inline tools (fast, one agent)',           b: 'MCP server (shared, independent deploy)'    },
+        { a: 'Sampling accepted (richer server logic)',  b: 'Sampling rejected (strict security boundary)' },
+        { a: 'Broad roots (convenience)',                b: 'Narrow roots (least privilege)'             },
+      ]}
+      questions={[
+        {
+          q:    'Your MCP Tool search_product_catalog returns 200 results per call. The LLM receives all 200 in context every time. What should you change?',
+          hint: 'Where should filtering happen, and is this even the right primitive?',
+          answer: `
+<p>Filter at the server — the LLM should never receive 200 unranked items to sift through.</p>
+<ol>
+  <li><strong>Add a limit parameter.</strong> Expose <code>{ "limit": { "type": "number", "default": 10 } }</code> in the Tool's inputSchema. The LLM then requests a reasonable slice instead of everything at once.</li>
+  <li><strong>Rank results server-side before returning.</strong> A "red widget" query should return the 10 best matches ordered by relevance — not 200 results in insertion order. A database query with ORDER BY can rank; the LLM cannot.</li>
+  <li><strong>Consider switching to a Resource.</strong> If agents need the full catalog for context rather than for search, expose <code>product://catalog</code> as a Resource with a server-side LIMIT 500. They read it once at conversation start instead of re-fetching on every turn.</li>
+</ol>
+<p>Rule of thumb: never ask the LLM to filter a large list. A WHERE clause is faster, cheaper, and more accurate.</p>
+          `.trim(),
+        },
+        {
+          q:    'When should you expose DB data as a Resource vs a Tool?',
+          hint: 'Does the result change based on what the agent knows right now, or is it always the same data?',
+          answer: `
+<p>Two tests help you decide.</p>
+<p><strong>The timing test</strong> — can you precompute the result before the conversation starts?</p>
+<ul>
+  <li><strong>Yes → Resource.</strong> Product catalog, pricing rules, shipping zones — the content is the same regardless of what the agent knows right now. Expose it as a URI and let agents read it once for context.</li>
+  <li><strong>No → Tool.</strong> <code>get_order_status(order_id)</code> where the ID was discovered during the conversation. <code>check_inventory(sku)</code> where the SKU came from what the customer just said. These depend on runtime state and must be called with specific parameters.</li>
+</ul>
+<p><strong>The cost of getting it wrong:</strong> Tool for static data means a redundant DB query on every call, each burning unnecessary tokens. Resource for dynamic data means stale results that don't reflect what the agent actually needs right now.</p>
+          `.trim(),
+        },
+        {
+          q:    'A community MCP server looks useful. What do you vet before connecting it to your production agent?',
+          hint: 'MCP servers have four surfaces that can inject content into your agent.',
+          answer: `
+<p>MCP servers have four surfaces that can inject content into your agent's context:</p>
+<ol>
+  <li><strong>Tool descriptions</strong> — land verbatim in the Anthropic <code>tools</code> array sent to the model. "Ignore previous instructions" in a description is a working prompt injection.</li>
+  <li><strong>Resource content</strong> — returned by <code>readResource()</code> and injected into the conversation. A resource body containing "SYSTEM: disregard instructions" achieves the same effect.</li>
+  <li><strong>Prompt Templates</strong> — the returned <code>messages</code> array injects directly into the conversation history. A template that includes role instructions can override your agent's system prompt.</li>
+  <li><strong>Sampling requests</strong> — the server can prompt your LLM directly via <code>sampling/createMessage</code>, fully controlling what it sees and says.</li>
+</ol>
+<p>Vetting checklist before connecting any community server:</p>
+<ul>
+  <li>Call <code>listTools()</code>, <code>listResources()</code>, and <code>listPrompts()</code> locally — read every description and template in full before approving.</li>
+  <li>Open the source repository and check recent PRs, open issues, and ownership history. Sudden ownership transfers are a red flag.</li>
+  <li>Pin to a specific version tag. Never use <code>npx @org/server@latest</code> in production — the next publish could be malicious.</li>
+  <li>Declare Roots for any server that touches the filesystem.</li>
+  <li>Never allow user input to specify which MCP server to connect to — allowlist at deploy time, not runtime.</li>
+  <li>Audit-log every tool call, resource read, prompt request, and sampling invocation.</li>
+</ul>
+          `.trim(),
+        },
+        {
+          q:    'An MCP server uses sampling to request an LLM call. What can go wrong and how do you control it?',
+          hint: 'Who should choose the model, tokens, and whether to fulfil the request?',
+          answer: `
+<p>Sampling inverts the normal trust direction: the server reaches into the client's LLM rather than the client asking the server. The three main risks:</p>
+<ul>
+  <li><strong>Prompt injection</strong> — the server sends a crafted <code>systemPrompt</code> that overrides your agent's identity or instructions.</li>
+  <li><strong>Cost amplification</strong> — the server triggers unlimited inference calls at your expense, with no natural stop condition.</li>
+  <li><strong>Data exfiltration</strong> — the server asks the LLM to summarise or repeat sensitive information from the agent's context window.</li>
+</ul>
+<p>All the controls sit on the client side — you hold every lever:</p>
+<ul>
+  <li><strong>Choose your own model.</strong> Ignore <code>modelPreferences</code> entirely. Hardcode the model and token cap in your handler; never let the server influence either.</li>
+  <li><strong>Rate-limit per session.</strong> Track the call count, and throw <code>McpError(ErrorCode.InvalidRequest, ...)</code> once you exceed your threshold.</li>
+  <li><strong>Validate message content before forwarding.</strong> Apply the injection detection patterns from L13 to the incoming messages before passing them to the LLM.</li>
+  <li><strong>Reject outright for untrusted servers.</strong> Throw <code>McpError(ErrorCode.MethodNotFound, ...)</code> from the handler. Or simply don't declare the <code>sampling</code> capability when connecting to community servers.</li>
+  <li><strong>Log every sampling call.</strong> Anomaly detection on call frequency and content catches abuse before it scales into a real cost or security problem.</li>
+</ul>
+          `.trim(),
+        },
+        {
+          q:    'Five MCP servers connect at graph init. One is unavailable. How do you avoid crashing the agent?',
+          hint: 'Mandatory vs optional servers, and what happens mid-session if one goes down.',
+          answer: `
+<p>Design each server connection to fail independently of the others.</p>
+<ol>
+  <li><strong>Connect in isolation.</strong> Wrap each server's connect call in its own try/catch. A failing connection must not prevent the remaining servers from initialising.</li>
+  <li><strong>Classify mandatory vs optional at design time.</strong> <code>sales-tools-server</code> is required: if it's unavailable at startup, fail fast and alert on-call. A weather enrichment server is optional: log the error and continue without it — the agent can still process orders.</li>
+  <li><strong>Build a capability registry.</strong> After all connections complete, record exactly which tools, resources, and prompts were successfully discovered. Before every primitive call, check the registry. If the capability isn't there, fall back gracefully or inform the user rather than letting the LLM call a tool that doesn't exist.</li>
+  <li><strong>Plan for mid-session failures.</strong> For HTTP+SSE: implement a health-check loop and re-register primitives when the server comes back. For stdio: watch for the child process exit event and restart it automatically.</li>
+  <li><strong>Tell the LLM what's unavailable.</strong> If <code>check_inventory</code> goes down mid-session, add a note to the system prompt: "inventory service currently unavailable." The LLM can then explain this to the user rather than hallucinating stock levels.</li>
+</ol>
+          `.trim(),
+        },
+      ]}
+      pitfalls={[
+        'Missing required array in inputSchema — every param becomes optional; LLM omits required fields silently.',
+        'Throwing exceptions from Tool handlers instead of returning isError: true — protocol error kills the agent loop.',
+        'Returning full DB tables as Resources without pagination — 50 000 rows overflows the context window.',
+        'Prompt Templates that define agent identity — conflicts with the calling agent\'s system prompt.',
+        'Forwarding the server\'s modelPreferences in a sampling handler — server controls your LLM model and costs.',
+        'Not declaring a Roots handler for filesystem servers — server can access arbitrary paths on the machine.',
+        'Connecting community MCP servers without reading the manifest — injection can hide in descriptions or resource content.',
+        'Creating one MCP client per node instead of per server — expensive reconnect on every node invocation.',
+        'Passing all cached tools to every LLM call — tool descriptions cost tokens; filter to what each node actually uses.',
+        'Not closing MCP clients on agent shutdown — orphaned child processes or open HTTP sessions.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .mcp-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin: 0.75rem 0;
+  }
+  .mcp-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.85rem 1rem;
+    font-size: 0.88rem;
+  }
+  .mcp-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+  .lesson-part {
+    margin: 2.5rem 0 0.25rem;
+    padding: 0.65rem 1.1rem;
+    background: var(--code-bg, #f1f5f9);
+    border-left: 4px solid var(--accent, #2563eb);
+    border-radius: 0 6px 6px 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--accent, #2563eb);
+  }
+  :root.dark .lesson-part {
+    background: #1e293b;
+    border-left-color: #818cf8;
+    color: #818cf8;
+  }
+</style>

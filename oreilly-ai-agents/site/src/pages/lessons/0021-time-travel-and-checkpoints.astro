@@ -1,0 +1,457 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const setupCode = `
+import { StateGraph, Annotation, START, END } from '@langchain/langgraph';
+import { MemorySaver } from '@langchain/langgraph';
+
+const AgentState = Annotation.Root({
+  query:    Annotation<string>(),
+  plan:     Annotation<string>(),
+  result:   Annotation<string>(),
+  approved: Annotation<boolean>({ default: () => false }),
+});
+
+const graph = new StateGraph(AgentState)
+  .addNode('plan',    planNode)
+  .addNode('execute', executeNode)
+  .addEdge(START, 'plan')
+  .addEdge('plan', 'execute')
+  .addEdge('execute', END);
+
+// Checkpointing: every step is automatically snapshotted
+const checkpointer = new MemorySaver();
+const app = graph.compile({ checkpointer });
+
+// thread_id groups checkpoints into a conversation / run
+const config = { configurable: { thread_id: 'run-001' } };
+const result = await app.invoke({ query: 'Analyze Q4 revenue trends' }, config);
+`.trim();
+
+const historyCode = `
+// After a run, inspect the full checkpoint timeline
+// States are returned newest-first (reverse chronological order)
+const history = await app.getStateHistory(config);
+
+for await (const snapshot of history) {
+  console.log({
+    checkpoint: snapshot.config.configurable?.checkpoint_id,
+    nextNodes:  snapshot.next,       // which nodes run from here
+    values:     snapshot.values,     // full state at this point
+    createdAt:  snapshot.createdAt,
+  });
+}
+
+// Find the checkpoint just before a specific node ran
+const snapshots: typeof history extends AsyncIterable<infer T> ? T[] : never[] = [];
+for await (const s of app.getStateHistory(config)) snapshots.push(s as any);
+
+// The snapshot BEFORE 'execute' ran = plan node just completed
+const beforeExecute = snapshots.find(s => s.next.includes('execute'));
+console.log('State before execute:', beforeExecute?.values);
+`.trim();
+
+const branchCode = `
+// Branch: fork from a past checkpoint and re-run with modified state
+//
+// 1. Get the snapshot you want to branch from
+const snapshots: any[] = [];
+for await (const s of app.getStateHistory(config)) snapshots.push(s);
+const target = snapshots.find(s => s.next.includes('execute'));
+
+// 2. Update state at that checkpoint — this creates a new branch automatically
+await app.updateState(
+  target.config,           // the checkpoint config (includes checkpoint_id)
+  { plan: 'Revised plan: focus on Q4 growth drivers only' },
+);
+
+// 3. Resume from the checkpoint — null input means "continue from here"
+const branchConfig = { configurable: { thread_id: 'run-001-branch-a' } };
+const branchedResult = await app.invoke(null, {
+  ...target.config,
+  configurable: {
+    ...target.config.configurable,
+    thread_id: 'run-001-branch-a',  // new thread = new timeline
+  },
+});
+
+console.log('Branch result:', branchedResult.result);
+// Original run-001 timeline is untouched
+`.trim();
+
+const abTestCode = `
+// A/B test: create two branches from the same decision point
+// and compare outcomes side-by-side
+
+async function abTestFromCheckpoint(
+  app: ReturnType<typeof graph.compile>,
+  baseConfig: typeof config,
+  variantA: Record<string, unknown>,
+  variantB: Record<string, unknown>,
+) {
+  const snapshots: any[] = [];
+  for await (const s of app.getStateHistory(baseConfig)) snapshots.push(s);
+
+  // Both branches start from the same checkpoint
+  const branchPoint = snapshots.find(s => s.next.includes('execute'));
+
+  const [resultA, resultB] = await Promise.all([
+    (async () => {
+      await app.updateState(branchPoint.config, variantA);
+      return app.invoke(null, {
+        ...branchPoint.config,
+        configurable: { ...branchPoint.config.configurable, thread_id: 'branch-a' },
+      });
+    })(),
+    (async () => {
+      await app.updateState(branchPoint.config, variantB);
+      return app.invoke(null, {
+        ...branchPoint.config,
+        configurable: { ...branchPoint.config.configurable, thread_id: 'branch-b' },
+      });
+    })(),
+  ]);
+
+  return { variantA: resultA, variantB: resultB };
+}
+`.trim();
+
+const mindMap = `
+# Time Travel & Checkpoints
+## Core Concepts
+### Checkpoints — auto snapshots
+### State history — full timeline
+### Branching — alternate timelines
+## Checkpoint Anatomy
+### Keyed by thread_id and checkpoint_id
+### Stores full state + next nodes
+### getStateHistory — newest first
+## Branching Workflow
+### Find target checkpoint
+### updateState to inject changes
+### invoke null to resume branch
+### Original timeline untouched
+## Four Use Cases
+### Interactive debugging
+### HITL corrections
+### A/B testing decisions
+### Post-mortem analysis
+## Checkpointer Comparison
+### MemorySaver — dev / testing only
+### PostgresSaver — production / durable
+### Cross-process only with Postgres
+## Tensions
+### Full history vs storage cost
+### Branching insight vs cleanup discipline
+### MemorySaver zero-setup vs PostgresSaver durability
+## Pitfalls
+### MemorySaver in production
+### Branches without cleanup strategy
+### Assuming time travel undoes side effects
+### Sequential thread IDs exposing user data
+`;
+---
+
+<LessonLayout
+  title="L21 — Time Travel & Checkpoints"
+>
+
+  <LessonHeader
+    num="L21"
+    title="Time Travel & Checkpoints"
+    subtitle="LangGraph's checkpoint system as Git for agent state — navigate history, branch from any step, debug by replay, and run A/B tests from a single decision point."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      L17 showed how <code>interrupt()</code> pauses a graph for human approval before
+      an action executes. Time travel is the complementary power: once a run has
+      <em>already</em> completed (or failed), you can navigate back to any prior state,
+      fork a new timeline from it, and re-run with corrections — without touching the
+      original run.
+    </p>
+
+    <LessonCallout variant="key" title="Think of it as Git for agent state">
+      <p>
+        Every step in a LangGraph run is a commit. <code>getStateHistory()</code> is
+        <code>git log</code>. Branching from a checkpoint is <code>git checkout &lt;sha&gt; -b new-branch</code>.
+        The original timeline is always preserved — you're never destructively editing a run.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">The Three Core Concepts</h2>
+
+    <div class="concept-grid">
+      <div class="concept-card">
+        <div class="concept-title">Checkpoints</div>
+        <p>
+          Automatic snapshots taken after every node execution. Each stores the full state
+          values, metadata, and which nodes run next. Identified by <code>thread_id</code>
+          (which conversation / run) and <code>checkpoint_id</code> (which moment within it).
+        </p>
+      </div>
+      <div class="concept-card">
+        <div class="concept-title">State History</div>
+        <p>
+          The complete timeline of all checkpoints for a thread. Returned in
+          <strong>reverse chronological order</strong> (newest first) via
+          <code>getStateHistory()</code>. Enables full replay, auditing, and post-mortem
+          analysis of any run.
+        </p>
+      </div>
+      <div class="concept-card">
+        <div class="concept-title">Branching</div>
+        <p>
+          Fork execution from any checkpoint. Call <code>updateState()</code> at the target
+          checkpoint (optionally changing state), then <code>invoke(null, branchConfig)</code>.
+          The original timeline is untouched — you've created an alternate timeline.
+        </p>
+      </div>
+    </div>
+
+    <h2 class="lesson-heading">Step 1 — Enable Checkpointing</h2>
+
+    <p>
+      All you need is a <code>MemorySaver</code> (or <code>PostgresSaver</code> for
+      production) passed at compile time. Every node execution is then automatically
+      snapshotted — no extra code in your nodes.
+    </p>
+
+    <CodeBlock lang="typescript" label="setup-with-checkpointing.ts" code={setupCode} />
+
+    <h2 class="lesson-heading">Step 2 — Inspect History</h2>
+
+    <p>
+      After a run completes (or fails), iterate the history to find the exact moment you
+      want to revisit. The <code>next</code> field tells you which nodes were <em>about to</em>
+      run at each snapshot — use it to find the checkpoint immediately before a specific node.
+    </p>
+
+    <CodeBlock lang="typescript" label="inspect-history.ts" code={historyCode} />
+
+    <LessonDiagram definition={`
+flowchart LR
+  subgraph Timeline ["Thread run-001 — checkpoint timeline"]
+    C1(["① START\\nquery set"]):::cp -->
+    C2(["② plan node\\nplan drafted"]):::cp -->
+    C3(["③ execute node\\nresult produced"]):::cp -->
+    C4(["④ END"]):::done
+  end
+
+  C2 -->|"branch from here"| B1(["① plan drafted\\n(modified plan)"]):::branch
+  B1 --> B2(["② execute node\\nbranch result"]):::branch
+  B2 --> B3(["③ END"]):::done2
+
+  classDef cp     fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef done   fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef branch fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done2  fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+    `} />
+
+    <h2 class="lesson-heading">Step 3 — Branch and Resume</h2>
+
+    <p>
+      <code>updateState()</code> injects new values at the checkpoint.
+      <code>invoke(null, ...)</code> with <code>null</code> as input signals LangGraph
+      to <em>continue from the checkpoint</em> rather than starting fresh.
+    </p>
+
+    <CodeBlock lang="typescript" label="branch-and-resume.ts" code={branchCode} />
+
+    <h2 class="lesson-heading">Four Use Cases</h2>
+
+    <div class="use-case-grid">
+      <div class="uc-card">
+        <div class="uc-icon">🔍</div>
+        <div class="uc-title">Interactive Debugging</div>
+        <p>
+          Agent produced a wrong answer. Navigate to the decision point before the bad
+          tool call, inject a corrected intermediate value, re-run — see the correct path
+          without touching production data.
+        </p>
+      </div>
+      <div class="uc-card">
+        <div class="uc-icon">👤</div>
+        <div class="uc-title">HITL Corrections</div>
+        <p>
+          User reviews the agent's proposed plan and edits it. <code>updateState()</code>
+          at the plan checkpoint with the human-revised plan, then resume. The original
+          attempt is preserved for analysis (complements L17's <code>interrupt()</code>).
+        </p>
+      </div>
+      <div class="uc-card">
+        <div class="uc-icon">🔀</div>
+        <div class="uc-title">A/B Testing Decisions</div>
+        <p>
+          Branch two alternate timelines from the same decision point with different
+          parameters. Run both in parallel, compare outcomes. Ship the better-performing
+          path.
+        </p>
+      </div>
+      <div class="uc-card">
+        <div class="uc-icon">📋</div>
+        <div class="uc-title">Post-Mortem Analysis</div>
+        <p>
+          Production agent failed at step 7 of 12. Replay the full history, identify the
+          root cause, test a fix locally by branching from the failure point — before
+          deploying the fix.
+        </p>
+      </div>
+    </div>
+
+    <h2 class="lesson-heading">A/B Testing from a Single Checkpoint</h2>
+
+    <CodeBlock lang="typescript" label="ab-test.ts" code={abTestCode} />
+
+    <h2 class="lesson-heading">MemorySaver vs PostgresSaver</h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>MemorySaver</th><th>PostgresSaver</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Storage</td><td>In-process memory — lost on restart</td><td>Persisted to Postgres — survives restarts</td></tr>
+          <tr><td>Use case</td><td>Development, testing, short demos</td><td>Production — long-running and multi-session workflows</td></tr>
+          <tr><td>History</td><td>Available only while process is running</td><td>Full history queryable at any time, even weeks later</td></tr>
+          <tr><td>Cross-process</td><td>No</td><td>Yes — any worker can resume any thread</td></tr>
+          <tr><td>Setup</td><td><code>new MemorySaver()</code></td><td><code>PostgresSaver.fromConnString(url)</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="thread_id is your primary handle">
+      <p>
+        Everything — history, branching, resuming — flows through <code>thread_id</code>.
+        Design it to be meaningful: <code>user-{'{'}userId{'}'}-session-{'{'}sessionId{'}'}</code>
+        makes post-mortem queries trivial. A random UUID makes them a needle-in-a-haystack hunt.
+      </p>
+    </LessonCallout>
+
+    <LessonQuiz questions={[
+      {
+        q:       'You call getStateHistory() and iterate the results. In what order are checkpoints returned?',
+        options: [
+          'Oldest first (chronological)',
+          'Newest first (reverse chronological)',
+          'Sorted by node name alphabetically',
+          'Random — order is not guaranteed',
+        ],
+        answer:  1,
+        explain: 'LangGraph returns state history newest-first (reverse chronological). This matches the most common use case: you want the most recent failure, not the first step. Use .find() to locate a specific checkpoint by its next nodes.',
+      },
+      {
+        q:       'What does passing null as the first argument to app.invoke() signal to LangGraph?',
+        options: [
+          'Start a fresh run with empty state',
+          'Skip the first node in the graph',
+          'Continue execution from the current checkpoint',
+          'Reset all state to default values',
+        ],
+        answer:  2,
+        explain: 'null as input tells LangGraph to continue from wherever the thread\'s checkpoint left off, rather than starting a new run. This is the mechanism that makes branching and resumption work — you update state at a checkpoint, then invoke(null) to resume from there.',
+      },
+      {
+        q:       'An agent run failed mid-way in production two days ago. Which checkpointer lets you replay that specific run today for post-mortem analysis?',
+        options: [
+          'MemorySaver — it retains history across restarts',
+          'PostgresSaver — history persists to the database',
+          'Either — both persist history indefinitely',
+          'Neither — you must re-run the original input',
+        ],
+        answer:  1,
+        explain: 'Only PostgresSaver persists checkpoints across process restarts. MemorySaver lives in-process — when the server restarts, all history is lost. For post-mortem analysis of production runs, PostgresSaver (or another external store) is required.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§4.8"
+      tensions={[
+        { a: 'Full checkpoint history (complete audit trail)', b: 'Storage cost at scale (every step for every run)' },
+        { a: 'Branching for A/B testing (insight)', b: 'Branching proliferation (cleanup discipline required)' },
+        { a: 'MemorySaver (zero setup)', b: 'PostgresSaver (required for any real durability)' },
+      ]}
+      questions={[
+        {
+          q:      'Your agent runs a 50-step research workflow used by 10,000 users per day. You want full checkpoint history for debugging. What storage and lifecycle concerns must you plan for?',
+          hint:   'Calculate the write volume, then think about what you actually need to keep.',
+          answer: '<p>At 50 checkpoints × 10,000 runs/day = 500,000 checkpoint writes/day. Each checkpoint stores the full state (potentially kilobytes to megabytes depending on tool outputs and conversation history). Storage concerns: (1) <strong>TTL / retention policy</strong> — do you need checkpoints for 30 days? 90 days? Implement automatic cleanup for expired threads; (2) <strong>Selective checkpointing</strong> — consider checkpointing only at key decision nodes rather than every step to reduce volume by 80%+; (3) <strong>State compression</strong> — if tool outputs are large, store them as references (S3 URLs) rather than inline in the checkpoint; (4) <strong>Partition by thread_id</strong> in Postgres for efficient per-thread queries.</p>',
+        },
+        {
+          q:      'Time travel lets you re-run from any checkpoint with modified state. What categories of bugs does this NOT help you debug, and why?',
+          hint:   'Think about side effects that already happened before the checkpoint you branch from.',
+          answer: '<p>Time travel only helps with <em>pure state</em> issues — cases where re-running with different state produces different outcomes. It does NOT help with: (1) <strong>Already-executed side effects</strong> — if the agent sent an email or wrote to a database before the failure, branching from after that point means those side effects still happened and cannot be undone via time travel; (2) <strong>Non-deterministic external services</strong> — if you branch and re-run a web search node, you may get different results from the search API than the original run; (3) <strong>Flaky external dependencies</strong> — if a tool failed due to a transient network error, branching may succeed simply because the network recovered, not because you found a real fix; (4) <strong>Model non-determinism</strong> — even with the same state, LLM outputs vary at temperature &gt;0. For (1), you need idempotent tools or rollback mechanisms separate from time travel.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Using MemorySaver in production — any server restart loses all checkpoint history, making post-mortem analysis impossible.',
+        'Treating branches as disposable without a cleanup strategy — orphaned thread IDs accumulate in the database indefinitely.',
+        'Assuming time travel undoes side effects — external API calls, emails, and database writes that happened before the branch point are not reversed.',
+        'Using sequential thread IDs (run-1, run-2) that expose user count and order — use UUIDs or hashed identifiers instead.',
+      ]}
+    />
+
+  </div>
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .concept-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .concept-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.1rem 1.25rem;
+    background: #f8fafc;
+  }
+  .concept-title {
+    font-weight: 700;
+    font-size: .9rem;
+    margin-bottom: .5rem;
+    color: var(--accent);
+  }
+  .concept-card p {
+    font-size: .82rem;
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .use-case-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .uc-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.1rem 1.25rem;
+  }
+  .uc-icon { font-size: 1.4rem; margin-bottom: .4rem; }
+  .uc-title {
+    font-weight: 700;
+    font-size: .88rem;
+    margin-bottom: .4rem;
+  }
+  .uc-card p {
+    font-size: .8rem;
+    color: var(--muted);
+    line-height: 1.55;
+    margin: 0;
+  }
+</style>

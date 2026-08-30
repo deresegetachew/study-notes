@@ -1,0 +1,500 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const errorCategoryCode = `
+// Classify errors before deciding on a recovery pathway
+type ErrorCategory = 'transient' | 'permanent' | 'partial' | 'cascading';
+
+function classifyError(err: unknown): ErrorCategory {
+  if (!(err instanceof Error)) return 'permanent';
+
+  const msg = err.message.toLowerCase();
+
+  // Transient: temporary, worth retrying
+  if (msg.includes('rate limit') || msg.includes('timeout') ||
+      msg.includes('503') || msg.includes('connection reset')) {
+    return 'transient';
+  }
+
+  // Permanent: input/auth problems — retrying won't help
+  if (msg.includes('400') || msg.includes('401') ||
+      msg.includes('403') || msg.includes('invalid input')) {
+    return 'permanent';
+  }
+
+  // Partial: some work succeeded, some failed — handle selectively
+  if (msg.includes('partial') || msg.includes('some items failed')) {
+    return 'partial';
+  }
+
+  // Default: treat unknown errors as potentially cascading — fail loudly
+  return 'cascading';
+}
+`.trim();
+
+const recoveryPathsCode = `
+import { StateGraph, Annotation, START, END } from '@langchain/langgraph';
+
+const WorkflowState = Annotation.Root({
+  input:        Annotation<string>(),
+  result:       Annotation<string>(),
+  errorType:    Annotation<string>(),
+  retryCount:   Annotation<number>({ default: () => 0 }),
+  escalated:    Annotation<boolean>({ default: () => false }),
+});
+
+// Detection → Decision → Action routing
+function routeOnError(state: typeof WorkflowState.State) {
+  if (!state.errorType)            return 'done';
+  if (state.errorType === 'transient' && state.retryCount < 3) return 'retry';
+  if (state.errorType === 'permanent') return 'fallback';
+  if (state.errorType === 'partial')   return 'skip';
+  if (state.escalated)                 return 'abort';
+  return 'escalate';   // hand off to human
+}
+
+const graph = new StateGraph(WorkflowState)
+  .addNode('execute',  executeNode)
+  .addNode('retry',    retryNode)     // re-attempt the same operation
+  .addNode('fallback', fallbackNode)  // simpler alternative approach
+  .addNode('skip',     skipNode)      // continue without the failed step
+  .addNode('escalate', escalateNode)  // human-in-the-loop intervention
+  .addNode('abort',    abortNode)     // graceful termination with message
+  .addNode('done',     doneNode)
+  .addEdge(START, 'execute')
+  .addConditionalEdges('execute', routeOnError)
+  .addEdge('retry', 'execute')        // retry loops back to execute
+  .addEdge('fallback', 'done')
+  .addEdge('skip',     'done')
+  .addEdge('escalate', 'done')
+  .addEdge('abort',    END);
+`.trim();
+
+const circuitBreakerCode = `
+// Circuit breaker — prevents cascading failures by stopping calls to a
+// failing dependency and routing immediately to fallback during recovery.
+type CircuitState = 'closed' | 'open' | 'half-open';
+
+interface CircuitBreakerConfig {
+  failureThreshold: number;   // failures before opening
+  recoveryTimeout:  number;   // ms to wait before half-open test
+  testRequests:     number;   // half-open: how many test calls before closing
+}
+
+class CircuitBreaker {
+  private state:        CircuitState = 'closed';
+  private failures      = 0;
+  private lastFailureAt = 0;
+  private testCount     = 0;
+
+  constructor(private name: string, private cfg: CircuitBreakerConfig) {}
+
+  async call<T>(fn: () => Promise<T>, fallback: () => T): Promise<T> {
+    if (this.state === 'open') {
+      // Check if recovery timeout has elapsed
+      if (Date.now() - this.lastFailureAt >= this.cfg.recoveryTimeout) {
+        this.state     = 'half-open';
+        this.testCount = 0;
+        console.log(\`[\${this.name}] Circuit half-open — testing recovery\`);
+      } else {
+        console.log(\`[\${this.name}] Circuit open — using fallback\`);
+        return fallback();
+      }
+    }
+
+    try {
+      const result = await fn();
+      this.onSuccess();
+      return result;
+    } catch (err) {
+      this.onFailure();
+      return fallback();
+    }
+  }
+
+  private onSuccess() {
+    if (this.state === 'half-open') {
+      this.testCount++;
+      if (this.testCount >= this.cfg.testRequests) {
+        this.state    = 'closed';
+        this.failures = 0;
+        console.log(\`[\${this.name}] Circuit closed — service recovered\`);
+      }
+    } else {
+      this.failures = 0;
+    }
+  }
+
+  private onFailure() {
+    this.failures++;
+    this.lastFailureAt = Date.now();
+
+    if (this.state === 'half-open' ||
+        this.failures >= this.cfg.failureThreshold) {
+      this.state = 'open';
+      console.log(\`[\${this.name}] Circuit opened after \${this.failures} failures\`);
+    }
+  }
+}
+
+// Usage in an agent tool call
+const searchBreaker = new CircuitBreaker('web-search', {
+  failureThreshold: 5,
+  recoveryTimeout:  30_000,   // 30 seconds
+  testRequests:     2,
+});
+
+async function searchWithBreaker(query: string): Promise<string> {
+  return searchBreaker.call(
+    () => webSearchAPI(query),
+    () => \`Search unavailable — using cached results for: \${query}\`,
+  );
+}
+`.trim();
+
+const mindMap = `
+# Error Recovery & Circuit Breakers
+## Four Error Categories
+### Transient (retry with backoff)
+### Permanent (fallback or abort)
+### Partial (skip, continue)
+### Cascading (circuit breaker)
+## Five Recovery Pathways
+### Retry
+### Fallback
+### Skip
+### Escalate (HITL)
+### Abort
+## Graph-Level Wiring
+### Error as graph nodes
+### Conditional routing
+### Retry loops back
+## Circuit Breaker Pattern
+### Closed (normal operation)
+### Open (fallback only)
+### Half-open (test recovery)
+## Tensions
+### Aggressive retry (resilience) vs Retry amplification (cost)
+### Circuit breaker (fast fail) vs False-positive opens
+### Abort loudly (correctness) vs Degrade gracefully (UX)
+## Pitfalls
+### Retrying permanent errors (400, 401)
+### No jitter in retry backoff
+### Circuit breaker threshold too high
+### Error info not carried through state
+### Fallback paths designed after failures
+`;
+---
+
+<LessonLayout
+  title="L29 — Error Recovery & Circuit Breakers"
+>
+
+  <LessonHeader
+    num="L29"
+    title="Error Recovery & Circuit Breakers"
+    subtitle="Four error categories, five recovery pathways wired into a LangGraph workflow, and the circuit breaker pattern that prevents one failing dependency from cascading across your whole agent."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      L12 introduced error taxonomy and exponential backoff at the tool level. This lesson goes
+      to the workflow level: how to wire detection → decision → recovery <em>as graph nodes</em>,
+      and how to stop a flaky external service from taking down your entire agent with the
+      circuit breaker pattern.
+    </p>
+
+    <LessonCallout variant="warn" title="Silent error swallowing is the most dangerous pattern">
+      <p>
+        Catch-all exception handlers that log and continue mask serious issues. The agent
+        appears to work but produces subtly wrong results. Be explicit about which errors are
+        recoverable — and let unrecoverable errors fail loudly.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">The Four Error Categories</h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Category</th><th>What it means</th><th>Recovery instinct</th><th>Examples</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Transient</strong></td>
+            <td>Temporary — will likely succeed on retry</td>
+            <td>Retry with backoff</td>
+            <td>Rate limit 429, network timeout, 503 Service Unavailable</td>
+          </tr>
+          <tr>
+            <td><strong>Permanent</strong></td>
+            <td>Retrying will not help — the input or auth is wrong</td>
+            <td>Fallback or abort</td>
+            <td>400 Bad Request, 401 Unauthorized, invalid tool parameters</td>
+          </tr>
+          <tr>
+            <td><strong>Partial</strong></td>
+            <td>Some operations succeeded, others failed</td>
+            <td>Skip the failed parts, continue with what worked</td>
+            <td>Batch tool call where 3/5 items processed successfully</td>
+          </tr>
+          <tr>
+            <td><strong>Cascading</strong></td>
+            <td>One failure triggers downstream failures</td>
+            <td>Circuit breaker — stop the cascade at source</td>
+            <td>DB down → all tool calls fail → agent loops → costs spiral</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="typescript" label="classify-error.ts" code={errorCategoryCode} />
+
+    <h2 class="lesson-heading">The Five Recovery Pathways</h2>
+
+    <div class="pathway-grid">
+      <div class="pw-card pw--retry">
+        <div class="pw-name">Retry</div>
+        <p>Re-attempt the same operation. Always use exponential backoff with jitter to avoid thundering herd. Set a hard retry limit (3 attempts is a reasonable default for transient errors).</p>
+      </div>
+      <div class="pw-card pw--fallback">
+        <div class="pw-name">Fallback</div>
+        <p>Route to a simpler alternative: a different model, a cached result, or a reduced-capability path. Fallback paths should be designed during workflow design — not discovered at failure time.</p>
+      </div>
+      <div class="pw-card pw--skip">
+        <div class="pw-name">Skip</div>
+        <p>Continue the workflow without the failed component. Carry forward what succeeded. Best for partial failures where the missing result doesn't block downstream steps.</p>
+      </div>
+      <div class="pw-card pw--escalate">
+        <div class="pw-name">Escalation</div>
+        <p>Human-in-the-loop intervention. The agent pauses, surfaces the error to a human, and waits for guidance before continuing. Reserve for cases where automated recovery is unsafe.</p>
+      </div>
+      <div class="pw-card pw--abort">
+        <div class="pw-name">Abort</div>
+        <p>Terminate gracefully with an informative message. The right choice when continuing would produce wrong results, cause harm, or waste significant cost on a task that can't succeed.</p>
+      </div>
+    </div>
+
+    <h2 class="lesson-heading">Wiring Recovery as Graph Nodes</h2>
+
+    <p>
+      Model the error handling as explicit graph nodes with conditional routing — not as
+      try/catch blocks buried inside a single node. This makes the recovery logic visible,
+      testable, and independently modifiable.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart TD
+  A([START]):::step --> B[execute]:::step
+  B -->|success| G[done]:::done
+  B -->|transient, retries left| C[retry]:::retry
+  B -->|permanent| D[fallback]:::fallback
+  B -->|partial| E[skip]:::fallback
+  B -->|needs human| F[escalate]:::warn
+  B -->|unrecoverable| H([abort]):::abort
+  C --> B
+  D --> G
+  E --> G
+  F --> G
+
+  classDef step     fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef done     fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef retry    fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef fallback fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef warn     fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+  classDef abort    fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <CodeBlock lang="typescript" label="recovery-workflow.ts" code={recoveryPathsCode} />
+
+    <h2 class="lesson-heading">Circuit Breakers</h2>
+
+    <p>
+      Retrying is good for transient errors — but if a dependency is truly down, retrying on
+      every call wastes time and money and can cause cascading failures. The circuit breaker
+      pattern <em>stops calling the failing service</em> and routes immediately to a fallback
+      until the service has had time to recover.
+    </p>
+
+    <div class="circuit-states">
+      <div class="cs-state cs--closed">
+        <div class="cs-label">Closed</div>
+        <p>Normal operation. All requests pass through to the service. Failure count is tracked.</p>
+        <div class="cs-transition">→ Open after N consecutive failures</div>
+      </div>
+      <div class="cs-arrow">→</div>
+      <div class="cs-state cs--open">
+        <div class="cs-label">Open</div>
+        <p>Service is failing. All requests skip the service and go directly to fallback. Recovery timer starts.</p>
+        <div class="cs-transition">→ Half-Open after timeout expires</div>
+      </div>
+      <div class="cs-arrow">→</div>
+      <div class="cs-state cs--half">
+        <div class="cs-label">Half-Open</div>
+        <p>Test recovery: allow a limited number of requests through. If they succeed, close the circuit. If they fail, re-open.</p>
+        <div class="cs-transition">→ Closed (success) or Open (failure)</div>
+      </div>
+    </div>
+
+    <CodeBlock lang="typescript" label="circuit-breaker.ts" code={circuitBreakerCode} />
+
+    <LessonCallout variant="tip" title="Design fallback paths at workflow design time">
+      <p>
+        Every node that calls an external service should have a planned fallback path —
+        a simpler model, a cached result, a graceful degradation message. Discovering at
+        3am that there's no fallback for a critical node is the wrong time to design one.
+      </p>
+    </LessonCallout>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Your web search tool returns a 429 Too Many Requests error. Which error category is this, and what is the correct first recovery action?',
+        options: [
+          'Permanent — fall back to cached results immediately',
+          'Transient — retry with exponential backoff',
+          'Cascading — open the circuit breaker',
+          'Partial — skip this tool call and continue',
+        ],
+        answer:  1,
+        explain: 'A 429 rate-limit error is transient — the service is available but temporarily throttling requests. Retry with exponential backoff (and jitter to avoid thundering herd). If retries still fail after N attempts, then escalate to fallback.',
+      },
+      {
+        q:       'A circuit breaker is in the Half-Open state. What does this mean, and what determines whether it transitions to Closed or back to Open?',
+        options: [
+          'The service is down — all requests use fallback until manual reset',
+          'A test phase: limited requests go through, and success/failure determines the next state',
+          'The circuit is warming up and will automatically close after 60 seconds',
+          'Half-open is a permanent state for degraded services',
+        ],
+        answer:  1,
+        explain: 'Half-Open is a recovery test phase. After the open timeout expires, the circuit allows a limited number of test requests through. If those test requests succeed, the circuit closes (normal operation resumes). If they fail, the circuit re-opens and the recovery timeout starts again.',
+      },
+      {
+        q:       'A batch tool call processes 5 documents. 3 succeed and 2 fail with permanent errors. Which recovery pathway is most appropriate?',
+        options: [
+          'Abort — because the operation did not fully complete',
+          'Retry — retry the full batch including the 3 that succeeded',
+          'Skip — continue the workflow using the 3 successful results',
+          'Escalate — pause and ask a human which 2 documents to reprocess',
+        ],
+        answer:  2,
+        explain: 'Partial failures call for the Skip pathway: take the results that succeeded (3 documents) and continue the workflow without the failed components. Aborting discards good work; retrying the full batch re-processes documents unnecessarily; escalation is too heavyweight for a recoverable partial result.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§4.7"
+      tensions={[
+        { a: 'Aggressive retry (resilience)', b: 'Retry amplification (cost, cascading load)' },
+        { a: 'Circuit breaker (fast fail)', b: 'False-positive opens (blocking a healthy service)' },
+        { a: 'Abort loudly on unknown errors (correctness)', b: 'Degrade gracefully (user experience)' },
+      ]}
+      questions={[
+        {
+          q:      'Your agent has three tools: web search, database lookup, and LLM summarizer. The database is down. Without a circuit breaker, how does this failure cascade — and how does a circuit breaker contain it?',
+          hint:   'Trace what happens to each invocation of the database tool during the outage.',
+          answer: '<p>Without a circuit breaker: every agent invocation that reaches the database tool waits for the timeout (typically 5–30 seconds), then fails. If 100 concurrent agents are running, that is 100 threads blocked waiting on timeouts simultaneously. This exhausts thread pools, queues back up, and other tools (web search, summarizer) become unreachable because workers are consumed waiting on the dead database. The outage cascades from one service to the whole agent system. With a circuit breaker: after the first N failures, the circuit opens. Subsequent calls skip the database immediately (microseconds, not seconds) and return the fallback value. Workers are free immediately, other tools remain responsive, and the agent gracefully degrades (returning partial results from other tools) rather than failing completely. The half-open phase then tests recovery without risking re-opening the flood.</p>',
+        },
+        {
+          q:      'You are setting the failure threshold and recovery timeout for a circuit breaker on a payment API. What considerations should guide your choices — and why are the defaults for a web search API inappropriate here?',
+          hint:   'Think about the cost of a false positive open vs. a false positive closed in each domain.',
+          answer: '<p>For a payment API: (1) <strong>Failure threshold should be low</strong> (1–2 failures, not 5) — a payment failure has direct financial impact, and you want to detect problems fast; (2) <strong>Recovery timeout should be longer</strong> (60–120 seconds) — payment systems often have rolling recovery procedures; re-testing too early creates unnecessary failed payment attempts; (3) <strong>Test requests in half-open should be small</strong> (1, not 5) — you don\'t want to send 5 real payment requests as a recovery test. For a web search API, the cost of a false positive (unnecessary open) is just a degraded search experience — you can afford a higher threshold and shorter recovery. For payments, the cost of a false negative (closed circuit when service is actually flaky) is failed transactions and potential double-charges. Different services need different tuning.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Retrying permanent errors (400, 401) — the error won\'t resolve on retry; you\'re wasting budget and adding latency for a guaranteed failure.',
+        'No jitter in retry backoff — synchronized retries from multiple agents all hitting at the same interval amplify load on an already-struggling service.',
+        'Setting circuit breaker thresholds too high — a threshold of 50 failures means 50 slow timeouts before the circuit opens; use 3–5 for critical paths.',
+        'Not carrying error information through workflow state — downstream nodes need to know what failed to make informed decisions about how to handle partial results.',
+        'Designing fallback paths after encountering failures in production — fallbacks must be designed and tested before the service fails.',
+      ]}
+    />
+
+  </div>
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .pathway-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: .85rem;
+    margin: 1.5rem 0;
+  }
+  .pw-card {
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    border-left: 4px solid;
+  }
+  .pw--retry    { background: #fef9c3; border-color: #ca8a04; }
+  .pw--fallback { background: #ede9fe; border-color: #7c3aed; }
+  .pw--skip     { background: #dbeafe; border-color: #2563eb; }
+  .pw--escalate { background: #ffedd5; border-color: #ea580c; }
+  .pw--abort    { background: #fee2e2; border-color: #dc2626; }
+  .pw-name {
+    font-weight: 700;
+    font-size: .88rem;
+    margin-bottom: .4rem;
+  }
+  .pw-card p {
+    font-size: .79rem;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  .circuit-states {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin: 1.5rem 0;
+    flex-wrap: wrap;
+  }
+  .cs-state {
+    flex: 1;
+    min-width: 160px;
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--border);
+  }
+  .cs--closed  { background: #dcfce7; }
+  .cs--open    { background: #fee2e2; }
+  .cs--half    { background: #fef9c3; }
+  .cs-label {
+    font-weight: 700;
+    font-size: .9rem;
+    margin-bottom: .4rem;
+  }
+  .cs-state p {
+    font-size: .8rem;
+    color: var(--muted);
+    margin: 0 0 .5rem;
+    line-height: 1.5;
+  }
+  .cs-transition {
+    font-size: .72rem;
+    font-style: italic;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    padding-top: .4rem;
+    margin-top: .4rem;
+  }
+  .cs-arrow {
+    display: flex;
+    align-items: center;
+    padding: 0 .4rem;
+    color: var(--muted);
+    font-size: 1.2rem;
+    flex-shrink: 0;
+  }
+</style>

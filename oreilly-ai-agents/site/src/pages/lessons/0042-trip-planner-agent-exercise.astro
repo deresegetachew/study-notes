@@ -1,0 +1,808 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const stateCode = `
+import { Annotation, messagesStateReducer } from '@langchain/langgraph';
+import { BaseMessage } from '@langchain/core/messages';
+
+interface TripPreferences {
+  origin:                string;
+  destination:           string;
+  start_date:            string;       // ISO date
+  end_date:              string;
+  budget:                { amount: number; currency: string };
+  passengers:            number;
+  interests:             string[];
+  dietary_restrictions?: string[];
+}
+
+interface PlanStep {
+  step_id:    string;          // "S1", "S2", etc.
+  name:       string;          // human-readable description
+  tool:       string;          // tool name to call
+  args:       Record<string, unknown>;
+  depends_on: string[];        // empty = run immediately (parallel-eligible)
+  status:     'pending' | 'in-progress' | 'done' | 'failed';
+  result?:    unknown;
+  error?:     string;
+}
+
+interface BudgetLine {
+  step_id:     string;
+  description: string;
+  amount:      number;
+}
+
+export const TripPlannerState = Annotation.Root({
+  messages:             Annotation<BaseMessage[]>({ reducer: messagesStateReducer }),
+
+  // Phase 1 — preference gathering (ReAct loop)
+  preferences:          Annotation<TripPreferences | null>({ default: () => null }),
+  preferencesConfirmed: Annotation<boolean>({ default: () => false }),
+
+  // Phase 2 — Plan-and-Execute
+  plan:                 Annotation<PlanStep[]>({ default: () => [] }),
+  planRevision:         Annotation<number>({ default: () => 0 }),
+
+  // Budget tracking — accumulated across execution steps
+  budgetLines:          Annotation<BudgetLine[]>({ default: () => [], reducer: (prev, next) => [...prev, ...next] }),
+  totalSpent:           Annotation<number>({ default: () => 0, reducer: (prev, next) => prev + next }),
+  budgetBreached:       Annotation<boolean>({ default: () => false }),
+
+  // Final output
+  itinerarySummary:     Annotation<string | null>({ default: () => null }),
+});
+`;
+
+const plannerPromptCode = `
+// Planner node — Sonnet (or Opus for complex trips), no tools
+// Single call that generates the complete execution plan.
+// The most important output: depends_on correctly identifies which steps are independent.
+
+export const PLANNER_PROMPT = \`
+You are a travel planning agent. Given confirmed trip preferences, generate a complete
+step-by-step execution plan. Return ONLY valid JSON — no prose.
+
+## Plan format
+{
+  "steps": [
+    {
+      "step_id": "S1",
+      "name": "human-readable description",
+      "tool": "tool_name",
+      "args": { ... },
+      "depends_on": []   // empty = can start immediately (run in parallel with other empty-depends steps)
+    }
+  ]
+}
+
+## Dependency rules — this is the most important part
+- Steps with no dependencies (depends_on: []) run IN PARALLEL. Mark as many as possible.
+- A step depends on another only when it NEEDS that step's output to fill its own args.
+- Example: search_flights, search_hotels, check_visa_requirements, get_weather_forecast
+  all have no dependencies — run all four in parallel at the start.
+- Example: search_activities NEEDS the weather forecast to filter bad-weather days → depends on get_weather_forecast.
+- Example: calculate_budget NEEDS all search results → depends on all search steps.
+
+## Required steps (always include)
+1. check_visa_requirements — do this first (in parallel); nothing else is worth planning if entry is denied
+2. get_weather_forecast — informs activities and packing advice
+3. search_flights — the largest cost item; search first
+4. search_hotels — parallel with flights
+5. search_activities — after weather; one call per day of the trip
+6. search_restaurants — after weather; one call per key meal
+7. calculate_budget — last step; tallies all results against the budget
+
+## Budget check
+If search results from earlier steps collectively exceed the budget, note it in the
+calculate_budget step and flag it. The re-planner will handle it — do not truncate the plan yourself.
+\`;
+`;
+
+const executorCode = `
+// executor-node.ts
+// Finds all ready steps (pending + all dependencies met) and runs them in parallel.
+// This is the core advantage of Plan-and-Execute over ReAct:
+// ReAct would call search_flights, then search_hotels, then search_activities sequentially.
+// Here all three fire simultaneously the moment their dependencies are clear.
+
+import { TripPlannerState } from './state';
+
+export async function executorNode(state: typeof TripPlannerState.State) {
+  const { plan } = state;
+
+  // Find steps that are pending AND have all dependencies completed
+  const readySteps = plan.filter(step =>
+    step.status === 'pending' &&
+    step.depends_on.every(depId =>
+      plan.find(s => s.step_id === depId)?.status === 'done'
+    )
+  );
+
+  if (readySteps.length === 0) {
+    // Either everything is done, or we have a dependency deadlock
+    const allDone   = plan.every(s => s.status === 'done');
+    const anyFailed = plan.some(s => s.status === 'failed');
+    if (allDone) return {};   // signal graph to move to assembler
+    if (anyFailed) return {}; // signal graph to move to re-planner
+    throw new Error('Dependency deadlock — check depends_on for cycles');
+  }
+
+  // Mark all ready steps as in-progress before firing
+  const updatedPlan = plan.map(step =>
+    readySteps.find(r => r.step_id === step.step_id)
+      ? { ...step, status: 'in-progress' as const }
+      : step
+  );
+
+  // Execute all ready steps in parallel — this is Promise.all() not sequential
+  const results = await Promise.all(
+    readySteps.map(step => executeToolCall(step))
+  );
+
+  // Write results back into the plan
+  const finalPlan = updatedPlan.map(step => {
+    const result = results.find(r => r.step_id === step.step_id);
+    if (!result) return step;
+    return {
+      ...step,
+      status: result.error ? 'failed' as const : 'done' as const,
+      result: result.output,
+      error:  result.error,
+    };
+  });
+
+  // Accumulate budget lines from steps that produced cost estimates
+  const newBudgetLines = results
+    .filter(r => r.output?.estimatedCost != null)
+    .map(r => ({
+      step_id:     r.step_id,
+      description: plan.find(s => s.step_id === r.step_id)?.name ?? r.step_id,
+      amount:      r.output.estimatedCost,
+    }));
+
+  const totalSpent = [
+    ...state.budgetLines,
+    ...newBudgetLines,
+  ].reduce((sum, l) => sum + l.amount, 0);
+
+  return {
+    plan:         finalPlan,
+    budgetLines:  [...state.budgetLines, ...newBudgetLines],
+    totalSpent,
+    budgetBreached: totalSpent > (state.preferences?.budget.amount ?? Infinity),
+  };
+}
+`;
+
+const replannerPromptCode = `
+// Re-planner node — Sonnet
+// Called when any step fails. Generates a revised plan from the failure point.
+// Completed steps are preserved — never re-run work that succeeded.
+
+export const REPLANNER_PROMPT = \`
+A step in the trip plan has failed. Generate a revised plan that works around the failure.
+
+You will receive:
+- The user's original trip preferences
+- The current plan with each step's status (done / failed / pending)
+- The error message from the failed step
+
+## Rules
+- Preserve all steps with status "done" — do not re-run completed work
+- Only revise from the failed step onward
+- Mark revised steps as "pending" (the executor will re-run them)
+- Use the same step_id format (S1, S2...) — add new steps as S1a, S1b if inserting between existing ones
+
+## Common recovery strategies
+- No flights on requested date → try adjacent dates (±2 days) or nearby airports
+- Hotel fully booked → search a different neighbourhood or hotel category
+- Budget exceeded → reduce hotel category, shorten trip, or reduce activities
+- Visa requirement fails (entry denied) → suggest alternative destination
+
+Return the full revised step list as JSON (same format as the original plan).
+If no recovery is possible, return: { "unrecoverable": true, "reason": "..." }
+\`;
+`;
+
+const preferenceGathererPromptCode = `
+// Preference gatherer node — Sonnet, no tools
+// Phase 1: conversational ReAct loop to collect trip details.
+// Switches to Plan-and-Execute only after all preferences are confirmed.
+// The hybrid pattern: ReAct for exploration, Plan-and-Execute for execution.
+
+export const PREFERENCE_GATHERER_PROMPT = \`
+You are a friendly travel planning assistant. Collect the following information through
+natural conversation — don't dump all questions at once. Ask 1-2 questions at a time.
+
+Required information:
+1. Origin city (or airport code)
+2. Destination (city or region)
+3. Travel dates (start date and end date)
+4. Total budget and currency ("$3000 total" or "$500/person" — clarify if ambiguous)
+5. Number of travelers
+6. Interests (food, history, adventure, nightlife, nature, shopping, etc.)
+7. Any dietary restrictions or mobility needs (optional)
+
+Once you have all required fields and the user has confirmed them, output exactly:
+PREFERENCES_CONFIRMED
+followed by the preferences as a JSON block.
+
+Do not output PREFERENCES_CONFIRMED until the user explicitly confirms the summary.
+Never guess missing information — always ask.
+\`;
+`;
+
+const mindMap = `
+# Trip Planner Agent Exercise
+## Why Plan-and-Execute
+### Steps knowable upfront
+### Many steps are independent
+### Parallel execution possible
+## Hybrid Pattern
+### ReAct for preference gathering
+### Plan-and-Execute for execution
+### Transition on PREFERENCES_CONFIRMED
+## Planner Node
+### One Sonnet call generates full plan
+### depends_on arrays encode parallelism
+### Validated before execution starts
+## Executor Node
+### Deterministic function (no LLM)
+### Promise.all on ready steps
+### Results written back to plan
+## Re-planner Node
+### Called on step failure
+### Preserves completed steps
+### planRevision counter (max 3)
+## Budget as Cross-Cutting Constraint
+### budgetLines accumulated per step
+### Pause if totalSpent exceeds budget
+### User decides what to cut
+## Guardrails
+### Visa check in first parallel batch
+### interrupt() for all bookings
+### Re-planning depth limit
+## Pitfalls
+### Parallelising booking steps (hotel fail after flight booked)
+### Planner getting dependency graph wrong
+### No deadlock detection in executor
+### Budget check on estimates not actual booking prices
+`;
+---
+
+<LessonLayout title="EX4 — Trip Planner Agent: Plan-and-Execute Exercise" num="EX4">
+
+  <LessonHeader
+    num="EX4"
+    title="Trip Planner Agent — Plan-and-Execute Exercise"
+    subtitle="All 10 cookbook phases applied to a trip planning agent — why Plan-and-Execute over ReAct, parallel step execution via a dependency graph, re-planning on failure, and budget tracking as a cross-cutting constraint."
+  />
+
+  <LessonCallout variant="tip" title="What's new in this exercise vs EX1–EX3">
+    <ul>
+      <li><strong>Plan-and-Execute instead of ReAct.</strong> The first exercise in the series to use a non-ReAct execution pattern. EX1–EX3 all use ReAct (agent loop). This exercise uses Plan-and-Execute because the steps are knowable upfront and many are independent.</li>
+      <li><strong>Parallel execution via a dependency graph.</strong> The planner marks which steps are independent. The executor fires all ready steps with <code>Promise.all()</code>. ReAct would run them sequentially.</li>
+      <li><strong>Hybrid pattern: ReAct for gathering, Plan-and-Execute for execution.</strong> Preference collection is conversational — you don't know the steps until you know the destination and budget. Once confirmed, the full plan can be generated. Two phases, two patterns, one graph.</li>
+      <li><strong>Re-planner node.</strong> When a step fails (no flights, hotel full, budget exceeded), the re-planner generates a revised plan from that point without re-running completed steps.</li>
+      <li><strong>Budget as a cross-cutting constraint.</strong> Not one tool — a constraint that runs through every step. The state carries running totals; if exceeded, the graph pauses for re-planning.</li>
+    </ul>
+  </LessonCallout>
+
+  <!-- ── Scenario ──────────────────────────────────────────────────────── -->
+  <h2 class="lesson-heading">Scenario — Trip Planner Agent</h2>
+  <p>
+    A natural-language travel planning agent. The user describes their trip in conversation;
+    the agent gathers all requirements, generates a complete step-by-step execution plan,
+    executes the searches in parallel, checks the budget, and produces a bookable itinerary.
+    Booking is the final step, gated by <code>interrupt()</code>.
+  </p>
+  <p>
+    Example interaction:
+  </p>
+  <ul>
+    <li>"Plan me a 7-day trip to Japan in October, $4000 budget for 2 people, we like food and history"</li>
+    <li>Agent gathers details conversationally, confirms, then generates and executes the plan</li>
+    <li>Output: complete day-by-day itinerary with flights, hotels, activities, restaurants, and total cost</li>
+  </ul>
+
+  <!-- ── Worked example ────────────────────────────────────────────────── -->
+  <h2 class="lesson-heading">Worked Example — Applying the 10 Phases</h2>
+
+  <!-- Phase 01 -->
+  <h3 class="lesson-heading">Phase 01 — Do you need an agent?</h3>
+  <div class="lesson-table">
+    <table>
+      <thead><tr><th>Decision question</th><th>Answer</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Could a static template answer this?</td>
+          <td>"Top 10 things to do in Tokyo" is a template. A personalised 7-day itinerary for 2 people with a $4000 budget, food + history interests, no shellfish, arriving October 3rd is not.</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>Are steps fixed and knowable ahead of time?</td>
+          <td>Yes — once we know the destination and dates, the steps are known: check visa, get weather, search flights, search hotels, search activities, calculate budget. The structure is predictable.</td>
+          <td>Agent justified. And: <strong>Plan-and-Execute candidate.</strong></td>
+        </tr>
+        <tr>
+          <td>Are any steps independent of each other?</td>
+          <td>Yes — searching flights, hotels, and checking visa requirements are all independent. None of them need each other's output.</td>
+          <td><strong>Plan-and-Execute confirmed</strong> (parallel steps). ReAct would run them sequentially.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <LessonCallout variant="key" title="Why Plan-and-Execute and not ReAct — applying the decision framework (L23)">
+    <p>Run the four-question test from L23:</p>
+    <ol>
+      <li><strong>Can you enumerate all steps before the first tool call?</strong> Yes — once destination and dates are confirmed, the full step list is known. → Plan-and-Execute candidate.</li>
+      <li><strong>Does each step's input depend unpredictably on the prior step's output?</strong> No — most inputs come from user preferences, not prior tool results. Activities depend on weather (known at planning time as "search activities after weather"), but that's a soft dependency, not an unknown value. → Continue.</li>
+      <li><strong>Can any steps run in parallel?</strong> Yes — flights, hotels, visa, weather are all independent. → <strong>Plan-and-Execute.</strong></li>
+    </ol>
+    <p>
+      If the user had instead said "search the web for the best hidden restaurants in Tokyo and then plan
+      around them" — that's ReAct. You can't enumerate the steps before you know what the web search
+      returns. That unpredictability disqualifies Plan-and-Execute.
+    </p>
+  </LessonCallout>
+
+  <!-- Phase 02 -->
+  <h3 class="lesson-heading">Phase 02 — Define the goal and the problem</h3>
+  <div class="phase-def">
+    <div class="pd-row"><span class="pd-label">Goal</span><span class="pd-val">Generate a personalised, bookable trip itinerary that fits the user's dates, budget, and interests — without requiring the user to visit multiple booking sites.</span></div>
+    <div class="pd-row"><span class="pd-label">Success metric</span><span class="pd-val">Final itinerary within 5% of requested budget · All activities open on requested dates · P95 full plan generation &lt; 45 s · Re-planning triggered in &lt; 20% of runs</span></div>
+    <div class="pd-row"><span class="pd-label">Input</span><span class="pd-val">Natural language trip description → confirmed preferences (origin, destination, dates, budget, passengers, interests)</span></div>
+    <div class="pd-row"><span class="pd-label">Output</span><span class="pd-val">Day-by-day itinerary with flights, hotel, activities, restaurants, and total cost summary — OR a re-planned alternative if the original fails</span></div>
+    <div class="pd-row"><span class="pd-label">"Done" means</span><span class="pd-val">A complete itinerary is presented to the user and they have confirmed (or rejected) any bookings via interrupt()</span></div>
+    <div class="pd-row"><span class="pd-label">Hard constraints</span><span class="pd-val">Never book without explicit interrupt() confirmation · Never suggest activities on dates the user is not in the destination · Stop and re-plan if total exceeds budget by &gt; 10% before presenting to user</span></div>
+    <div class="pd-row"><span class="pd-label">Acceptable failure</span><span class="pd-val">Present a partial itinerary with a note: "I couldn't find flights for those dates — here are alternatives for ±2 days." Never silently return an incomplete plan.</span></div>
+  </div>
+
+  <!-- Phase 03 -->
+  <h3 class="lesson-heading">Phase 03 — Choose your autonomy level: autonomy per action</h3>
+  <div class="lesson-table">
+    <table>
+      <thead><tr><th>Action</th><th>Autonomy level</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td>All search and read tools</td><td>Fully automatic</td><td>Read-only — no side effect, no cost to user</td></tr>
+        <tr><td>Budget calculation</td><td>Fully automatic</td><td>Pure computation on gathered results</td></tr>
+        <tr><td>Re-planning on failure</td><td>Automatic — show revised plan to user</td><td>Revision is a suggestion; user sees the alternative before execution continues</td></tr>
+        <tr><td>Budget exceeded &gt; 10%</td><td>Pause — present options to user</td><td>Over-budget trips require human judgement on what to cut</td></tr>
+        <tr><td><code>book_flight</code> / <code>book_hotel</code></td><td><strong>Human confirmation required</strong></td><td>Irreversible, high monetary cost — always <code>interrupt()</code> with full booking summary before charging</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Phase 04 -->
+  <h3 class="lesson-heading">Phase 04 — Design the tools: tool inventory</h3>
+  <div class="lesson-table">
+    <table>
+      <thead><tr><th>Tool</th><th>Type</th><th>Reversible?</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>check_visa_requirements(nationality, destination)</code></td><td>Read · API</td><td>—</td><td>Run first — no point planning a trip the user can't enter</td></tr>
+        <tr><td><code>get_weather_forecast(location, start_date, end_date)</code></td><td>Read · API</td><td>—</td><td>Used to avoid outdoor activities on forecast-rain days</td></tr>
+        <tr><td><code>search_flights(origin, destination, date, return_date, passengers)</code></td><td>Read · API</td><td>—</td><td>Returns top-5 options by price; planner picks cheapest in budget</td></tr>
+        <tr><td><code>search_hotels(location, check_in, check_out, guests, max_nightly)</code></td><td>Read · API</td><td>—</td><td>Returns top-5 options sorted by price/rating balance</td></tr>
+        <tr><td><code>search_activities(location, date, interests, budget_per_person)</code></td><td>Read · API</td><td>—</td><td>One call per day of the trip; returns open + matching options</td></tr>
+        <tr><td><code>search_restaurants(location, date, cuisine, guests)</code></td><td>Read · API</td><td>—</td><td>Key meals only (dinner each day); lunch from activity suggestions</td></tr>
+        <tr><td><code>book_flight(flight_id, passenger_details)</code></td><td>Write</td><td><strong>No</strong></td><td><code>interrupt()</code> required — show full price + cancellation policy</td></tr>
+        <tr><td><code>book_hotel(hotel_id, check_in, check_out, guests)</code></td><td>Write</td><td><strong>No</strong></td><td><code>interrupt()</code> required — show full price + cancellation policy</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>8 tools total. Only 2 are write tools. All 8 go to the Executor node — Plan-and-Execute means there is no "per-agent" split here; the planner generates the sequence and the executor calls tools mechanically.</p>
+
+  <!-- Phase 05 -->
+  <h3 class="lesson-heading">Phase 05 — Design state &amp; memory</h3>
+  <p>
+    Two phases of the interaction live in state: the preference-gathering conversation
+    (<code>messages</code>, <code>preferences</code>, <code>preferencesConfirmed</code>)
+    and the plan-execute phase (<code>plan</code>, <code>budgetLines</code>, <code>totalSpent</code>).
+    The transition between phases is explicit: when <code>preferencesConfirmed</code> flips to
+    <code>true</code>, the graph routes to the Planner node.
+  </p>
+  <p>
+    <code>plan</code> carries each step's <code>depends_on</code> array — this is the dependency
+    graph that enables parallel execution. The executor reads it to find all steps whose
+    dependencies are satisfied, then fires them in one <code>Promise.all()</code>.
+  </p>
+
+  <CodeBlock lang="typescript" label="trip-planner-state.ts" code={stateCode} />
+
+  <!-- Phase 06 -->
+  <h3 class="lesson-heading">Phase 06 — Execution pattern: Plan-and-Execute</h3>
+  <div class="lesson-table">
+    <table>
+      <thead><tr><th>Component</th><th>Agent?</th><th>Responsibility</th><th>Model / tools</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Preference gatherer</strong></td>
+          <td>Yes — LLM agent (ReAct)</td>
+          <td>Conversational loop: asks questions, collects all required fields, confirms with user. Outputs <code>PREFERENCES_CONFIRMED</code> to signal the graph to proceed to planning.</td>
+          <td>Sonnet · No tools</td>
+        </tr>
+        <tr>
+          <td><strong>Planner</strong></td>
+          <td>Yes — LLM agent</td>
+          <td>One call: reads confirmed preferences, generates the complete plan as JSON with <code>depends_on</code> arrays. The plan is the only output — no tool calls.</td>
+          <td>Sonnet · No tools</td>
+        </tr>
+        <tr>
+          <td><strong>Executor loop</strong></td>
+          <td>No — deterministic function</td>
+          <td>Finds all ready steps (pending + dependencies met), fires them in parallel, writes results back to state. Loops until all done or a step fails.</td>
+          <td>No LLM · all 8 tools</td>
+        </tr>
+        <tr>
+          <td><strong>Budget checker</strong></td>
+          <td>No — pure function</td>
+          <td>After each executor batch: sums <code>budgetLines</code>, compares to <code>preferences.budget</code>. Sets <code>budgetBreached</code> if exceeded.</td>
+          <td>No LLM · No tools</td>
+        </tr>
+        <tr>
+          <td><strong>Re-planner</strong></td>
+          <td>Yes — LLM agent</td>
+          <td>Called when any step fails or budget is breached. Reads the original preferences + current plan state, generates a revised plan from the failure point. Preserves completed steps.</td>
+          <td>Sonnet · No tools</td>
+        </tr>
+        <tr>
+          <td><strong>Itinerary assembler</strong></td>
+          <td>No — function</td>
+          <td>Formats all completed step results into a day-by-day itinerary string for the user.</td>
+          <td>No LLM · No tools</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    6 nodes total. 3 are LLM agents (Preference Gatherer, Planner, Re-planner).
+    The Executor is the exception — it calls tools but uses no LLM to decide which one.
+    The plan tells it exactly what to call. This is what makes Plan-and-Execute token-efficient:
+    the LLM reasons once; the executor acts many times.
+  </p>
+
+  <h3 class="lesson-heading">Phase 06b — Sketch the workflow map</h3>
+
+  <LessonDiagram definition={`
+flowchart TD
+  IN([User message]):::e --> PG[Preference Gatherer\nSonnet · ReAct loop]:::s
+  PG -->|still gathering| PG
+  PG -->|PREFERENCES_CONFIRMED| PL[Planner\nSonnet · one call]:::s
+  PL --> EX[Executor loop\nfunction · parallel tool calls]:::fn
+  EX -->|step done, more pending| EX
+  EX -->|step failed| RP[Re-planner\nSonnet · one call]:::s
+  RP --> EX
+  EX -->|budget breached| BC{Budget OK?}:::dec
+  BC -->|re-plan with reduced scope| RP
+  BC -->|user approves overage| EX
+  EX -->|all steps done| ASM[Itinerary Assembler\nfunction]:::fn
+  ASM -->|booking steps in plan| INT([interrupt\nconfirm flights + hotel]):::w
+  INT -->|confirmed| BOOK[Execute bookings]:::fn
+  BOOK --> DONE([Itinerary delivered]):::d
+  ASM -->|search-only run| DONE
+
+  classDef e   fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef s   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef fn  fill:#f3f4f6,color:#374151,stroke:#9ca3af,stroke-width:2px
+  classDef dec fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef w   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef d   fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+  `} />
+
+  <h3 class="lesson-heading">The parallel execution pattern</h3>
+  <p>
+    The key difference from ReAct — the executor doesn't decide what to do next; the plan does.
+    The executor's only job is: find ready steps, fire them in parallel, record results.
+  </p>
+
+  <CodeBlock lang="typescript" label="executor-node.ts" code={executorCode} />
+
+  <LessonCallout variant="tip" title="Example plan — Japan trip (JFK → NRT, Oct 1–8, 2 passengers)">
+    <p>Steps S1, S2, S3, S4 all have <code>depends_on: []</code> — they fire simultaneously. S5, S6 depend only on S2 (weather). S7 depends on everything. The executor makes 4 parallel API calls in the first batch, then 2 more once weather is done, then 1 final tally.</p>
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Step</th><th>Tool</th><th>depends_on</th><th>Batch</th></tr></thead>
+        <tbody>
+          <tr><td>S1 — Check visa</td><td><code>check_visa_requirements</code></td><td>—</td><td>1 (parallel)</td></tr>
+          <tr><td>S2 — Get weather</td><td><code>get_weather_forecast</code></td><td>—</td><td>1 (parallel)</td></tr>
+          <tr><td>S3 — Search flights</td><td><code>search_flights</code></td><td>—</td><td>1 (parallel)</td></tr>
+          <tr><td>S4 — Search hotels</td><td><code>search_hotels</code></td><td>—</td><td>1 (parallel)</td></tr>
+          <tr><td>S5 — Search activities (day 1–7)</td><td><code>search_activities</code> × 7</td><td>S2</td><td>2 (after weather)</td></tr>
+          <tr><td>S6 — Search restaurants (dinner × 7)</td><td><code>search_restaurants</code> × 7</td><td>S2</td><td>2 (after weather)</td></tr>
+          <tr><td>S7 — Calculate budget</td><td><code>calculate_budget</code></td><td>S1–S6</td><td>3 (final)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>ReAct equivalent: ~20 sequential tool calls. Plan-and-Execute: 3 batches. For an API-heavy task, the latency reduction is dramatic — especially if the search APIs take 500ms each.</p>
+  </LessonCallout>
+
+  <!-- Phase 07 -->
+  <h3 class="lesson-heading">Phase 07 — Write the system prompts</h3>
+  <p>
+    Three LLM nodes, three prompts. Preference Gatherer is conversational.
+    Planner is a structured JSON generator — the dependency rules are the critical instruction.
+    Re-planner is surgical — it patches the plan, never restarts it.
+  </p>
+
+  <h4 class="lesson-heading">Preference gatherer</h4>
+  <CodeBlock lang="typescript" label="preference-gatherer-prompt.ts" code={preferenceGathererPromptCode} />
+
+  <h4 class="lesson-heading">Planner</h4>
+  <CodeBlock lang="typescript" label="planner-prompt.ts" code={plannerPromptCode} />
+
+  <h4 class="lesson-heading">Re-planner</h4>
+  <CodeBlock lang="typescript" label="replanner-prompt.ts" code={replannerPromptCode} />
+
+  <!-- Phase 08 -->
+  <h3 class="lesson-heading">Phase 08 — Add safety &amp; guardrails</h3>
+  <div class="lesson-table">
+    <table>
+      <thead><tr><th>Layer</th><th>What it catches</th><th>Applied to</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Visa check first</strong></td>
+          <td><code>check_visa_requirements</code> runs in the first parallel batch — before any search step. If the result is "entry denied," the graph stops and informs the user before spending any further API calls.</td>
+          <td>Planner — step S1 always in first batch</td>
+        </tr>
+        <tr>
+          <td><strong>Budget breach — pause before booking</strong></td>
+          <td>If <code>totalSpent &gt; budget.amount * 1.1</code>, the graph pauses. The user is shown the breakdown and asked to choose: reduce scope, approve the overage, or cancel.</td>
+          <td>Budget checker node, after every executor batch</td>
+        </tr>
+        <tr>
+          <td><strong>Date validation</strong></td>
+          <td>Planner output is validated: no activity step can have a date outside <code>start_date</code>–<code>end_date</code>. Rejected plans trigger re-planning before execution starts.</td>
+          <td>Graph entry check before executor</td>
+        </tr>
+        <tr>
+          <td><strong>interrupt() for all bookings</strong></td>
+          <td>Every <code>book_flight</code> and <code>book_hotel</code> call is gated by <code>interrupt()</code> showing: flight/hotel name, total cost, cancellation policy, confirmation deadline. User must say yes before the charge is made.</td>
+          <td>Booking steps only</td>
+        </tr>
+        <tr>
+          <td><strong>Re-planning depth limit</strong></td>
+          <td><code>planRevision</code> counter increments on every re-plan. If it reaches 3, the agent stops and tells the user: "I've tried 3 alternative plans and couldn't find options within your constraints. Here's the closest I found."</td>
+          <td>Re-planner node entry check</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Phase 09 -->
+  <h3 class="lesson-heading">Phase 09 — Error handling &amp; resilience: Plan-and-Execute failure modes</h3>
+  <div class="lesson-table">
+    <table>
+      <thead><tr><th>Failure</th><th>Response</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>No flights available for the requested dates</td>
+          <td>Re-planner revises flight step with ±2-day date alternatives and nearby airports. Presents alternatives to user before re-executing.</td>
+        </tr>
+        <tr>
+          <td>Hotel fully booked at requested price point</td>
+          <td>Re-planner raises <code>max_nightly</code> by 20% or searches a nearby neighbourhood. If budget won't allow it, reduces activity budget proportionally.</td>
+        </tr>
+        <tr>
+          <td>Budget exceeded during execution</td>
+          <td>Budget checker pauses execution. Shows line-by-line breakdown. User chooses: drop lowest-priority activities, reduce hotel category, or approve the overage.</td>
+        </tr>
+        <tr>
+          <td>Visa denied (entry not permitted)</td>
+          <td>Execution stops immediately after S1. Re-planner suggests alternative destinations. No search API calls were wasted on a trip the user cannot take.</td>
+        </tr>
+        <tr>
+          <td>Plan has a dependency deadlock (cycle in depends_on)</td>
+          <td>Executor detects: all remaining steps are pending but no step is ready. Log the deadlock, return the partial itinerary, surface the unplanned steps to the user. Never hang.</td>
+        </tr>
+        <tr>
+          <td>Re-planning fails 3 times</td>
+          <td>Agent stops. Returns the best partial itinerary found, notes which components couldn't be planned, and suggests the user adjust constraints (dates, budget, or destination).</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Phase 10 -->
+  <h3 class="lesson-heading">Phase 10 — Observability &amp; testing</h3>
+  <div class="lesson-table">
+    <table>
+      <thead><tr><th>Metric</th><th>Target</th><th>Alert on</th></tr></thead>
+      <tbody>
+        <tr><td>Re-planning rate</td><td>&lt; 20% of runs</td><td>&gt; 35% — search API returning too many unavailables; possible API issue</td></tr>
+        <tr><td>Budget accuracy (estimated vs actual at booking)</td><td>Within 5%</td><td>&gt; 15% discrepancy — search results returning stale prices</td></tr>
+        <tr><td>Parallel batch efficiency (steps per batch)</td><td>≥ 3 in first batch</td><td>&lt; 2 — planner generating too many sequential dependencies</td></tr>
+        <tr><td>P95 plan generation time</td><td>&lt; 45 s end-to-end</td><td>&gt; 90 s — executor not parallelising or slow API</td></tr>
+        <tr><td>interrupt() confirmation rate</td><td>~80% of booking-intent sessions</td><td>&lt; 50% — possible bookings skipping interrupt gate</td></tr>
+        <tr><td>Visa check timing (must be in batch 1)</td><td>100%</td><td>Any run where visa check runs after search steps started</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="lesson-heading">Required test cases before launch</h3>
+  <div class="test-list">
+    <div class="tl-row"><span class="tl-input">"Plan a 5-day trip to Tokyo in October, $3000 for 2, food and history"</span><span class="tl-expect">Planner must mark <code>search_flights</code>, <code>search_hotels</code>, <code>check_visa_requirements</code>, <code>get_weather_forecast</code> all with <code>depends_on: []</code>. Executor must fire them in a single <code>Promise.all()</code> batch, not sequentially.</span></div>
+    <div class="tl-row"><span class="tl-input">Destination where user's nationality requires visa (e.g. needs prior approval)</span><span class="tl-expect">Visa check (S1) fires in batch 1. If result shows "visa required, apply 6 weeks in advance": execution must pause and surface this to user before proceeding. Must NOT continue to search flights silently.</span></div>
+    <div class="tl-row"><span class="tl-input">No flights available on requested dates</span><span class="tl-expect">Re-planner must be called. Revised plan must preserve completed steps (weather, visa) and only revise the flight step. <code>planRevision</code> must increment. Must NOT restart from S1.</span></div>
+    <div class="tl-row tl-row--danger"><span class="tl-input">Search results come back 15% over budget</span><span class="tl-expect">Budget checker must set <code>budgetBreached = true</code>. Graph must pause before <code>book_flight</code>. User must be shown the breakdown. Must NOT auto-book anything over budget.</span></div>
+    <div class="tl-row tl-row--danger"><span class="tl-input">"Book the flights and hotel" — user confirms</span><span class="tl-expect">Must trigger <code>interrupt()</code> showing full booking summary (price, cancellation policy, total charge). Must NOT call <code>book_flight</code> before interrupt() is resolved. Separate interrupt() for flight and hotel.</span></div>
+    <div class="tl-row"><span class="tl-input">Re-planning fails 3 times (all alternatives unavailable)</span><span class="tl-expect"><code>planRevision === 3</code>: agent must stop re-planning, present best partial itinerary, explain what couldn't be found, and suggest constraint changes. Must NOT loop indefinitely.</span></div>
+    <div class="tl-row"><span class="tl-input">Planner generates a dependency cycle (S3 depends on S4, S4 depends on S3)</span><span class="tl-expect">Executor detects deadlock (no step becomes ready). Must surface the unplanned steps and partial result. Must NOT hang waiting for a ready step that will never be ready.</span></div>
+  </div>
+
+  <!-- ─── Staff-level design review ───────────────────────────────── -->
+  <h2 class="lesson-heading">Staff-level design review</h2>
+  <p>
+    The 10 phases answer <em>how to build</em> this agent. These are the questions a staff
+    engineer asks after the phases are complete, before sign-off.
+  </p>
+
+  <div class="sl-intro">
+    <strong>Junior engineer:</strong> "Does it find flights correctly?" ·
+    <strong>Senior engineer:</strong> "What happens when two hotels are booked and the third fails?" ·
+    <strong>Staff engineer:</strong> "Who is liable if the plan books something the user didn't intend, and how does the interrupt() gate prevent that?"
+  </div>
+
+  <!-- 1. Problem Validity -->
+  <div class="sl-category">
+    <div class="sl-cat-header">
+      <span class="sl-badge">Problem Validity</span>
+      <span class="sl-when">Before Phase 01 — why an agent and not Google Flights</span>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">Google Flights, Booking.com, and TripAdvisor already exist. What does this agent add?</div>
+      <div class="sl-a">Three specific things those tools don't do: (1) cross-constraint optimisation — "find flights + hotels + activities that together fit $4000" requires searching all three and tallying costs in a single pass; current tools require the user to do that mental arithmetic across tabs, (2) natural language preferences → structured itinerary without forms — "we like food and hate crowded tourist traps" requires semantic understanding that search filters don't provide, (3) re-planning as a first-class feature — if flights are full on Oct 3rd, a travel site shows you "no results"; this agent re-plans for Oct 1st and re-runs the full itinerary automatically. The agent's value is the coordination, not the data — the APIs provide the data.</div>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">What's the cost of doing nothing — why build this now?</div>
+      <div class="sl-a">This is a consumer tool, not a business-process automation. The "cost of doing nothing" is that planning a trip takes 3-5 hours of manual coordination. The agent compresses that to 45 seconds. The business case is: developer hour saved (if this is an internal tool for a company travel policy) or consumer willingness to pay a subscription (if this is a product). Before Phase 01, define which — the autonomy levels and interrupt() design differ significantly between an internal tool (higher trust, fewer interrupts) and a consumer product (lower trust, more interrupts, more conservative replanning).</div>
+    </div>
+  </div>
+
+  <!-- 2. Plan-and-Execute vs ReAct -->
+  <div class="sl-category">
+    <div class="sl-cat-header">
+      <span class="sl-badge">Pattern Decision</span>
+      <span class="sl-when">Phase 06 — when does Plan-and-Execute become the wrong choice?</span>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">When would you switch this back to ReAct?</div>
+      <div class="sl-a">If the user's preferences are highly emergent — "find something similar to what I did in Barcelona last year but better" requires web-searching past trips, social posts, review threads, and building up context iteratively before any booking step can be named. You can't enumerate the steps before you've done the research. In that case the preference-gathering phase extends into the research phase, and ReAct is the right tool for both. Plan-and-Execute is also the wrong choice if step results regularly invalidate later step arguments in unpredictable ways — e.g. if the activities API returns results that force you to reconsider the hotel location after you've already searched hotels. A checkpoint-and-replan design handles that better than a pre-generated dependency graph.</div>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">The planner generates the dependency graph in one call. What if it gets the dependencies wrong?</div>
+      <div class="sl-a">If the planner marks search_activities as independent when it should depend on get_weather_forecast, the executor fires them simultaneously — activities search returns results, but they aren't filtered by weather. The itinerary includes activities on forecast-rain days. This is a correctness problem, not a crash. Defence: the planner prompt explicitly enumerates the dependency rules ("search_activities NEEDS weather — mark depends_on: ['S2']"). And the plan is validated before execution: a schema check ensures every tool referenced in depends_on exists in the plan. If validation fails, the plan is rejected and the planner is called again. Empirically, the planner gets this right on the first try ~95% of the time with a clear prompt. The 5% failure rate is caught by validation before any tools run.</div>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">Why is the Executor a deterministic function and not an LLM agent?</div>
+      <div class="sl-a">The executor has no decision to make. The plan tells it exactly what tool to call, with exactly what arguments, in exactly what order (subject to dependencies). Adding an LLM to the executor loop would add cost (~$0.01/call × 15 executor iterations = $0.15 per trip) and introduce the possibility of the executor deciding to deviate from the plan — "I think I should search a different hotel area than the planner specified." That's not what we want. The planner made the decision; the executor's job is to carry it out faithfully. This is the core efficiency of Plan-and-Execute: one expensive reasoning call (the planner), many cheap mechanical calls (the executor).</div>
+    </div>
+  </div>
+
+  <!-- 3. Failure Imagination -->
+  <div class="sl-category">
+    <div class="sl-cat-header">
+      <span class="sl-badge">Failure Imagination</span>
+      <span class="sl-when">Phases 08–09 — what breaks mid-execution</span>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">What's the worst plausible failure — the one that would cause real harm to a user?</div>
+      <div class="sl-a">The agent books a flight and then fails to book the hotel (sold out). The user has a non-refundable flight to Tokyo with nowhere to stay. Defence layers: (1) book hotel before flight — hotels have more flexible cancellation policies; if the hotel fails, cancel the flight before it's non-refundable, (2) interrupt() shows cancellation policy before every booking — users see "non-refundable after 24 hours" and can make an informed decision, (3) book in sequence, not in parallel — booking steps should NOT be parallelised even if they're "independent." If hotel fails, you want to cancel the flight, not discover the failure after both are booked. The plan marks booking steps as sequential despite being logically independent.</div>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">The re-planner says "no recovery possible." What exactly does the user see?</div>
+      <div class="sl-a">The user sees: the partial itinerary (all steps that completed successfully), the list of failed steps and the reason each failed (e.g. "Flights: no availability JFK-NRT Oct 1-8 within $1800 budget after 3 alternative date searches"), and specific suggestions: "Consider: (1) flying into Osaka (KIX) instead — $200 cheaper, (2) shifting dates to Nov 1–8 — significant price drop, (3) increasing flight budget to $2200." The agent never returns an empty response. A partial plan with a clear explanation of what couldn't be found is more useful than "sorry, I couldn't complete your trip."</div>
+    </div>
+  </div>
+
+  <!-- 4. Budget Contract -->
+  <div class="sl-category">
+    <div class="sl-cat-header">
+      <span class="sl-badge">Budget as a Contract</span>
+      <span class="sl-when">Phase 03 — who owns the budget decision</span>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">The budget is a user constraint, but the agent decides when it's breached. Who owns that decision?</div>
+      <div class="sl-a">The agent detects the breach; the human owns the decision on what to do about it. The 10% threshold before pausing is a configuration value, not a hardcoded constant — it lives in the agent's config and can be adjusted by the user at session start ("I'm flexible on budget by up to 20%"). The agent never unilaterally decides to exceed the budget or to drop planned components. It presents the situation and options, then waits. This is non-negotiable: the budget was stated by the user as a constraint, and the agent's job is to respect it until the user explicitly changes it.</div>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">Search results return estimated costs, but actual booking prices may differ. How do you handle this?</div>
+      <div class="sl-a">The itinerary presented to the user shows "estimated total" with a footnote: "Prices are current as of [timestamp] and may change before booking. Final prices are shown at confirmation." The interrupt() gate serves a second purpose here: it shows the actual price at the time of booking, not the estimated price from the search step. If the price changed more than 5% since the estimate, a warning is shown: "Note: this flight was $890 when we searched — it is now $960." The user decides whether to proceed. The budget check runs on estimated costs (to validate the plan); the user approves actual costs (at booking time).</div>
+    </div>
+  </div>
+
+  <!-- 5. Operational Ownership -->
+  <div class="sl-category">
+    <div class="sl-cat-header">
+      <span class="sl-badge">Operational Ownership</span>
+      <span class="sl-when">Phase 10 — who is accountable for a bad booking</span>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">The agent books a hotel the user didn't want. Who is liable, and how does the interrupt() gate affect that?</div>
+      <div class="sl-a">Without interrupt(): the agent is the proximate cause of an unwanted booking. With interrupt(): the user saw the hotel name, address, price, and cancellation policy, and clicked confirm. The user is the decision-maker; the agent surfaced the information. This doesn't eliminate the agent's responsibility to surface the right information — if the interrupt() summary was misleading or incomplete, the agent team is responsible for that. The interrupt() gate is not a liability shield; it is a shared decision point. Document what is shown at each interrupt() as a spec, test it, and ensure the booking summary is always accurate and complete.</div>
+    </div>
+  </div>
+
+  <!-- 6. Economics -->
+  <div class="sl-category">
+    <div class="sl-cat-header">
+      <span class="sl-badge">Economics</span>
+      <span class="sl-when">Phase 10 — cost per trip plan</span>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">What does one trip plan cost to generate, and does re-planning break the economics?</div>
+      <div class="sl-a">Preference Gatherer (Sonnet, ~3000 tokens avg over 5 conversation turns): $0.015. Planner (Sonnet, ~2000 tokens): $0.01. Executor (no LLM, just tool calls): $0. Re-planner (Sonnet, ~2000 tokens): $0.01 × average 0.2 re-plans = $0.002. Total: ~$0.027/plan. Against a service fee model at $2–5/plan, the margin is extremely healthy. The risk is API costs from search tools, not LLM costs — if every search API call costs $0.01 (common for flight and hotel search APIs), a 20-call plan costs $0.20 in API fees, not in LLM fees. Model the API costs separately before pricing.</div>
+    </div>
+  </div>
+
+  <!-- 7. Platform -->
+  <div class="sl-category">
+    <div class="sl-cat-header">
+      <span class="sl-badge">Platform Thinking</span>
+      <span class="sl-when">Phase 06 — is the Plan-and-Execute framework reusable?</span>
+    </div>
+    <div class="sl-qa">
+      <div class="sl-q">The Plan-and-Execute + dependency graph + re-planning pattern is not trip-specific. What else could it power?</div>
+      <div class="sl-a">Any task with the shape: known goal → generate parallel steps → execute → handle failures → assemble output. Event planning (venue + catering + invitations + AV — all searchable in parallel). Research reports (search multiple sources in parallel, synthesise in a final step). Software release planning (check all release prerequisites in parallel — tests, security scans, changelog, approval sign-offs — before the release step). The Planner prompt is the only task-specific component. The executor, budget checker (generalised to any constraint), re-planner logic, and itinerary assembler are all reusable. Extract the framework into <code>@company/plan-execute-runtime</code> before building the second agent with this pattern.</div>
+    </div>
+  </div>
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
+
+<style>
+  .phase-def {
+    border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; margin: 1rem 0 1.5rem;
+  }
+  .pd-row {
+    display: grid; grid-template-columns: 10rem 1fr;
+    border-bottom: 1px solid var(--border); padding: .65rem 1rem; gap: 1rem;
+  }
+  .pd-row:last-child { border-bottom: none; }
+  .pd-label { font-size: .78rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .05em; padding-top: .1rem; }
+  .pd-val   { font-size: .9rem; }
+
+  .test-list { display: flex; flex-direction: column; gap: .5rem; margin: 1rem 0 1.5rem; }
+  .tl-row {
+    display: grid; grid-template-columns: 1fr 1.4fr; gap: 1rem;
+    padding: .75rem 1rem; border-radius: 6px;
+    background: var(--bg2, #f8fafc); border: 1px solid var(--border);
+    font-size: .85rem;
+  }
+  .tl-row--danger { border-left: 4px solid #ef4444; }
+  .tl-input  { font-style: italic; color: var(--text2, #64748b); }
+
+  .sl-intro {
+    background: #f8fafc; border-left: 3px solid var(--accent);
+    padding: .75rem 1rem; border-radius: 0 6px 6px 0;
+    font-size: .88rem; margin: 1.5rem 0; color: var(--text2, #475569);
+  }
+  .sl-category { margin: 2rem 0; }
+  .sl-cat-header {
+    display: flex; align-items: center; gap: .75rem;
+    padding: .6rem 0; border-bottom: 2px solid var(--border); margin-bottom: 1rem;
+  }
+  .sl-badge {
+    font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    background: #1e3a8a; color: #fff; border-radius: 4px; padding: .2rem .55rem;
+  }
+  .sl-when { font-size: .8rem; color: var(--text2, #64748b); font-style: italic; }
+  .sl-qa { margin: 1rem 0; }
+  .sl-q {
+    font-weight: 700; font-size: .9rem; color: #1e3a8a; margin-bottom: .4rem;
+    padding-left: .75rem; border-left: 3px solid #93c5fd;
+  }
+  .sl-a { font-size: .88rem; line-height: 1.65; padding-left: .75rem; color: var(--text, #1e293b); }
+  :root.dark .sl-q { color: #93c5fd; }
+  :root.dark .sl-a { color: var(--text, #e2e8f0); }
+  :root.dark .sl-intro { background: #1e293b; }
+  :root.dark .tl-row  { background: #1e293b; }
+</style>

@@ -1,0 +1,51 @@
+export interface LessonEntry {
+  href:  string;
+  num:   string;
+  title: string;
+}
+
+export const LESSONS: LessonEntry[] = [
+  { href: '/lessons/0001-what-is-an-ai-agent',                        num: 'L01', title: 'What is an AI Agent?' },
+  { href: '/lessons/0002-your-first-agent-in-nodejs',                 num: 'L02', title: 'Your First Agent in Node.js' },
+  { href: '/lessons/0003-tool-design-and-structured-output',          num: 'L03', title: 'Tool Design & Structured Output' },
+  { href: '/lessons/0004-memory-and-conversation-state',              num: 'L04', title: 'Memory & Conversation State' },
+  { href: '/lessons/0005-building-a-nestjs-agent-service',            num: 'L05', title: 'Building a NestJS Agent Service' },
+  { href: '/lessons/0006-multi-agent-systems',                        num: 'L06', title: 'Multi-Agent Systems' },
+  { href: '/lessons/0007-capstone-project',                           num: 'L07', title: 'Capstone: SupportDesk API' },
+  { href: '/lessons/0008-real-world-applications-and-business-value', num: 'L08', title: 'Real-World Applications & Business Value' },
+  { href: '/lessons/0009-tackling-complex-tasks',                     num: 'L09', title: 'Tackling Complex Tasks' },
+  { href: '/lessons/0010-langgraph-fundamentals',                     num: 'L10', title: 'LangGraph Fundamentals' },
+  { href: '/lessons/0011-multi-step-chains-and-prompt-templates',     num: 'L11', title: 'Multi-Step Chains & Prompt Templates' },
+  { href: '/lessons/0012-streaming-and-async',                        num: 'L12', title: 'Streaming & Async' },
+  { href: '/lessons/0013-guardrails-and-error-handling',              num: 'L13', title: 'Guardrails & Error Handling' },
+  { href: '/lessons/0014-security-and-safety-essentials',             num: 'L14', title: 'Security & Safety Essentials' },
+  { href: '/lessons/0015-testing-and-evaluation',                     num: 'L15', title: 'Testing & Evaluation' },
+  { href: '/lessons/0016-advanced-evaluation-and-edd',                num: 'L16', title: 'Advanced Evaluation & EDD' },
+  { href: '/lessons/0017-rag-pipeline',                               num: 'L17', title: 'RAG Pipeline' },
+  { href: '/lessons/0037-knowledge-base-qa-capstone',                 num: 'C1',  title: 'Phase 2 Capstone: Knowledge Base Q&A' },
+  { href: '/lessons/0018-conditional-edges-and-custom-workflows',     num: 'L18', title: 'Conditional Edges & Custom Workflows' },
+  { href: '/lessons/0019-debugging-state-transitions',                num: 'L19', title: 'Debugging State Transitions' },
+  { href: '/lessons/0020-human-in-the-loop',                         num: 'L20', title: 'Human-in-the-Loop' },
+  { href: '/lessons/0021-time-travel-and-checkpoints',                num: 'L21', title: 'Time Travel & Checkpoints' },
+  { href: '/lessons/0022-reflection-pattern',                         num: 'L22', title: 'Reflection Pattern' },
+  { href: '/lessons/0023-plan-and-execute-agent',                     num: 'L23', title: 'Plan-and-Execute Agent' },
+  { href: '/lessons/0024-conversation-threading-and-semantic-memory', num: 'L24', title: 'Conversation Threading & Semantic Memory' },
+  { href: '/lessons/0025-context-window-management',                  num: 'L25', title: 'Context Window Management' },
+  { href: '/lessons/0026-mcp-server-interoperability',                num: 'L26', title: 'MCP Server Interoperability' },
+  { href: '/lessons/0027-deep-agents',                                num: 'L27', title: 'Deep Agents' },
+  { href: '/lessons/0028-agentic-workflow-patterns',                  num: 'L28', title: 'Agentic Workflow Patterns' },
+  { href: '/lessons/0038-content-pipeline-capstone',                  num: 'C2',  title: 'Phase 3 Capstone: Content Creation Pipeline' },
+  { href: '/lessons/0029-error-recovery-and-circuit-breakers',        num: 'L29', title: 'Error Recovery & Circuit Breakers' },
+  { href: '/lessons/0030-production-tools-and-optimization',          num: 'L30', title: 'Production Tools & Optimization' },
+  { href: '/lessons/0031-deploying-agents',                           num: 'L31', title: 'Deploying Agents' },
+  { href: '/lessons/0032-scaling-agents',                             num: 'L32', title: 'Scaling Agents' },
+  { href: '/lessons/0033-cost-optimization',                          num: 'L33', title: 'Cost Optimization' },
+  { href: '/lessons/0034-fine-tuning-with-feedback',                  num: 'L34', title: 'Fine-Tuning with Feedback' },
+  { href: '/lessons/0035-agent-design-cookbook',                      num: 'CB',  title: 'Agent Design Cookbook' },
+  { href: '/lessons/0036-production-readiness-checklist',             num: 'CL',  title: 'Production Readiness Checklist' },
+  // Exercises — standalone section
+  { href: '/lessons/0039-sales-order-agent-exercise',                 num: 'EX1', title: 'Sales Order Agent — Design Exercise' },
+  { href: '/lessons/0040-tech-support-rag-exercise',                  num: 'EX2', title: 'Technical Support Assistant — RAG Exercise' },
+  { href: '/lessons/0041-task-manager-agent-exercise',                num: 'EX3', title: 'Task Manager Agent — File Storage Exercise' },
+  { href: '/lessons/0042-trip-planner-agent-exercise',                num: 'EX4', title: 'Trip Planner Agent — Plan-and-Execute Exercise' },
+];

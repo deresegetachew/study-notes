@@ -1,0 +1,392 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const nestjsDeployCode = `
+// NestJS agent service — production-ready structure
+// src/agent/agent.module.ts
+
+import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { AgentController } from './agent.controller';
+import { AgentService }    from './agent.service';
+import { AgentProcessor }  from './agent.processor';
+
+@Module({
+  imports: [
+    BullModule.registerQueue({ name: 'agent-tasks' }),
+  ],
+  controllers: [AgentController],
+  providers:   [AgentService, AgentProcessor],
+})
+export class AgentModule {}
+
+// ── Controller: HTTP interface ────────────────────────────────────────────────
+// src/agent/agent.controller.ts
+
+import { Controller, Post, Get, Param, Body } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+
+@Controller('agent')
+export class AgentController {
+  constructor(@InjectQueue('agent-tasks') private queue: Queue) {}
+
+  @Post('tasks')
+  async createTask(@Body() body: { goal: string; userId: string }) {
+    const job = await this.queue.add('run', body, {
+      attempts:    3,
+      backoff:     { type: 'exponential', delay: 2000 },
+      removeOnComplete: { age: 60 * 60 * 24 }, // keep 24h
+    });
+    return { taskId: job.id };
+  }
+
+  @Get('tasks/:id')
+  async getTask(@Param('id') id: string) {
+    const job = await this.queue.getJob(id);
+    if (!job) return { error: 'Not found' };
+    return {
+      id:       job.id,
+      status:   await job.getState(),
+      progress: job.progress,
+      result:   job.returnvalue,
+    };
+  }
+}
+
+// ── Processor: background worker ─────────────────────────────────────────────
+// src/agent/agent.processor.ts
+
+import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Job } from 'bullmq';
+
+@Processor('agent-tasks')
+export class AgentProcessor extends WorkerHost {
+  constructor(private agentService: AgentService) { super(); }
+
+  async process(job: Job<{ goal: string; userId: string }>) {
+    await job.updateProgress(0);
+
+    const result = await this.agentService.run(
+      job.data.goal,
+      job.data.userId,
+      (pct) => job.updateProgress(pct), // progress callback
+    );
+
+    return result;
+  }
+}
+`.trim();
+
+const sseCode = `
+import { Controller, Get, Param, Sse, MessageEvent } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { Observable, interval, from } from 'rxjs';
+import { switchMap, takeWhile, map } from 'rxjs/operators';
+
+@Controller('agent')
+export class AgentController {
+  constructor(@InjectQueue('agent-tasks') private queue: Queue) {}
+
+  // SSE endpoint — browser connects once, receives events as they happen
+  @Sse('tasks/:id/stream')
+  streamTaskProgress(@Param('id') id: string): Observable<MessageEvent> {
+    return interval(500).pipe(
+      switchMap(() => from(this.queue.getJob(id))),
+      takeWhile(job => !!job, true), // complete when job disappears
+      map(job => ({
+        data: {
+          status:   job ? 'pending'    : 'not_found',
+          progress: job?.progress      ?? 0,
+          result:   job?.returnvalue   ?? null,
+        },
+      })),
+    );
+  }
+}
+
+// Client-side (browser): one-liner to consume the stream
+// const es = new EventSource('/agent/tasks/123/stream');
+// es.onmessage = (e) => console.log(JSON.parse(e.data));
+`.trim();
+
+const dockerCode = `
+# Dockerfile — multi-stage build for a NestJS agent service
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Non-root user for security
+RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
+COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nestjs:nodejs /app/package.json ./
+
+USER nestjs
+EXPOSE 3000
+
+# Healthcheck — Cloud Run / ECS will replace unhealthy instances
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \\
+  CMD node -e "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"
+
+CMD ["node", "dist/main.js"]
+`.trim();
+
+const mindMap = `
+# Deploying Agents
+## Production Architecture
+### NestJS HTTP API layer
+### BullMQ background queue
+### Worker (AgentProcessor)
+## Async Task Pattern
+### Never run agents synchronously
+### HTTP returns taskId immediately
+### Worker handles execution
+## Docker Packaging
+### Multi-stage build
+### Non-root user
+### Health check endpoint
+## API Patterns for Long Tasks
+### Polling (simple, default)
+### Webhooks (server-to-server)
+### SSE (real-time progress)
+### WebSockets (bidirectional)
+## Secrets & Config
+### All secrets via env vars
+### Rotate ANTHROPIC_API_KEY
+### Never in code or logs
+## Tensions
+### More workers (throughput) vs Fewer workers (cost)
+### Detailed logs (debuggable) vs Minimal logs (storage)
+## Pitfalls
+### Sync agents in HTTP handlers (timeout killed)
+### Secrets in version control
+### No health endpoint
+### In-memory BullMQ (lost on restart)
+### No structured logging
+`;
+---
+
+<LessonLayout
+  title="L31 — Deploying Agents"
+>
+  <LessonHeader
+    num="L31"
+    title="Deploying Agents"
+    subtitle="Ship an agent to production — async task queues for long-running work, health endpoints, Docker packaging, and the environment variables every production agent needs."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§3.12 — Production deployment architecture</h2>
+    <p>
+      A production agent service has three layers: an HTTP API that accepts requests,
+      a background queue that runs long agent tasks asynchronously, and a database
+      for checkpoints and persistent state.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  C["Client"]:::client --> API["NestJS API\n(HTTP)"]:::api
+  API --> Q["BullMQ\nQueue"]:::queue
+  Q --> W["Worker\n(AgentProcessor)"]:::worker
+  W --> AI["Anthropic\nAPI"]:::ext
+  W --> DB["Postgres\n(checkpoints)"]:::db
+  W --> R["Redis\n(queue state)"]:::cache
+  API --> DB
+
+  classDef client fill:#f8fafc,color:#475569,stroke:#e2e8f0
+  classDef api    fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef queue  fill:#fefce8,color:#713f12,stroke:#fde68a,stroke-width:2px
+  classDef worker fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef ext    fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef db     fill:#f8fafc,color:#475569,stroke:#e2e8f0,stroke-width:2px
+  classDef cache  fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:1px
+`} />
+
+    <CodeBlock lang="typescript" label="agent.module.ts" code={nestjsDeployCode} />
+
+    <LessonCallout variant="key" title="Never run agents synchronously in an HTTP handler">
+      <p>
+        A typical agent task takes 5–60 seconds. Running it synchronously in an HTTP
+        request handler: (1) ties up the Node.js event loop, (2) fails on load balancer
+        timeouts (usually 30s), and (3) provides no retry mechanism if the process
+        crashes. Always enqueue to a background worker.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Docker packaging</h2>
+    <CodeBlock lang="bash" label="Dockerfile" code={dockerCode} />
+
+    <h3 class="lesson-heading">Required environment variables</h3>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Variable</th><th>Purpose</th><th>Never in</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Anthropic SDK authentication</td><td>Code, logs, responses</td></tr>
+          <tr><td><code>DATABASE_URL</code></td><td>Postgres for LangGraph checkpointer</td><td>Code, version control</td></tr>
+          <tr><td><code>REDIS_URL</code></td><td>BullMQ queue backend</td><td>Code, version control</td></tr>
+          <tr><td><code>NODE_ENV</code></td><td>Enable/disable debug middleware</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="warn" title="Secret rotation">
+      <p>
+        Never hardcode secrets or log them. Use a secrets manager (AWS Secrets Manager,
+        GCP Secret Manager, or Doppler) and rotate the <code>ANTHROPIC_API_KEY</code>
+        on a schedule. If a key leaks, revoke it immediately in the Anthropic console —
+        API keys cannot be "un-leaked" from logs.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Health and observability</h3>
+    <ul>
+      <li><code>GET /health</code> — returns 200 if the API, DB, and Redis connections are healthy. Used by load balancers and container orchestrators.</li>
+      <li><strong>Structured logs</strong> — emit JSON logs with <code>taskId</code>, <code>userId</code>, <code>durationMs</code>, <code>tokensUsed</code> per task. Ship to a log aggregator (Datadog, Loki).</li>
+      <li><strong>Metrics</strong> — track: queue depth, task success/failure rate, p50/p95 task duration, tokens per task.</li>
+      <li><strong>Alerts</strong> — page on: queue depth &gt; N, failure rate &gt; 5%, API key quota at 80%.</li>
+    </ul>
+
+    <h2 class="lesson-heading">§4.13 — API patterns for long-running tasks</h2>
+
+    <p>
+      Your BullMQ pattern already uses polling — the client submits a task and repeatedly
+      calls <code>GET /agent/tasks/:id</code>. Polling is the right default, but two
+      alternative push patterns are worth knowing when polling doesn't fit your client.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Pattern</th><th>How it works</th><th>Best for</th><th>Limitation</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Polling</strong></td>
+            <td>Client calls <code>GET /tasks/:id</code> every N seconds until status = complete</td>
+            <td>Simple clients, maximum browser compatibility, easy to implement</td>
+            <td>Wasted requests; latency = poll interval; poor UX for fast tasks</td>
+          </tr>
+          <tr>
+            <td><strong>Webhooks</strong></td>
+            <td>Server POSTs to a URL you registered when the task completes</td>
+            <td>Server-to-server integrations (Slack, GitHub, Stripe triggers); event-driven architectures</td>
+            <td>Client must expose a public URL; no browser support without a proxy</td>
+          </tr>
+          <tr>
+            <td><strong>SSE (Server-Sent Events)</strong></td>
+            <td>Client opens one HTTP connection; server pushes progress events as they happen</td>
+            <td>Real-time progress UIs; streaming token output to the browser</td>
+            <td>One-way (server → client); HTTP/1.1 connection limit per domain</td>
+          </tr>
+          <tr>
+            <td><strong>WebSockets</strong></td>
+            <td>Full-duplex persistent connection; both sides can send at any time</td>
+            <td>Interactive agents where the user provides mid-task input; collaborative tools</td>
+            <td>More complex infrastructure; reconnect logic required; overkill for one-way updates</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="tip" title="SSE for one-way streaming, WebSockets for bidirectional">
+      <p>
+        Most agent use cases are one-way: the server generates, the client displays. Use SSE.
+        Reserve WebSockets for agents where the user sends mid-task corrections or approvals
+        (HITL flows from L17). Avoid WebSockets for straightforward progress reporting — the
+        reconnect handling complexity is not worth it.
+      </p>
+    </LessonCallout>
+
+    <p>NestJS SSE endpoint — stream agent progress events to the browser:</p>
+
+    <CodeBlock lang="typescript" label="agent.controller.ts (SSE)" code={sseCode} />
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Build a NestJS agent service with BullMQ for async background execution',
+        'Expose task status and progress via a polling REST endpoint',
+        'Choose between polling, webhooks, SSE, and WebSockets based on client requirements',
+        'Stream agent progress events to a browser client via Server-Sent Events',
+        'Package the agent in a multi-stage Docker image with a non-root user',
+        'Configure all secrets via environment variables — nothing in code',
+        'Add a <code>/health</code> endpoint that checks DB, Redis, and API connectivity',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'Why should long-running agent tasks run in a background worker rather than an HTTP handler?',
+        options: [
+          'HTTP handlers cannot access the Anthropic API',
+          'Background workers are automatically deployed to GPU instances',
+          'HTTP handlers timeout at 30s; tasks take longer and need retry on crash',
+          'BullMQ is faster than direct async/await in NestJS',
+        ],
+        answer:  2,
+        explain: 'Load balancers impose timeout limits (commonly 30s). An agent task that takes 60s will be killed mid-execution. Background workers are not subject to HTTP timeouts and can be configured with retry logic — if the worker process crashes, BullMQ re-queues the job automatically.',
+      },
+      {
+        q:       'The ANTHROPIC_API_KEY appears in a log line. What is the correct immediate response?',
+        options: [
+          'Delete the log line and continue',
+          'Rotate the key in the Anthropic console immediately and audit log access',
+          'Mask the key in all future logs',
+          'Monitor usage for anomalies over the next 24 hours',
+        ],
+        answer:  1,
+        explain: 'Once a secret appears in a log, it must be treated as compromised — logs may have been shipped to aggregators, indexed, or accessed by third parties. Revoke and rotate the key immediately. Then audit log access to understand the blast radius, fix the logging code, and deploy. Deleting the log line or waiting to monitor is insufficient — the key could already be in use by an attacker.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.12"
+      tensions={[
+        { a: 'More workers (higher throughput)',      b: 'Fewer workers (lower cost, simpler ops)' },
+        { a: 'Detailed structured logs (debuggable)', b: 'Minimal logs (lower storage cost)' },
+      ]}
+      questions={[
+        {
+          q:    'Your agent service is deployed to 3 replicas. A user submits a task, then immediately queries its status. The status request might hit a different replica than the one running the task. How do you ensure consistent status across replicas?',
+          hint: 'Think about where task state lives.',
+          answer: '<p>State must live outside the process — not in-memory: (1) <strong>BullMQ job state in Redis</strong> — BullMQ stores job state (waiting, active, completed, failed, progress) in Redis. Any replica can query <code>queue.getJob(id)</code> and get consistent state regardless of which replica runs the task. The architecture above already handles this correctly. (2) <strong>Checkpoint state in Postgres</strong> — LangGraph checkpointer state is in Postgres (L20). Any replica can resume a paused task from the same checkpoint. (3) <strong>No in-process caching of job state</strong> — do not cache job status in a Map or module-level variable. The next request may hit a different replica with an empty cache.</p>',
+        },
+        {
+          q:    'Your agent service costs grow linearly with task volume but the P95 task latency is already 45 seconds. How do you reduce both cost and latency simultaneously?',
+          hint: 'Think about where the time and money are actually going.',
+          answer: '<p>Profile before optimising: (1) <strong>Break down task time</strong> — instrument each step: queue wait time, LLM call time, tool call time, DB time. If LLM calls are 80% of 45s, model selection is the lever. If tool calls are 60%, parallelise them. (2) <strong>Model tiering</strong> — use Haiku for cheap classification/routing steps; reserve Opus for the final generation. Profiling typically reveals 5–10 Haiku-eligible calls per task that are currently using Opus. (3) <strong>Parallel tool calls</strong> — if the agent makes 3 independent tool calls sequentially, parallelise them with Promise.all (L11). Cuts tool-call latency by 3x. (4) <strong>Prompt caching</strong> — if the system prompt &gt;1024 tokens and is stable across calls, the cache hit reduces input token cost by 90%. Combined with model tiering, this can cut cost 60–80% with no quality regression if evals pass.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Running agents synchronously in HTTP handlers — killed by load balancer timeouts on long tasks.',
+        'Storing secrets in environment files committed to version control — a git history leak exposes all past keys.',
+        'No health endpoint — the load balancer routes traffic to crashed instances that return 500s.',
+        'Single-process queue backend (in-memory BullMQ) — all queued jobs are lost on process restart.',
+        'No structured logging — debugging a production failure requires reading unstructured log lines manually.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

@@ -1,0 +1,728 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const debugCode = `
+import { StateGraph, END } from '@langchain/langgraph';
+import { Annotation } from '@langchain/langgraph';
+
+// Middleware: wrap every node to log state before and after
+function withDebug<S extends object>(
+  name: string,
+  fn: (state: S) => Promise<Partial<S>>,
+) {
+  return async (state: S): Promise<Partial<S>> => {
+    console.log(\`[ENTER \${name}]\`, JSON.stringify(state, null, 2));
+    const update = await fn(state);
+    console.log(\`[EXIT \${name}]\`, JSON.stringify(update, null, 2));
+    return update;
+  };
+}
+
+// Validation: assert invariants on state before each node runs
+function withValidation<S extends Record<string, unknown>>(
+  name: string,
+  checks: Array<(s: S) => boolean | string>,
+  fn: (state: S) => Promise<Partial<S>>,
+) {
+  return async (state: S): Promise<Partial<S>> => {
+    for (const check of checks) {
+      const result = check(state);
+      if (result !== true) {
+        const msg = typeof result === 'string' ? result : \`Invariant failed in \${name}\`;
+        throw new Error(msg);
+      }
+    }
+    return fn(state);
+  };
+}
+
+// Example usage: wrap nodes when debugging
+const AgentState = Annotation.Root({
+  messages:  Annotation<string[]>({ reducer: (p, n) => [...p, ...n], default: () => [] }),
+  iteration: Annotation<number>({ reducer: (_, n) => n, default: () => 0 }),
+  status:    Annotation<string>({ reducer: (_, n) => n, default: () => 'running' }),
+});
+
+async function rawModel(state: typeof AgentState.State) {
+  // ... LLM call
+  return { messages: ['model response'], iteration: state.iteration + 1 };
+}
+
+// In development, wrap with debug middleware
+const modelNode = process.env.NODE_ENV === 'development'
+  ? withDebug('model', withValidation(
+      'model',
+      [
+        s => s.iteration < 10 || 'Too many iterations — possible infinite loop',
+        s => s.messages.length < 100 || 'Message history too long',
+      ],
+      rawModel,
+    ))
+  : rawModel;
+`.trim();
+
+const streamDebugCode = `
+// Stream individual node outputs to observe state transitions live
+const graph = buildGraph().compile();
+
+const input = { messages: ['Hello'], iteration: 0, status: 'running' };
+
+for await (const chunk of await graph.stream(input, { streamMode: 'updates' })) {
+  // chunk is { nodeName: partialStateUpdate }
+  const [nodeName, update] = Object.entries(chunk)[0];
+  console.log(\`Node "\${nodeName}" updated state:\`, update);
+}
+
+// Stream mode options:
+// 'updates'  — emit partial state from each node as it completes (most useful for debugging)
+// 'values'   — emit full state after each node
+// 'debug'    — emit internal LangGraph events (tasks, checkpoints)
+`.trim();
+
+const interruptDebugCode = `
+import { interrupt }    from '@langchain/langgraph';
+import { MemorySaver }  from '@langchain/langgraph';
+
+// Step 1: drop interrupt() inside any node like a debugger breakpoint
+async function classifyNode(state: typeof ModerationState.State) {
+  const result = await classifier.invoke(state.content);
+
+  // Pause here in dev so you can inspect the classification before routing continues
+  if (process.env.NODE_ENV === 'development') {
+    interrupt({
+      message:    'Classification complete — inspect before routing',
+      category:   result.category,
+      confidence: result.confidence,
+      content:    state.content,
+    });
+  }
+
+  return { category: result.category, confidence: result.confidence };
+}
+
+// Step 2: compile with a checkpointer — required for interrupt support
+const graph = new StateGraph(ModerationState)
+  .addNode('classify', classifyNode)
+  .addNode('approve',  approveNode)
+  .addNode('review',   reviewNode)
+  .addNode('block',    blockNode)
+  .addConditionalEdges('classify', routeByCategory, { approve: 'approve', review: 'review', block: 'block' })
+  .compile({ checkpointer: new MemorySaver() });
+
+const config = { configurable: { thread_id: 'debug-1' } };
+
+// Step 3: Phase 1 — invoke runs until the interrupt fires
+const paused = await graph.invoke({ content: 'This product is amazing!' }, config);
+
+// paused.__interrupt__ contains the payload you passed to interrupt()
+console.log('Paused at:', paused.__interrupt__[0].value);
+// → { message: 'Classification complete...', category: 'safe', confidence: 0.94, ... }
+
+// Step 4: inspect the full checkpoint state at the breakpoint
+const snapshot = await graph.getState(config);
+console.log('Full state:', snapshot.values);   // everything in state right now
+console.log('Next node:',  snapshot.next);     // ['approve'] — where it will go on resume
+
+// Step 5 (optional): patch state before resuming — override the classification
+await graph.updateState(config, { category: 'review' });
+
+// Step 6: resume — pass null input + same config; execution picks up after the interrupt
+const final = await graph.invoke(null, config);
+console.log('Final output:', final.finalOutput);
+`.trim();
+
+
+const traceDecoratorCode = `
+import { Logger } from '@nestjs/common';
+
+// Pattern 2: @TraceNode() method decorator — most idiomatic for NestJS
+// Decorates class methods that serve as graph nodes
+export function TraceNode(label?: string): MethodDecorator {
+  return (_target, propertyKey, descriptor: PropertyDescriptor) => {
+    const original = descriptor.value as (state: unknown) => Promise<unknown>;
+    const name     = label ?? String(propertyKey);
+
+    descriptor.value = async function (state: unknown) {
+      if (process.env.NODE_ENV !== 'development') {
+        return original.call(this, state);  // no-op in production
+      }
+      Logger.debug(\`[ENTER \${name}]\`, JSON.stringify(state, null, 2), 'TraceNode');
+      const update = await original.call(this, state);
+      Logger.debug(\`[EXIT  \${name}]\`, JSON.stringify(update, null, 2), 'TraceNode');
+      return update;
+    };
+
+    return descriptor;
+  };
+}
+
+// Usage: annotate node methods on a class-based service
+@Injectable()
+export class ChatNodes {
+  @TraceNode()                   // uses method name 'classifier' as label
+  async classifier(state: typeof ChatState.State) {
+    // ... Haiku call
+  }
+
+  @TraceNode('specialist-node')  // explicit label
+  async specialist(state: typeof ChatState.State) {
+    // ... Sonnet call
+  }
+}
+`.trim();
+
+const interceptorCode = `
+import { Injectable, NestInterceptor, ExecutionContext,
+         CallHandler, Logger, UseInterceptors } from '@nestjs/common';
+import { Observable } from 'rxjs';
+import { tap } from 'rxjs/operators';
+
+// Pattern 3: NestJS Interceptor — HTTP-level observability on the agent endpoint
+// Use this to log what came in and what the graph produced, without touching graph code
+@Injectable()
+export class AgentTraceInterceptor implements NestInterceptor {
+  private readonly logger = new Logger('AgentTrace');
+
+  intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const req      = ctx.switchToHttp().getRequest<Request>();
+    const body     = req.body as Record<string, string>;
+    const threadId = body.threadId ?? 'unknown';
+    const start    = Date.now();
+
+    this.logger.log(\`→ [\${threadId}] \${req.method} \${req.url}\`);
+
+    return next.handle().pipe(
+      tap(result => {
+        const ms = Date.now() - start;
+        this.logger.log(
+          \`← [\${threadId}] \${ms}ms | guardrail=\${result?.guardrailPassed} | \` +
+          \`citations=\${result?.citations?.length ?? 0}\`,
+        );
+      }),
+    );
+  }
+}
+
+@Controller('agent')
+@UseInterceptors(AgentTraceInterceptor)
+export class AgentController {
+  @Post('ask')
+  async ask(@Body() dto: AskDto) { /* ... */ }
+}
+`.trim();
+
+const ex1BugCode = `
+const ChatState = Annotation.Root({
+  messages:  Annotation<string[]>({ reducer: (_, n) => n, default: () => [] }),
+  turnCount: Annotation<number>({  reducer: (_, n) => n, default: () => 0 }),
+});
+
+async function modelNode(state: typeof ChatState.State) {
+  const reply = await callLLM(state.messages);
+  return {
+    messages:  [reply],
+    turnCount: state.turnCount + 1,
+  };
+}
+
+// After running 3 turns you observe in the stream:
+// Node "modelNode" → { messages: ["Turn 1 reply"], turnCount: 1 }
+// Node "modelNode" → { messages: ["Turn 2 reply"], turnCount: 2 }
+// Node "modelNode" → { messages: ["Turn 3 reply"], turnCount: 3 }
+//
+// Final state: messages = ["Turn 3 reply"]   ← only 1 message, expected 3
+//              turnCount = 3                  ← correct
+`.trim();
+
+const ex1FixCode = `
+const ChatState = Annotation.Root({
+  // Bug: (_, n) => n is a REPLACE reducer — it discards the previous array.
+  // Fix: use an ACCUMULATING reducer to append new messages to the history.
+  messages:  Annotation<string[]>({ reducer: (prev, next) => [...prev, ...next], default: () => [] }),
+  turnCount: Annotation<number>({  reducer: (_, n) => n, default: () => 0 }),
+});
+
+// Now state.messages accumulates across turns:
+// After turn 1: ["Turn 1 reply"]
+// After turn 2: ["Turn 1 reply", "Turn 2 reply"]
+// After turn 3: ["Turn 1 reply", "Turn 2 reply", "Turn 3 reply"]
+`.trim();
+
+const ex2AnswerCode = `
+export function TraceNode(label?: string): MethodDecorator {
+  return (_target, propertyKey, descriptor: PropertyDescriptor) => {
+    const original = descriptor.value as (state: unknown) => Promise<unknown>;
+    const name     = label ?? String(propertyKey);
+
+    descriptor.value = async function (state: unknown) {
+      if (process.env.NODE_ENV !== 'development') {
+        return original.call(this, state);
+      }
+      Logger.debug(\`[ENTER \${name}]\`, JSON.stringify(state, null, 2), 'TraceNode');
+      const update = await original.call(this, state);
+      Logger.debug(\`[EXIT  \${name}]\`, JSON.stringify(update, null, 2), 'TraceNode');
+      return update;
+    };
+
+    return descriptor;
+  };
+}
+`.trim();
+
+const ex3BugCode = `
+// You enable streamMode: 'updates' and see this in the console:
+//
+// Node "triage" updated state: { category: "BILLING" }
+// RuntimeError: No target found for route key "BILLING"
+
+// Your graph:
+function routeByCategory(state: typeof TriageState.State): string {
+  return state.category;
+}
+
+const graph = new StateGraph(TriageState)
+  .addConditionalEdges('triage', routeByCategory, {
+    billing:  'billingAgent',
+    shipping: 'shippingAgent',
+    general:  'generalAgent',
+  });
+
+// The triage node returns: { category: "BILLING" }
+// Spot the bug and write the one-line fix.
+`.trim();
+
+const ex3FixCode = `
+// Bug: the LLM returned uppercase "BILLING" but the edge map keys are lowercase "billing".
+// Conditional edge routing is case-sensitive — "BILLING" !== "billing".
+
+// Fix: normalise the router output before it hits the map
+function routeByCategory(state: typeof TriageState.State): string {
+  return state.category.toLowerCase().trim();  // "BILLING" → "billing"
+}
+
+// Defence in depth: the 'general' key in the edge map is already your fallback
+// for unrecognised or misspelled categories — never omit it.
+`.trim();
+
+const mindMap = `
+# Debugging State Transitions
+## Why Graph Bugs Are Hard
+### Symptom far from cause
+### State corruption propagates
+## Technique 1: withDebug Wrapper
+### Log state before/after
+### Strip in production
+## Technique 2: Stream Mode
+### updates mode — node diffs
+### values mode — full state
+### debug mode — internal events
+## Technique 3: Invariant Assertions
+### Iteration counter bounds
+### Message history limits
+### Required field presence
+## Technique 4: interrupt Breakpoint
+### Pause at any node
+### Inspect via getState
+### Patch via updateState
+### Resume with null input
+## Technique 5: NestJS Patterns
+### TraceNode method decorator
+### NestInterceptor at HTTP boundary
+### withDebug for standalone nodes
+## Common State Bugs
+### Wrong reducer — loses messages
+### Missing update — stale counter
+### Router key case mismatch
+## Tensions
+### Verbose debug logging vs production noise
+### Strict invariants vs runtime overhead
+## Pitfalls
+### Leaving withDebug wrappers in production
+### Only logging final state
+### Invariants throwing without context
+### End-to-end tests only
+`;
+---
+
+<LessonLayout
+  title="L19 — Debugging State Transitions"
+>
+  <LessonHeader
+    num="L19"
+    title="Debugging State Transitions"
+    subtitle="Observe state at every node boundary, assert invariants to catch bugs early, and use stream mode to trace graph execution live."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">§3.3 — Why graph bugs are hard</h2>
+    <p>
+      A LangGraph execution is a sequence of state mutations across many nodes. When
+      something goes wrong, the symptom (wrong final answer) is often far from the cause
+      (a reducer bug in node 2 that corrupted state before node 5 even ran). Without
+      observability at each transition, debugging is guesswork.
+    </p>
+
+    <LessonCallout variant="key" title="The debugging principle">
+      <p>
+        Bugs in graph state are like memory corruption bugs — the failure shows up far
+        from the cause. Observe state at every boundary, not just the final output.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Technique 1 — Higher-order wrapper (withDebug)</h2>
+    <p>
+      Wrap node functions with a higher-order function (HOF) that logs state before and
+      after. Strip the wrapper in production by checking <code>NODE_ENV</code>. This
+      pattern is sometimes called "debug middleware" in functional programming jargon —
+      it has nothing to do with NestJS HTTP middleware.
+    </p>
+
+    <CodeBlock lang="typescript" label="debug-middleware.ts" code={debugCode} />
+
+    <h2 class="lesson-heading">Technique 2 — Stream mode</h2>
+    <p>
+      LangGraph's <code>.stream()</code> accepts a <code>streamMode</code> option that
+      controls the granularity of emitted events. <code>'updates'</code> mode shows exactly
+      what each node wrote to state.
+    </p>
+
+    <CodeBlock lang="typescript" label="stream-debug.ts" code={streamDebugCode} />
+
+    <h2 class="lesson-heading">Technique 3 — Invariant assertions</h2>
+    <p>
+      State invariants are conditions that must always be true. Encoding them as runtime
+      checks catches subtle reducer bugs — like an iteration counter not incrementing —
+      before they propagate to later nodes.
+    </p>
+
+    <LessonCallout variant="tip" title="Common invariants to check">
+      <ul>
+        <li>Iteration counter is within the expected range (no runaway loops)</li>
+        <li>Message history length is bounded (no context window overflow)</li>
+        <li>Required state fields are present before the node that needs them runs</li>
+        <li>Status values are from the allowed enum (no typos in router keys)</li>
+      </ul>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Technique 4 — interrupt() as a breakpoint</h2>
+    <p>
+      Stream mode shows you what each node wrote — but the output is ephemeral.
+      <code>interrupt()</code> gives you a persistent checkpoint at an exact node boundary
+      so you can inspect the full state, patch values, and replay forward. Think of it as
+      a debugger breakpoint, not a user-facing pause.
+    </p>
+
+    <LessonCallout variant="warn" title="Requires a checkpointer">
+      <p>
+        <code>interrupt()</code> only works when the graph is compiled with a checkpointer
+        (<code>MemorySaver</code> for development, Postgres/Redis in production). Without
+        one, calling <code>interrupt()</code> throws at runtime.
+      </p>
+    </LessonCallout>
+
+    <p>The flow is three phases:</p>
+    <ul>
+      <li><strong>Phase 1</strong> — invoke the graph; it runs until the interrupt fires and returns a paused result containing <code>__interrupt__</code></li>
+      <li><strong>Phase 2</strong> — call <code>graph.getState(config)</code> to inspect the full checkpoint; optionally call <code>graph.updateState(config, patch)</code> to correct state before resuming</li>
+      <li><strong>Phase 3</strong> — resume by invoking again with <code>null</code> input and the same <code>config</code>; execution continues from the checkpoint</li>
+    </ul>
+
+    <CodeBlock lang="typescript" label="interrupt-debug.ts" code={interruptDebugCode} />
+
+    <LessonCallout variant="tip" title="What this gives you that stream mode does not">
+      <p>
+        Stream mode logs are fire-and-forget. An interrupt saves a full checkpoint you
+        can query with <code>getState()</code>, patch with <code>updateState()</code>, and
+        replay any number of times. It is the difference between <code>console.log</code>
+        and a real debugger — and it is especially useful when the bug only appears after
+        several nodes have run.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Technique 5 — NestJS-idiomatic debugging</h2>
+    <p>
+      In a plain Node.js script you wrap node functions directly. In NestJS you have four
+      interception mechanisms — each targeting a different layer. Choose by proximity to
+      the bug.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Mechanism</th><th>Scope</th><th>Use for graph debugging?</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>NestJS <code>NestMiddleware</code></strong> (HTTP)</td>
+            <td>HTTP request / response, before routing</td>
+            <td>No — HTTP-only; graph nodes are never reached from here</td>
+          </tr>
+          <tr>
+            <td><strong>Pipe</strong></td>
+            <td>DTO validation / input transformation</td>
+            <td>No — transforms DTO, doesn't trace node execution</td>
+          </tr>
+          <tr>
+            <td><strong>Interceptor</strong> (<code>NestInterceptor</code>)</td>
+            <td>Controller method — request in, response out</td>
+            <td>Yes — for HTTP-level logging at the agent endpoint boundary</td>
+          </tr>
+          <tr>
+            <td><strong>Method decorator</strong></td>
+            <td>Individual class method on a service</td>
+            <td>Best — wraps each node method with zero call-site changes</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="key" title="Rule of thumb">
+      <p>
+        <strong>Standalone node functions</strong> — use <code>withDebug</code> from
+        Technique 1 directly as a utility import. It is a pure function with no
+        dependencies; wrapping it in an <code>@Injectable()</code> class adds DI
+        ceremony with zero benefit.
+        <strong>Class method nodes</strong> — use the <code>@TraceNode()</code>
+        decorator. <strong>HTTP boundary</strong> — use a <code>NestInterceptor</code>.
+        Avoid NestJS <code>NestMiddleware</code> — it's HTTP-only and the graph is
+        never reached from that layer.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Pattern 1 — @TraceNode() method decorator</h3>
+    <p>
+      When your node functions live as methods on a NestJS service class, annotate them
+      with <code>@TraceNode()</code>. The decorator intercepts each invocation
+      transparently — no changes at call sites. Enable with
+      <code>NODE_ENV=development</code>.
+    </p>
+    <CodeBlock lang="typescript" label="trace-node.decorator.ts" code={traceDecoratorCode} />
+
+    <h3 class="lesson-heading">Pattern 2 — NestJS Interceptor for HTTP-level tracing</h3>
+    <p>
+      When you need to observe what entered the agent endpoint and what it returned,
+      attach an interceptor to the controller. This does not trace individual nodes —
+      it records the full HTTP input/output pair with latency at the service boundary.
+    </p>
+    <CodeBlock lang="typescript" label="agent-trace.interceptor.ts" code={interceptorCode} />
+
+    <LessonCallout variant="info" title="Production: use LangSmith">
+      <p>
+        All three patterns above are development tools. In production, enable
+        <strong>LangSmith</strong> by setting <code>LANGCHAIN_TRACING_V2=true</code> and
+        <code>LANGCHAIN_API_KEY</code> in your environment. LangSmith records every
+        node's input, output, latency, and token count automatically — no code changes
+        needed.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Common state transition bugs</h2>
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Bug</th><th>Symptom</th><th>Root cause</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Wrong reducer</td>
+            <td>Messages disappear after second node</td>
+            <td>Replace reducer on a field that should accumulate</td>
+          </tr>
+          <tr>
+            <td>Missing update</td>
+            <td>Iteration counter stays at 0</td>
+            <td>Node forgets to return the updated field</td>
+          </tr>
+          <tr>
+            <td>Stale read</td>
+            <td>Node uses old value despite earlier update</td>
+            <td>Reading a field before its reducer has merged</td>
+          </tr>
+          <tr>
+            <td>Router key typo</td>
+            <td>Graph throws "no target node" at runtime</td>
+            <td>Router returns <code>"Billing"</code> but map has <code>"billing"</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Exercises</h2>
+    <p>Three problems — attempt each before revealing the answer.</p>
+
+    <h3 class="lesson-heading">Exercise 1 — Spot the reducer bug</h3>
+    <p>
+      A chatbot runs for 3 turns. The stream output looks correct at each step but the
+      final <code>messages</code> array contains only the last reply. Study the state
+      definition below, identify the bug, and explain how to fix it.
+    </p>
+    <CodeBlock lang="typescript" label="buggy-state.ts" code={ex1BugCode} />
+    <details class="dd-answer">
+      <summary>Reveal answer →</summary>
+      <div class="dd-answer-body">
+        <p>
+          The <code>messages</code> field uses a <strong>replace reducer</strong>
+          <code>(_, n) =&gt; n</code>. Each time a node returns
+          <code>&#123; messages: [reply] &#125;</code>, the reducer discards the
+          existing array and replaces it with just the new one — so only the last reply
+          survives. The <code>turnCount</code> reducer is identical but correct for a
+          counter, because counters are replaced not accumulated.
+        </p>
+        <CodeBlock lang="typescript" label="fixed-state.ts" code={ex1FixCode} />
+      </div>
+    </details>
+
+    <h3 class="lesson-heading">Exercise 2 — Write the @TraceNode() decorator</h3>
+    <p>Implement a <code>@TraceNode(label?)</code> method decorator that:</p>
+    <ul>
+      <li>Accepts an optional name string; falls back to the method name</li>
+      <li>Logs <code>[ENTER label]</code> with the full state before the node runs</li>
+      <li>Logs <code>[EXIT label]</code> with the update after the node returns</li>
+      <li>Is a complete no-op when <code>NODE_ENV !== 'development'</code></li>
+    </ul>
+    <details class="dd-answer">
+      <summary>Reveal answer →</summary>
+      <div class="dd-answer-body">
+        <CodeBlock lang="typescript" label="trace-node.decorator.ts" code={ex2AnswerCode} />
+        <p>
+          Key points: <code>descriptor.value</code> is the original method — replace
+          it with a wrapper that calls <code>original.call(this, state)</code> to
+          preserve the class context (<code>this</code>). Return the descriptor so
+          TypeScript updates the prototype in place.
+        </p>
+      </div>
+    </details>
+
+    <h3 class="lesson-heading">Exercise 4 — Add an interrupt breakpoint</h3>
+    <p>
+      You have a content moderation graph that routes by classification. The routing
+      sometimes goes wrong but you cannot reproduce it reliably. Add an
+      <code>interrupt()</code> inside the classification node so you can inspect the
+      classification decision before routing fires. Then show how you would override the
+      category to <code>'review'</code> before resuming.
+    </p>
+    <details class="dd-answer">
+      <summary>Reveal answer →</summary>
+      <div class="dd-answer-body">
+        <p>Inside the node, call <code>interrupt()</code> after the LLM returns but before
+        the <code>return</code> statement. Compile with <code>MemorySaver</code>, then use
+        the three-phase flow: invoke → inspect → resume.</p>
+        <CodeBlock lang="typescript" label="interrupt-debug.ts" code={interruptDebugCode} />
+        <p>
+          The key line for the override is
+          <code>graph.updateState(config, &#123; category: 'review' &#125;)</code> between
+          Phase 2 and Phase 3. On resume, the routing function will read
+          <code>'review'</code> from the checkpoint, not the LLM's original answer.
+        </p>
+      </div>
+    </details>
+
+    <h3 class="lesson-heading">Exercise 3 — Debug from stream output</h3>
+    <p>
+      You enable <code>streamMode: 'updates'</code> and immediately see a runtime crash.
+      Read the stream snippet, identify the bug, and write the one-line fix.
+    </p>
+    <CodeBlock lang="typescript" label="router-bug.ts" code={ex3BugCode} />
+    <details class="dd-answer">
+      <summary>Reveal answer →</summary>
+      <div class="dd-answer-body">
+        <CodeBlock lang="typescript" label="router-fix.ts" code={ex3FixCode} />
+        <p>
+          Lesson: always normalise router output with <code>.toLowerCase().trim()</code>
+          before it reaches an edge map. LLMs capitalise enum values inconsistently, and
+          conditional edge routing is strictly case-sensitive.
+        </p>
+      </div>
+    </details>
+
+    <LessonChecklist
+      title="What you can now do"
+      items={[
+        'Wrap node functions with <code>withDebug</code> middleware to log state transitions',
+        'Write <code>withValidation</code> checks that assert state invariants before each node',
+        'Use <code>graph.stream(input, &#123; streamMode: "updates" &#125;)</code> to trace execution live',
+        'Diagnose wrong-reducer, missing-update, and router-key-typo bugs from state logs',
+        'Use <code>interrupt()</code> as a debugger breakpoint to pause at any node, inspect the full checkpoint with <code>getState()</code>, patch state with <code>updateState()</code>, and resume with a null-input invoke',
+        'Choose between <code>@TraceNode()</code> decorator, injectable service, or <code>NestInterceptor</code> based on where the bug lives',
+        'Enable LangSmith with two env vars for zero-code-change production tracing',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'Messages keep disappearing after node 2 runs. State shows messages: ["msg3"] instead of ["msg1","msg2","msg3"]. What is the most likely cause?',
+        options: [
+          'Node 2 is calling the LLM with the wrong model',
+          'The messages field has a replace reducer instead of an accumulating reducer',
+          'Node 3 is running before node 2 finishes',
+          'The graph is missing an edge from node 2 to node 3',
+        ],
+        answer:  1,
+        explain: 'A replace reducer (reducer: (_, next) => next) overwrites the entire field on every update. If node 2 returns { messages: ["msg3"] }, the replace reducer discards msg1 and msg2. Fix: use an accumulating reducer — reducer: (prev, next) => [...prev, ...next].',
+      },
+      {
+        q:       'What does streamMode: "updates" emit that streamMode: "values" does not?',
+        options: [
+          '"updates" emits only the partial state change from each node; "values" emits the full merged state',
+          '"updates" emits LangGraph internal events; "values" emits node outputs',
+          '"updates" is faster; "values" emits more tokens',
+          'There is no difference — both emit the same data',
+        ],
+        answer:  0,
+        explain: '"updates" mode emits only what each node returned — the diff. "values" mode emits the complete merged state after each node. For debugging, "updates" makes it obvious which node changed which fields. For streaming to a UI, "values" gives you the latest full state.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.3"
+      tensions={[
+        { a: 'Verbose debug logging (visible)',       b: 'Production log noise (expensive)' },
+        { a: 'Strict invariant assertions (safe)',    b: 'Runtime performance overhead (speed)' },
+      ]}
+      questions={[
+        {
+          q:    'Your graph has 12 nodes and debugging all of them is overwhelming. How do you narrow the search space to find which node corrupted state?',
+          hint: 'Think about binary search applied to graph execution.',
+          answer: '<p>Binary state inspection: (1) <strong>Snapshot state at the midpoint node</strong> — add an invariant check or logging at node 6. If state is already wrong, the bug is in nodes 1–6; if clean, it\'s in nodes 7–12. (2) <strong>Replay with stream mode</strong> — run with <code>streamMode: "updates"</code> and filter for the field you know is wrong. The first update that sets the wrong value is the guilty node. (3) <strong>Isolated unit tests</strong> — test each node function independently: give it a known-good input state and assert the output. The node that fails the unit test is the bug location. This is why node functions should be pure and independently testable.</p>',
+        },
+        {
+          q:    'An invariant check correctly catches an infinite loop in staging, but you don\'t want it to crash the entire graph in production — you want graceful degradation. How do you implement this?',
+          hint: 'Think about what "graceful degradation" means for a graph node.',
+          answer: '<p>Replace the invariant throw with a state transition to an error-handling node: (1) Instead of <code>throw new Error("too many iterations")</code>, return a state update like <code>&#123; status: "aborted", error: "iteration limit exceeded" &#125;</code>. (2) Add an error node that generates a safe fallback response and routes to END. (3) Update the conditional edge to check for <code>status === "aborted"</code> and route to the error node. This way, the graph always produces a response — either the real answer or a graceful "I couldn\'t complete this task" message — and the failure is logged for later debugging without crashing the user\'s request.</p>',
+        },
+      ]}
+      questions={[
+        {
+          q:    'When would custom logging be more useful than relying solely on LangGraph\'s streaming capabilities?',
+          hint: 'Streaming shows the skeleton — what changed. Think about what it cannot show.',
+          answer: `<p>Streaming tells you <em>that</em> a node ran and <em>what</em> state changed. Custom logging tells you <em>why</em> — the business logic reasoning that never surfaces in state. Four scenarios where streaming alone is not enough:</p>
+<ul>
+  <li><strong>Multi-step calculations inside one node.</strong> A pricing node that applies loyalty tier, promo code, and a cap produces a single state update <code>&#123; price: 42.50 &#125;</code>. Streaming shows the number. A custom log shows: <em>"Base: $50 → loyalty gold −10% → promo SUMMER20 −15% → cap applied → $42.50"</em>. Without the log, a wrong price is impossible to audit.</li>
+  <li><strong>RAG retrieval quality.</strong> The retrieval node returns chunks. Streaming shows <code>&#123; chunks: [...] &#125;</code>. A custom log records cosine scores for every candidate: <em>"8 docs retrieved, scores [0.91, 0.87, 0.83, 0.71, 0.65, …], threshold 0.7 → 4 passed"</em>. You cannot diagnose poor answer quality without the scores — state only carries the winners.</li>
+  <li><strong>Router confidence.</strong> A conditional edge fires and streaming shows the next node. A custom log adds: <em>"category=billing, confidence=0.51, threshold=0.7 → fell back to general (low confidence)"</em>. The routing decision is invisible to streaming because it happens in the edge function, not in a state field.</li>
+  <li><strong>Prompt and model metadata.</strong> Streaming shows the LLM response. A custom log records the prompt template version, model, temperature, and token counts. This is the only way to understand regressions when a prompt is updated — state carries the output, not the inputs that produced it.</li>
+</ul>
+<p>Rule of thumb: use streaming as your first pass to find <em>which</em> node is suspicious. Add custom logging inside that node to find out <em>why</em> it produced the wrong output.</p>`,
+        },
+      ]}
+      pitfalls={[
+        'Leaving withDebug wrappers in production — logs can expose sensitive user data and inflate log storage costs.',
+        'Only logging the final state — by then, the corrupted state has propagated and the root cause is invisible.',
+        'Invariants that throw without context — always include the current state value in the error message.',
+        'Testing the graph only end-to-end — integration tests don\'t isolate which node introduced a state bug.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

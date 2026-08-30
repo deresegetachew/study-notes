@@ -1,0 +1,473 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const stateCode = `
+import { StateGraph, Annotation, interrupt, END } from '@langchain/langgraph';
+import { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
+
+const BlogState = Annotation.Root({
+  topic:         Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  outline:       Annotation<string[]>({ reducer: (_, n) => n, default: () => [] }),
+  sectionIndex:  Annotation<number>({ reducer: (_, n) => n, default: () => 0 }),
+  // reducer merges per-section drafts: { 0: "...", 1: "...", 2: "..." }
+  drafts: Annotation<Record<number, string>>({
+    reducer: (existing, incoming) => ({ ...existing, ...incoming }),
+    default: () => ({}),
+  }),
+  scores: Annotation<Record<number, number>>({
+    reducer: (existing, incoming) => ({ ...existing, ...incoming }),
+    default: () => ({}),
+  }),
+  turnCount:     Annotation<number>({ reducer: (_, n) => n, default: () => 0 }),
+  brandVoice:    Annotation<string>({ reducer: (_, n) => n, default: () => '' }),
+  humanFeedback: Annotation<string | null>({ reducer: (_, n) => n, default: () => null }),
+  finalPost:     Annotation<string | null>({ reducer: (_, n) => n, default: () => null }),
+});
+`.trim();
+
+const brandVoicePlannerCode = `
+async function loadBrandVoice(state: typeof BlogState.State) {
+  // L20: Semantic memory — retrieve style from 3 most similar past posts
+  const { data } = await openai.embeddings.create({
+    model: 'text-embedding-3-small', input: state.topic,
+  });
+  const vec = \`[\${data[0].embedding.join(',')}]\`;
+  const { rows } = await pool.query(
+    \`SELECT content FROM blog_posts
+     ORDER BY embedding <=> $1::vector LIMIT 3\`,
+    [vec],
+  );
+  // Summarise into a brand voice guide (L32: context window management)
+  const samples = rows.map(r => r.content.slice(0, 300)).join('\\n
+---\\n');
+  return { brandVoice: samples || 'Clear, concise, code-forward technical writing.' };
+}
+
+async function planner(state: typeof BlogState.State) {
+  // L19: Plan-and-execute — Opus plans once upfront, Sonnet executes each section
+  const res = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 256,
+    messages: [{ role: 'user', content:
+      \`Create a 5-section outline for a technical blog post about: "\${state.topic}".
+Return ONLY a JSON array of section title strings.
+Example: ["Introduction", "Core Concept", "Implementation", "Testing", "Conclusion"]\` }],
+  });
+  const raw = res.content[0].type === 'text' ? res.content[0].text : '[]';
+  return { outline: JSON.parse(raw) as string[], sectionIndex: 0, turnCount: 0 };
+}
+`.trim();
+
+const drafterReflectorCode = `
+async function drafter(state: typeof BlogState.State) {
+  // L22: Deep-agent pattern — focused per-section drafting with brand voice
+  const title     = state.outline[state.sectionIndex];
+  const prevTitles = state.outline.slice(0, state.sectionIndex);
+
+  const res = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1024,
+    system: \`You are a technical writer. Match this brand voice:\\n\${state.brandVoice}\`,
+    messages: [{ role: 'user', content:
+      \`Write the "\${title}" section for a blog post on "\${state.topic}".
+Previously covered: \${prevTitles.join(', ') || 'nothing yet'}.
+Target: 250–350 words. Include a code example if relevant.\` }],
+  });
+  const draft = res.content[0].type === 'text' ? res.content[0].text : '';
+  return {
+    drafts:    { [state.sectionIndex]: draft },
+    turnCount: state.turnCount + 1,
+  };
+}
+
+async function reflector(state: typeof BlogState.State) {
+  // L18: Reflection pattern — Haiku scores quality, feeds the routing decision
+  const draft = state.drafts[state.sectionIndex] ?? '';
+  const res = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 32,
+    messages: [{ role: 'user', content:
+      \`Score this blog section 1–10 for: clarity, technical accuracy, brand voice fit.
+Return ONLY JSON: {"score": N}
+Section (first 600 chars):\\n\${draft.slice(0, 600)}\` }],
+  });
+  const raw = res.content[0].type === 'text' ? res.content[0].text : '{"score":5}';
+  const { score } = JSON.parse(raw) as { score: number };
+  return { scores: { [state.sectionIndex]: score } };
+}
+
+// Router: retry (score too low), or advance to the next section / human review
+function routeAfterReflect(state: typeof BlogState.State): 'retry' | 'advance' {
+  const score  = state.scores[state.sectionIndex] ?? 0;
+  const capped = state.turnCount >= 3;          // L22: hard cap prevents infinite loops
+  return score >= 7 || capped ? 'advance' : 'retry';
+}
+
+function routeAfterAdvance(state: typeof BlogState.State): 'draft' | 'review' {
+  return state.sectionIndex >= state.outline.length - 1 ? 'review' : 'draft';
+}
+`.trim();
+
+const hiLoAssembleCode = `
+async function advanceSection(state: typeof BlogState.State) {
+  return { sectionIndex: state.sectionIndex + 1, turnCount: 0 };
+}
+
+async function humanReview(state: typeof BlogState.State) {
+  // L17: HITL — present all drafted sections before the post is assembled
+  const preview = state.outline
+    .map((title, i) => \`## \${title}\\n\\n\${state.drafts[i] ?? '(not drafted)'}\`)
+    .join('\\n\\n---\\n\\n');
+
+  // interrupt() suspends the graph and surfaces the preview to the editor
+  const feedback = interrupt({
+    message: 'Review the draft post. Reply "approve" or provide revision notes.',
+    preview,
+  });
+  return { humanFeedback: feedback as string };
+}
+
+async function assemblePost(state: typeof BlogState.State) {
+  const post = state.outline
+    .map((title, i) => \`## \${title}\\n\\n\${state.drafts[i]}\`)
+    .join('\\n\\n');
+
+  // L20: Store embedding so future posts inherit this brand voice
+  const { data } = await openai.embeddings.create({
+    model: 'text-embedding-3-small', input: post.slice(0, 2000),
+  });
+  const vec = \`[\${data[0].embedding.join(',')}]\`;
+  await pool.query(
+    \`INSERT INTO blog_posts (topic, content, embedding) VALUES ($1, $2, $3::vector)\`,
+    [state.topic, post, vec],
+  );
+  return { finalPost: post };
+}
+`.trim();
+
+const graphCode = `
+export const blogGraph = new StateGraph(BlogState)
+  .addNode('loadBrandVoice', loadBrandVoice)
+  .addNode('planner',        planner)
+  .addNode('drafter',        drafter)
+  .addNode('reflector',      reflector)
+  .addNode('advanceSection', advanceSection)
+  .addNode('humanReview',    humanReview)
+  .addNode('assemblePost',   assemblePost)
+  .addEdge('__start__',      'loadBrandVoice')
+  .addEdge('loadBrandVoice', 'planner')
+  .addEdge('planner',        'drafter')
+  .addEdge('drafter',        'reflector')
+  .addConditionalEdges('reflector', routeAfterReflect, {
+    retry:   'drafter',          // quality failed — redraft
+    advance: 'advanceSection',   // quality passed (or max turns)
+  })
+  .addConditionalEdges('advanceSection', routeAfterAdvance, {
+    draft:  'drafter',           // more sections to write
+    review: 'humanReview',       // last section done — get human approval
+  })
+  .addEdge('humanReview',    'assemblePost')
+  .addEdge('assemblePost',   END)
+  .compile({
+    checkpointer:    new PostgresSaver(pool),
+    interruptBefore: ['humanReview'],  // graph suspends here automatically
+  });
+`.trim();
+
+const resumeCode = `
+// ── Phase 1: start the pipeline (runs until humanReview) ──────────────
+const tid    = crypto.randomUUID();
+const config = { configurable: { thread_id: tid } };
+
+await blogGraph.invoke({ topic: 'Building Production LangGraph Agents' }, config);
+// Graph paused at humanReview — editor reviews the draft in your UI
+
+// ── Phase 2: resume with editor approval ──────────────────────────────
+const result = await blogGraph.invoke(
+  { humanFeedback: 'Approved — publish as-is.' },
+  config,  // same thread_id resumes from checkpoint (L17)
+);
+console.log(result.finalPost);
+
+// ── Time travel: branch from section 2, turn 1 checkpoint (L31) ───────
+const history = await blogGraph.getStateHistory(config);
+const checkpoints = [...history];
+
+// find the checkpoint right after section 2 was first drafted
+const branchPoint = checkpoints.find(
+  snap => snap.values.sectionIndex === 2 && snap.values.turnCount === 1
+);
+
+if (branchPoint) {
+  const branchConfig = {
+    configurable: {
+      thread_id:     tid,
+      checkpoint_id: branchPoint.config.configurable.checkpoint_id,
+    },
+  };
+  // resume from that snapshot — main thread is untouched
+  await blogGraph.invoke({ humanFeedback: null }, branchConfig);
+}
+`.trim();
+const mindMap = `
+# Content Creation Pipeline Capstone
+## What You Build
+### Multi-stage blog post pipeline
+### Plan-and-execute + reflection
+### Human review checkpoint
+## Phase 1 — State Schema
+### Merge reducers for drafts/scores maps
+### sectionIndex and turnCount routing
+## Phase 2 — Brand Voice + Planner
+### pgvector similarity for past posts
+### Opus plans outline once
+### Truncated samples (300 chars)
+## Phase 3 — Drafter + Reflector
+### Sonnet drafts each section
+### Haiku scores quality (0-10)
+### Hard max_turns = 3 cap
+## Phase 4 — HITL Checkpoint
+### interrupt() with full preview
+### Two-invocation resume pattern
+### assemblePost stores embedding
+## Phase 5 — Graph Wiring + Time Travel
+### interruptBefore humanReview
+### getStateHistory for branching
+### checkpoint_id restores snapshot
+## Tensions
+### High quality threshold vs More LLM calls
+### Opus for planning (better) vs Sonnet (lower cost)
+### Strict max_turns cap (predictable) vs Higher cap (better quality)
+## Pitfalls
+### Missing turnCount reset in advanceSection
+### Wrong reducer on drafts (overwrites previous)
+### Full past post content not truncated
+### No conditional edge after humanReview for revision
+`;;
+
+---
+
+<LessonLayout
+  title="Phase 3 Capstone: Content Creation Pipeline"
+>
+  <LessonHeader
+    num="C2"
+    title="Phase 3 Capstone: Content Creation Pipeline"
+    subtitle="Wire Phase 3 patterns together — plan-and-execute, reflection loops, human-in-the-loop checkpoints, semantic memory, and time travel — into a complete blog post pipeline."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">What you will build</h2>
+    <p>
+      A multi-stage pipeline that takes a blog topic and produces a fully drafted, human-reviewed
+      post. Claude Opus plans the structure. Claude Sonnet drafts each section. Claude Haiku scores
+      quality and drives a retry loop. A human editor reviews the assembled draft before it is
+      published. Brand voice is maintained by retrieving style context from past posts via semantic
+      memory. Every checkpoint is persisted — the editor can time-travel to any section draft and
+      compare variants.
+    </p>
+
+    <h2 class="lesson-heading">Skills exercised</h2>
+    <div class="lesson-table">
+      <table>
+        <thead><tr><th>Lesson</th><th>Concept</th><th>Where it appears</th></tr></thead>
+        <tbody>
+          <tr><td>L15</td><td>Conditional edges</td><td><code>routeAfterReflect</code> and <code>routeAfterAdvance</code></td></tr>
+          <tr><td>L16</td><td>Debugging state</td><td>Per-section score and turnCount visible in every checkpoint</td></tr>
+          <tr><td>L17</td><td>Human-in-the-loop</td><td><code>interrupt()</code> before <code>humanReview</code>, two-invocation resume</td></tr>
+          <tr><td>L31</td><td>Time travel</td><td><code>getStateHistory</code> to branch from any section checkpoint</td></tr>
+          <tr><td>L18</td><td>Reflection pattern</td><td>Haiku scores each draft; score &lt; 7 routes back to drafter</td></tr>
+          <tr><td>L19</td><td>Plan-and-execute</td><td>Opus plans once; Sonnet executes each section independently</td></tr>
+          <tr><td>L20</td><td>Semantic memory</td><td>Brand voice retrieved from past posts via pgvector</td></tr>
+          <tr><td>L32</td><td>Context window management</td><td>Past post samples truncated to 300 chars each before injection</td></tr>
+          <tr><td>L22</td><td>Deep agents</td><td>Hard <code>max_turns = 3</code> cap on per-section retry loop</td></tr>
+          <tr><td>L27</td><td>Workflow patterns</td><td>Cyclic (drafter loop) + Linear (load → plan → assemble) + HITL gate</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Architecture</h2>
+    <LessonDiagram definition={`
+flowchart TD
+  IN([Topic]):::e --> BV[Load Brand Voice\npgvector semantic search]:::s
+  BV --> PL[Planner\nClaude Opus]:::s
+  PL --> DR[Drafter\nClaude Sonnet]:::s
+  DR --> RF[Reflector\nClaude Haiku score]:::dec
+  RF -->|score lt 7 and turns lt 3| DR
+  RF -->|pass or max turns| ADV[Advance\nnext section]:::s
+  ADV -->|more sections| DR
+  ADV -->|last section done| HU[Human Review\ninterrupt]:::w
+  HU --> AS[Assemble\nstore embedding]:::s --> OUT([Final post]):::d
+
+  classDef e   fill:#1e3a8a,color:#fff,stroke:#1e3a8a,stroke-width:2px
+  classDef s   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef dec fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef w   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef d   fill:#14532d,color:#fff,stroke:#14532d,stroke-width:2px
+    `} />
+
+    <h3 class="lesson-heading">Section loop detail</h3>
+    <LessonDiagram definition={`
+flowchart LR
+  DR[Draft section N\nSonnet]:::s --> RF[Score\nHaiku]:::dec
+  RF -->|score gte 7| ADV[Advance\nsectionIndex plus 1]:::s
+  RF -->|score lt 7 and turns lt 3| DR
+  RF -->|turns eq 3| ADV
+  ADV -->|sectionIndex lt outline.length| DR
+  ADV -->|sectionIndex eq outline.length| HU([interrupt\nhuman review]):::w
+
+  classDef s   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef dec fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef w   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+    `} />
+
+    <h2 class="lesson-heading">Phase 1 — State schema</h2>
+    <p>
+      The two map fields (<code>drafts</code> and <code>scores</code>) use merge reducers — each
+      section writes only to its own key so earlier drafts are never overwritten.
+      <code>sectionIndex</code> and <code>turnCount</code> drive both routing functions.
+    </p>
+    <CodeBlock lang="typescript" label="blog-state.ts" code={stateCode} />
+
+    <h2 class="lesson-heading">Phase 2 — Brand voice + planner</h2>
+    <p>
+      <code>loadBrandVoice</code> queries pgvector for the 3 most topically similar past posts and
+      truncates each to 300 characters — enough to extract tone and style without blowing the context
+      window (L32). <code>planner</code> uses Opus because the outline shapes the entire post; this
+      is worth the extra cost.
+    </p>
+    <CodeBlock lang="typescript" label="blog-planner.ts" code={brandVoicePlannerCode} />
+
+    <h2 class="lesson-heading">Phase 3 — Drafter + reflector + routing</h2>
+    <p>
+      The drafter uses Sonnet (cost-effective for long-form text). The reflector uses Haiku
+      (cheap, fast classification). The two routing functions are pure — they read state and
+      return a key. The loop cap at <code>turnCount &gt;= 3</code> is the L22 hard limit that
+      prevents infinite retries.
+    </p>
+    <CodeBlock lang="typescript" label="blog-drafter.ts" code={drafterReflectorCode} />
+
+    <LessonCallout variant="tip" title="Separate scoring model from drafting model">
+      <p>
+        Using Haiku to score and Sonnet to draft is intentional. The scorer does not need
+        creative ability — it needs fast, cheap classification. Mixing them (Sonnet scoring Sonnet)
+        introduces sycophancy risk: the model tends to rate its own outputs highly. Using a
+        different model as judge reduces this bias.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Phase 4 — HITL checkpoint + assembly</h2>
+    <p>
+      <code>humanReview</code> calls <code>interrupt()</code> with a preview of all drafted sections.
+      The graph suspends, the editor reviews in a UI, and the host application resumes with
+      the editor's feedback as a second <code>invoke</code> call on the same thread. After approval,
+      <code>assemblePost</code> concatenates sections and stores the embedding for future brand
+      voice lookups — closing the semantic memory loop.
+    </p>
+    <CodeBlock lang="typescript" label="blog-review.ts" code={hiLoAssembleCode} />
+
+    <h2 class="lesson-heading">Phase 5 — Graph wiring + resume + time travel</h2>
+    <p>
+      <code>interruptBefore: ['humanReview']</code> tells LangGraph to pause automatically
+      before that node — no code change needed if you later add more HITL gates.
+      The resume is a second <code>invoke</code> with the same <code>thread_id</code>.
+      Time travel uses <code>getStateHistory</code> to branch from any previous checkpoint.
+    </p>
+    <CodeBlock lang="typescript" label="blog-run.ts" code={graphCode} />
+    <CodeBlock lang="typescript" label="blog-resume.ts" code={resumeCode} />
+
+    <LessonCallout variant="key" title="checkpoint_id is the branch point">
+      <p>
+        When you pass a <code>checkpoint_id</code> in the config, LangGraph restores that exact
+        snapshot — state, node position, everything. The original thread is untouched. This is
+        how you A/B test different draft styles for the same section without losing either version.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Stretch goals</h2>
+    <ul>
+      <li>Add an MCP web-search tool (L21) to the drafter so it can fetch current stats and link to recent papers.</li>
+      <li>Add a <code>factChecker</code> node after <code>assemblePost</code> that verifies numeric claims against sources — a second reflection loop at post level.</li>
+      <li>Replace the human review with a structured form in a Next.js frontend that calls <code>POST /blog/resume</code> — the API signature is just <code>&#123; thread_id, humanFeedback &#125;</code>.</li>
+      <li>Track which sections most often fail the reflector score threshold — use that data to improve the drafter system prompt (L36 fine-tuning loop).</li>
+    </ul>
+
+    <LessonChecklist
+      title="What this capstone demonstrates"
+      items={[
+        'Plan-and-execute: Opus plans once, Sonnet executes each section independently',
+        'Cyclic reflection loop with quality gate (score ≥ 7) and hard max_turns cap',
+        'Two conditional edges: routeAfterReflect (retry/advance) and routeAfterAdvance (draft/review)',
+        'Human-in-the-loop with interrupt() and two-invocation resume on the same thread_id',
+        'Semantic memory: brand voice injected from pgvector similarity search over past posts',
+        'Context window discipline: past samples truncated before injection',
+        'Time travel: getStateHistory + checkpoint_id to branch from any section draft',
+        'Merge reducers on drafts and scores maps — per-section writes without clobbering earlier sections',
+      ]}
+    />
+
+    <LessonQuiz questions={[
+      {
+        q:       'The reflector scores section 3 at 6/10 on turn 1. On turn 2 the drafter rewrites it but the reflector scores it 5/10. What does the graph do on turn 3?',
+        options: [
+          'The graph routes to advance regardless of the score because turnCount is 3',
+          'The graph routes to retry because the score went down',
+          'The graph routes to humanReview to break the tie',
+          'The graph raises an error because the score decreased',
+        ],
+        answer:  0,
+        explain: 'The routeAfterReflect function checks turnCount >= 3 first, before the score. On turn 3, capped is true regardless of score — so it always routes to advance and takes whatever draft currently exists. This prevents infinite loops when the model cannot improve further.',
+      },
+      {
+        q:       'The editor calls resume with "Section 2 needs more code examples." The graph resumes at assemblePost but section 2 was not redrafted. Why?',
+        options: [
+          'humanFeedback is stored in state but no node reads it and routes back to the drafter',
+          'The graph does not support revision after interrupt()',
+          'The checkpointer lost the section 2 draft',
+          'interruptBefore only runs once per thread',
+        ],
+        answer:  0,
+        explain: 'interrupt() pauses and resumes in the same position (humanReview → assemblePost). If you want feedback to trigger a re-draft, you need a conditional edge after humanReview that checks humanFeedback and routes to drafter for the relevant section instead of directly to assemblePost. The state machine must explicitly encode revision as a route.',
+      },
+    ]} />
+
+    <DeepDive
+      sources="§3.6, §3.8, §3.9, §3.10, §4.8, §4.10, §4.17"
+      tensions={[
+        { a: 'High quality threshold (fewer bad sections)', b: 'More LLM calls (higher cost per post)' },
+        { a: 'Opus for planning (better outlines)', b: 'Sonnet for planning (lower cost)' },
+        { a: 'Strict max_turns cap (cost predictable)', b: 'Higher cap (more retries, better quality)' },
+      ]}
+      questions={[
+        {
+          q:    'At 100 posts/day, the reflection loop averages 1.8 retries per section and 5 sections per post — that is 900 extra Sonnet calls/day plus 900 Haiku scoring calls. How do you reduce this cost without dropping quality?',
+          hint: 'Think about what information the reflector has that the drafter does not get.',
+          answer: '<p>Three approaches: (1) <strong>Feed reflector feedback back into the drafter</strong>: currently the drafter only knows the score routing decision — it does not know <em>why</em> it failed. Pass the reflector\'s score breakdown ("low on clarity: 4/10, low on code examples: 3/10") into the drafter\'s next turn as explicit revision guidance. This typically reduces average retries from 1.8 to 0.9. (2) <strong>Improve the drafter system prompt</strong> using the reflector\'s patterns — if 60% of failed sections fail on "lacks code example", add that to the drafter\'s instructions. This pays off permanently. (3) <strong>Use a stricter first pass</strong>: raise threshold from 7 to 8, but also reduce max_turns from 3 to 2. Forces faster convergence for the common case; rare sections that truly need 3 passes are still handled.</p>',
+        },
+        {
+          q:    'The pipeline takes 4–6 minutes per post because of sequential section drafting. A stakeholder wants it to draft all 5 sections in parallel. What is the real problem with parallelising sections?',
+          hint: 'Think about what the drafter prompt tells later sections about earlier ones.',
+          answer: '<p>The drafter prompt explicitly references "previously covered sections" to avoid repetition and maintain narrative flow. Section 3 ("Implementation") needs to know Section 2 ("Core Concept") was already explained — otherwise it will re-explain it. If sections are drafted in parallel, this context does not exist yet. Solutions in order of quality: (1) <strong>Plan richer outlines</strong> — have the planner write a one-paragraph summary of what each section should <em>not</em> repeat. Sections can then draft in parallel using the plan as isolation. (2) <strong>Fan-out on independent sections only</strong> — intro and conclusion are often independent; middle sections are sequential. Hybrid: parallel intro + conclusion, sequential middle. (3) <strong>Post-process deduplication</strong> — draft all in parallel, then run a fifth "editor" node that removes repetition. Faster total time but more post-processing cost.</p>',
+        },
+      ]}
+      pitfalls={[
+        'Omitting the turnCount reset in advanceSection — the counter carries over to the next section and the first draft of section N+1 may immediately cap and advance with a low-quality draft.',
+        'Missing the merge reducer on drafts — the default reducer (_, n) => n would overwrite all previous drafts with the current section\'s draft on every write.',
+        'Passing the full past post content (not truncated) into brandVoice — at 5 sections of 300 words each, that is 1500 words of context before the actual prompt even starts.',
+        'No conditional edge after humanReview for revision — feedback is stored in state but silently ignored if assemblePost always runs next.',
+      ]}
+    />
+
+  </div>
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
