@@ -1,0 +1,71 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+---
+
+<LessonLayout title="1.1 — Output Optimization Levers">
+
+  <LessonHeader
+    num="1.1"
+    title="Output Optimization Levers"
+    subtitle="Prompt strategy vs. model selection — and the Engineering Trilemma."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      Two levers control an AI system's output quality: <strong>prompt strategy</strong>
+      (how you structure instructions) and <strong>model selection</strong> (balancing
+      capability, cost, and latency).
+    </p>
+
+    <h2 class="lesson-heading">Building Blocks of a Well-Structured Prompt</h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Block</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>System prompt</td><td>Global rules and tone</td></tr>
+          <tr><td>Role</td><td>Persona that steers reasoning depth</td></tr>
+          <tr><td>Constraints</td><td>Limits, format, boundaries</td></tr>
+          <tr><td>Reasoning / Planning</td><td>Explicit steps, e.g. Chain-of-Thought</td></tr>
+          <tr><td>User prompt</td><td>Runtime task and context</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Example: an elite-trainer persona (<em>Role</em>) generating a workout plan bounded
+      by equipment and goals (<em>Constraints</em>).
+    </p>
+
+    <h2 class="lesson-heading">The Engineering Trilemma</h2>
+
+    <p>
+      Capability, cost, and latency compete in model selection — you can't max out all
+      three. Bigger models reason better but cost more and respond slower; smaller models
+      are cheap and fast but need more explicit, rigid prompting to hit comparable accuracy.
+    </p>
+
+    <h2 class="lesson-heading">Getting Away with a Cheaper Model</h2>
+
+    <p>
+      Instead of relying on a large model to infer all steps from a vague prompt, decompose
+      the task yourself — Chain-of-Thought, Prompt Chaining — into simple steps a small,
+      cheap model can execute reliably.
+    </p>
+
+    <LessonCallout variant="key" title="Remember">
+      <p>
+        You're trading your own upfront engineering effort (designing the decomposition)
+        for runtime savings (speed + cost) in production — same or better outcome, cheaper
+        model.
+      </p>
+    </LessonCallout>
+
+  </div>
+
+</LessonLayout>

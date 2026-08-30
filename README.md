@@ -11,7 +11,9 @@ module's site by name).
   (components/theme/AI-tutor sidebar via the `study-notes` skill), plus curriculum
   docs, learning records, and reference material.
 - **udacity-masters-agentic-ai/** — Udacity Master's in AI, Agentic AI module.
-  Markdown notes for now; can grow its own Astro site later (see below).
+  Astro site under `site/` (same `study-notes` skill template as above), plus
+  the original per-topic markdown Q&A notes at the module root — not yet
+  migrated into lesson pages.
 
 ## Setup
 

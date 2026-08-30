@@ -1,0 +1,49 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+---
+
+<LessonLayout title="1.3 — Prompt Components">
+
+  <LessonHeader
+    num="1.3"
+    title="Prompt Components"
+    subtitle="The five building blocks stacked into every well-formed prompt."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      A well-formed prompt is five components stacked in sequence: <strong>Role</strong>
+      sets the lens, <strong>Task</strong> says what to do, <strong>Output Format</strong>
+      says how to say it, <strong>Examples</strong> show what "correct" looks like, and
+      <strong>Context</strong> fills in what the model can't infer on its own.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Component</th><th>What it does</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Role</td><td>Persona the model should adopt</td><td>"Act like a pirate!"</td></tr>
+          <tr><td>Task</td><td>The actual instruction or question</td><td>"Perform the calculation: 1 + 1?"</td></tr>
+          <tr><td>Output Format</td><td>How the answer should be structured</td><td>"Output a sentence in Markdown."</td></tr>
+          <tr><td>Examples</td><td>Sample input/output pairs to anchor style and correctness</td><td>"Q: 1 + 3? / A: Tis <em>4</em>, yar!"</td></tr>
+          <tr><td>Context</td><td>Background info the model needs but wasn't asked to produce</td><td>Domain facts, prior conversation, constraints</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="key" title="Remember">
+      <p>
+        Role sets the lens, Task says what to do, Output Format says how to say it, Examples
+        show what "correct" looks like, Context fills in what the model can't infer on its
+        own.
+      </p>
+    </LessonCallout>
+
+  </div>
+
+</LessonLayout>

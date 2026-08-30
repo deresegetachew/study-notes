@@ -1,0 +1,30 @@
+---
+import ThemeHead   from '@/components/ThemeHead.astro';
+import ThemeToggle from '@/components/ThemeToggle.astro';
+import { LESSONS } from '@/data/lessons';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <ThemeHead />
+  <title>Udacity Master's — Agentic AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" />
+</head>
+<body>
+  <article class="lesson-article">
+    <h1>Udacity Master's — Agentic AI</h1>
+    {LESSONS.length === 0 && <p>No lessons yet.</p>}
+    <ul>
+      {LESSONS.map(l => <li><a href={l.href}>{l.num} — {l.title}</a></li>)}
+    </ul>
+  </article>
+  <ThemeToggle />
+</body>
+</html>
+
+<style is:global>
+  @import '../styles/global.css';
+</style>

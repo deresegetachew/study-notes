@@ -1,0 +1,41 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+---
+
+<LessonLayout title="1.2 — Persona / Role">
+
+  <LessonHeader
+    num="1.2"
+    title="Persona / Role"
+    subtitle="Why assigning a role narrows an LLM's tone and focus."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">What a Persona Does</h2>
+
+    <p>
+      A <strong>Persona (Role)</strong> defines how the agent should behave — its
+      personality, tone, and perspective.
+    </p>
+
+    <h2 class="lesson-heading">Why It's So Effective</h2>
+
+    <p>
+      LLMs are trained on broad, diverse data, so without guidance they can default to any
+      tone or style — formal, enthusiastic, casual, humorous. A role narrows this down,
+      directing the response's style and focus to match the task at hand.
+    </p>
+
+    <LessonCallout variant="key" title="Remember">
+      <p>
+        No role → unpredictable style, less targeted output. Defined role → controlled tone
+        and more precise, on-target results.
+      </p>
+    </LessonCallout>
+
+  </div>
+
+</LessonLayout>
