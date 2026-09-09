@@ -79,7 +79,7 @@ if (withCapture) {
 } else {
   writeFileSync(
     join(siteDir, 'astro.config.mjs'),
-    `import { defineConfig } from 'astro/config';\n\nexport default defineConfig({\n  // Static output — build produces plain HTML in dist/\n  output: 'static',\n});\n`
+    `import { defineConfig } from 'astro/config';\n\nexport default defineConfig({\n  // Static output — build produces plain HTML in dist/\n  output: 'static',\n  // Subpath deploys (e.g. GitHub Pages) set ASTRO_BASE before building.\n  base: process.env.ASTRO_BASE || '/',\n});\n`
   );
 }
 
@@ -94,7 +94,7 @@ writeFileSync(join(siteDir, 'package.json'), JSON.stringify(pkgTemplate, null, 2
 
 writeFileSync(
   join(siteDir, 'src/pages/index.astro'),
-  `---\nimport ThemeHead   from '@/components/ThemeHead.astro';\nimport ThemeToggle from '@/components/ThemeToggle.astro';\nimport { LESSONS } from '@/data/lessons';\n---\n<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8" />\n  <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n  <ThemeHead />\n  <title>${title}</title>\n  <link rel="preconnect" href="https://fonts.googleapis.com" />\n  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" />\n</head>\n<body>\n  <article class="lesson-article">\n    <h1>${title}</h1>\n    {LESSONS.length === 0 && <p>No lessons yet.</p>}\n    <ul>\n      {LESSONS.map(l => <li><a href={l.href}>{l.num} — {l.title}</a></li>)}\n    </ul>\n  </article>\n  <ThemeToggle />\n</body>\n</html>\n\n<style is:global>\n  @import '../styles/global.css';\n</style>\n`
+  `---\nimport ThemeHead   from '@/components/ThemeHead.astro';\nimport ThemeToggle from '@/components/ThemeToggle.astro';\nimport { LESSONS } from '@/data/lessons';\n\n// lessons.ts stores routes without the deploy subpath — prefix with the\n// configured base so links work under a subpath deploy (e.g. GitHub Pages).\nconst base = import.meta.env.BASE_URL.replace(/\\/$/, '');\n---\n<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8" />\n  <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n  <ThemeHead />\n  <title>${title}</title>\n  <link rel="preconnect" href="https://fonts.googleapis.com" />\n  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" />\n</head>\n<body>\n  <article class="lesson-article">\n    <h1>${title}</h1>\n    {LESSONS.length === 0 && <p>No lessons yet.</p>}\n    <ul>\n      {LESSONS.map(l => <li><a href={base + l.href}>{l.num} — {l.title}</a></li>)}\n    </ul>\n  </article>\n  <ThemeToggle />\n</body>\n</html>\n\n<style is:global>\n  @import '../styles/global.css';\n</style>\n`
 );
 
 writeFileSync(

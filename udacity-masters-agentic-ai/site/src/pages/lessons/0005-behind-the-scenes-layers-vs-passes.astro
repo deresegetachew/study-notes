@@ -5,6 +5,10 @@ import CodeBlock     from '@/components/CodeBlock.astro';
 import LessonCallout from '@/components/LessonCallout.astro';
 import DeepDive      from '@/components/DeepDive.astro';
 
+// Public assets (public/tools/...) aren't touched by Astro's base rewriting —
+// prefix by hand so the embed resolves under a subpath deploy too.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 const agentLoop = `
 while (true) {
   const response = await client.messages.create({ messages, tools, ... });
@@ -136,13 +140,13 @@ while (true) {
 
     <div class="l0005-embed">
       <iframe
-        src="/tools/layers-vs-passes.html"
+        src={base + '/tools/layers-vs-passes.html'}
         title="Same Layers, More Passes — interactive simulator"
         loading="lazy"
       ></iframe>
     </div>
     <p class="l0005-embed-link">
-      <a href="/tools/layers-vs-passes.html" target="_blank" rel="noopener">Open the tool in its own tab →</a>
+      <a href={base + '/tools/layers-vs-passes.html'} target="_blank" rel="noopener">Open the tool in its own tab →</a>
     </p>
 
   </div>

@@ -304,6 +304,10 @@ const phases: Phase[] = [
 ];
 
 const totalLessons = phases.reduce((a, p) => a + p.lessons.length, 0);
+
+// lesson.href above is stored without the deploy subpath — prefix with the
+// configured base so links work under a subpath deploy (e.g. GitHub Pages).
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 <!doctype html>
 <html lang="en">
@@ -345,7 +349,7 @@ const totalLessons = phases.reduce((a, p) => a + p.lessons.length, 0);
 
       <div class="sp-lessons">
         {phase.lessons.map(lesson => (
-          <a href={lesson.href} class="sp-row">
+          <a href={base + lesson.href} class="sp-row">
             <span class="sp-num" style={`background:${phase.bg};color:${phase.color}`}>
               {lesson.num}
             </span>
