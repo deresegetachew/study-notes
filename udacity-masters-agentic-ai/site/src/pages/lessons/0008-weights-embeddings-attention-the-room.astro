@@ -152,6 +152,37 @@ flowchart LR
       </p>
     </LessonCallout>
 
+    <h2 class="lesson-heading">Fixed Judgment, Changing Room</h2>
+
+    <p>
+      Your room-reading skill — how you interpret a "sign," how you judge relevance — was built
+      over years of past experience, and it doesn't change during any given party. To actually
+      change that underlying judgment, you'd have to go live more experiences and let them
+      reshape you. That's retraining. Nothing about one evening updates your instincts.
+    </p>
+
+    <p>
+      But <strong>who's currently in the room is a completely different thing</strong> — that's
+      not your judgment, that's just what's in front of you right now. You don't need new life
+      experience to notice someone walked in and remember what they said five minutes ago.
+      You're using your already-fixed skill to process an unfolding scene. The skill is frozen;
+      what it's currently looking at keeps changing.
+    </p>
+
+    <LessonCallout variant="info" title="Parametric memory vs. context">
+      <p>
+        This split has a name: <strong>parametric memory</strong> (facts baked into the weights
+        via training — slow, expensive, needs retraining to change) versus <strong>context</strong>
+        (whatever's currently in the room — cheap, instant, gone once the session ends). Walk
+        into a new conversation tomorrow and the room is empty again — same trained skill, zero
+        memory of last night, unless someone specifically hands you a transcript at the door.
+        This is the entire idea behind RAG (retrieval-augmented generation): rather than
+        retraining a model to "know" something new, you just make sure the relevant fact walks
+        into the room as part of the context, and let the model's already-frozen judgment work
+        with it.
+      </p>
+    </LessonCallout>
+
     <h2 class="lesson-heading">Feedforward — The Private Thinking Step</h2>
 
     <p>
@@ -181,6 +212,40 @@ flowchart LR
     <p>
       Each layer is one more round of that same two-step cycle (listen, then think privately),
       each one building on the last.
+    </p>
+
+    <h2 class="lesson-heading">The Room Isn't Static</h2>
+
+    <p>
+      Two more things worth being precise about, since the scene so far made the room sound
+      like a snapshot.
+    </p>
+
+    <p>
+      <strong>People keep entering.</strong> Every new token is a new person walking through the
+      door. Once someone's in the room, they stay — but a person who just walked in can listen
+      to everyone already present, while nobody already present ever turns around to reconsider
+      what a newcomer just said. Their read on the conversation was formed before the newcomer
+      arrived, and it's locked in. That rule is called <strong>causal masking</strong>, and it's
+      why generation has to happen one token at a time, in order — nobody in the room is allowed
+      to know who's about to walk in next. The room also has a capacity — the
+      <strong>context window</strong> — and letting people in forever eventually means either
+      turning people away at the door or the room getting too crowded to track everything in it
+      well.
+    </p>
+
+    <p>
+      <strong>The same name can mean different people.</strong> Imagine two different Sarahs at
+      the party. Glance at name tags alone and they're identical — that name tag is the
+      <strong>static embedding</strong>, the same starting coordinate every time, regardless of
+      which Sarah or which sentence. But as each Sarah actually participates — stands near
+      different people, gets folded into different conversations — her representation gets
+      refined, layer after layer, by who's around her. By the third layer, "Sarah near the
+      kitchen talking about flights" and "Sarah by the window talking about her thesis" have
+      drifted into genuinely different coordinates, despite starting at the exact same spot.
+      That's a <strong>contextual embedding</strong> — the same word reshaped differently every
+      time by whatever surrounds it, which is a big part of why this architecture beats older
+      one-fixed-vector-per-word methods.
     </p>
 
     <h2 class="lesson-heading">Beam — Not Committing Too Early</h2>
