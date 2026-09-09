@@ -66,8 +66,8 @@ while (true) {
       each pass recomputes attention from scratch over the whole sequence. Real
       implementations keep a <strong>KV cache</strong> — the key/value vectors for every past
       token, computed once and reused — so a new pass only has to compute attention for the
-      <em>one new token</em> against that growing cache, not reprocess everything. Lesson 2.3
-      covers what a key and value actually are and why this matters.
+      <em>one new token</em> against that growing cache, not reprocess everything. Lessons 2.3
+      and 2.4 cover what a key and value actually are and why this matters.
     </p>
 
     <LessonCallout variant="key" title="The part that doesn't change">

@@ -1,0 +1,309 @@
+---
+import LessonLayout   from '@/layouts/LessonLayout.astro';
+import LessonHeader   from '@/components/LessonHeader.astro';
+import LessonCallout  from '@/components/LessonCallout.astro';
+import LessonDiagram  from '@/components/LessonDiagram.astro';
+---
+
+<LessonLayout title="2.3 — Weights, Embeddings & Attention: A Room Full of People">
+
+  <LessonHeader
+    num="2.3"
+    title="Weights, Embeddings & Attention: A Room Full of People"
+    subtitle="One scene, no math yet — everything from here builds on this exact picture."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      Before any formulas: one consistent real-world scene, and every core idea — weights,
+      embeddings, attention, feedforward, layers — mapped onto it directly. The next lesson
+      (2.4) covers the same ideas with real terminology and code. This one is just the picture.
+    </p>
+
+    <h2 class="lesson-heading">The Scene</h2>
+
+    <p>
+      You're at a loud party. Someone taps your shoulder and asks:
+      <strong>"What did Sarah say about the trip?"</strong> You don't listen to everyone in the
+      room equally — you unconsciously tune toward whoever's relevant and tune out the rest.
+    </p>
+
+    <div class="l0008-room">
+      <div class="l0008-you">
+        <span class="l0008-avatar">🙋</span>
+        <div class="l0008-bubble">"What did Sarah say about the trip?"</div>
+      </div>
+      <div class="l0008-people">
+        <div class="l0008-person l0008-person--high">
+          <span class="l0008-avatar">🧍‍♀️</span>
+          <div class="l0008-name">Sarah</div>
+          <div class="l0008-sign">🏷️ trip · travel · delay</div>
+        </div>
+        <div class="l0008-person l0008-person--low">
+          <span class="l0008-avatar">🧍</span>
+          <div class="l0008-name">Neighbor</div>
+          <div class="l0008-sign">🏷️ sports · weekend</div>
+        </div>
+        <div class="l0008-person l0008-person--low">
+          <span class="l0008-avatar">🧍‍♂️</span>
+          <div class="l0008-name">Bartender</div>
+          <div class="l0008-sign">🏷️ drinks · orders</div>
+        </div>
+      </div>
+    </div>
+    <p class="l0008-caption">Sarah's "sign" matches your question — she lights up. The others fade into background noise.</p>
+
+    <h2 class="lesson-heading">Embeddings — Meaning as Coordinates, Not Labels</h2>
+
+    <p>
+      For that "who's relevant" instinct to become something a computer can actually compute,
+      everyone in the room first needs a precise <strong>coordinate</strong> — not a word tag,
+      an actual point in space, decided by meaning. People and topics that are similar end up
+      near each other on this map.
+    </p>
+
+    <div class="l0008-map">
+      <span class="l0008-dot l0008-dot--person" style="left:64%;top:20%;" data-label="Sarah"></span>
+      <span class="l0008-dot" style="left:58%;top:32%;" data-label="trip"></span>
+      <span class="l0008-dot" style="left:70%;top:38%;" data-label="vacation"></span>
+      <span class="l0008-dot l0008-dot--person" style="left:20%;top:58%;" data-label="Bartender"></span>
+      <span class="l0008-dot" style="left:16%;top:74%;" data-label="drinks"></span>
+      <span class="l0008-dot" style="left:30%;top:80%;" data-label="spreadsheet"></span>
+    </div>
+    <p class="l0008-caption">"Trip" and "vacation" land close together. "Spreadsheet" lands far from both — different meaning, different neighborhood.</p>
+
+    <p>
+      Why coordinates specifically, not just labels? Three concrete reasons:
+    </p>
+
+    <ul>
+      <li><strong>You can calculate a match score.</strong> Two labels ("trip" vs. "vacation")
+        give a computer nothing to work with. Two coordinates let you do real arithmetic —
+        multiply and add the numbers — and get back an actual match score you can rank people
+        by, instead of a guess.</li>
+      <li><strong>You can blend information.</strong> You can't "70%-blend" two sentences. You
+        can take 70% of one coordinate and 30% of another, number by number, and get a new,
+        meaningful coordinate back — this is exactly what happens once relevance is decided.</li>
+      <li><strong>Relationships become measurable, not hand-written.</strong> Nobody tells the
+        model "trip and vacation are similar" — words used in similar contexts naturally end up
+        at similar coordinates as a side effect of training. Because it's numeric, that
+        closeness is something you can measure, not something a human pre-labeled.</li>
+      </ul>
+
+    <h2 class="lesson-heading">Attention — Query, Key, Value</h2>
+
+    <p>
+      Back at the party, three things are happening at once:
+    </p>
+
+    <ul>
+      <li><strong>Query</strong> — the question itself, in your head: <em>"who knows about the trip?"</em></li>
+      <li><strong>Key</strong> — what each person is silently broadcasting about what they might know (their "sign").</li>
+      <li><strong>Value</strong> — the actual information that person would give you if you turned to listen.</li>
+    </ul>
+
+    <p>
+      You compare your query against everyone's key. High match → listen closely. Low match →
+      mostly ignore. Then you blend together what everyone would tell you, weighted by how well
+      their key matched — not "pick the one best person," a <em>blend</em>, weighted by
+      relevance.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  Q["❓ Query&colon; what did Sarah<br/>say about the trip?"]:::query
+  K1["🏷️ Sarah's key&colon;<br/>trip, travel, delay"]:::key
+  K2["🏷️ Neighbor's key&colon;<br/>sports, weekend"]:::key
+  K3["🏷️ Bartender's key&colon;<br/>drinks, orders"]:::key
+  Q -->|"70% match"| K1
+  Q -->|"5% match"| K2
+  Q -->|"3% match"| K3
+  K1 --> V1["💬 Sarah's value"]:::value
+  K2 --> V2["💬 Neighbor's value"]:::value
+  K3 --> V3["💬 Bartender's value"]:::value
+  V1 -->|"× 0.70"| OUT["🧠 Blended answer&colon;<br/>mostly Sarah, a little of everyone else"]:::out
+  V2 -->|"× 0.05"| OUT
+  V3 -->|"× 0.03"| OUT
+
+  classDef query fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef key    fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef value  fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef out    fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <h2 class="lesson-heading">Weights — Where the Judgment Comes From</h2>
+
+    <p>
+      How do you even know how to read someone's "sign" and match it to your question? That
+      skill isn't innate — years of conversations taught you what "relevant" sounds like.
+      <strong>Weights are that trained judgment, stored as numbers.</strong> Before any
+      experience, your judgment is just random guessing — you'd rate the bartender's chatter as
+      highly as Sarah's, with no basis to tell them apart. Training is the slow process of
+      correcting that judgment based on whether your guesses turned out right.
+    </p>
+
+    <LessonCallout variant="key" title="Untrained ≠ broken, just random">
+      <p>
+        An untrained model has this exact same wiring — query, key, value, blending — fully
+        functional. What it doesn't have is good judgment. Its weights are random numbers, so
+        its "relevance scores" are meaningless, and its blended answer is noise. The
+        architecture works from the start; the <em>judgment</em> only exists after training.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Feedforward — The Private Thinking Step</h2>
+
+    <p>
+      After listening around the room, you don't immediately blurt out an answer — you take a
+      beat, privately, to make sense of what you gathered. Nobody else is involved; it's just
+      you, alone, processing. Attention is "who did I listen to." Feedforward is "what did I
+      privately make of it." Every person in the room does their own private processing,
+      independently.
+    </p>
+
+    <h2 class="lesson-heading">Layers — Doing the Whole Cycle Again</h2>
+
+    <p>
+      One round of "listen around the room, then think privately" gives a rough first
+      impression. Doing it again — with your now-slightly-better understanding — refines it
+      further.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  L1["Layer 1&colon;<br/>'they're talking<br/>about a trip'"]:::step --> L2["Layer 2&colon;<br/>'Sarah seems<br/>annoyed about it'"]:::step --> L3["Layer 3&colon;<br/>'annoyed because<br/>of a delayed flight'"]:::done
+
+  classDef step fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <p>
+      Each layer is one more round of that same two-step cycle (listen, then think privately),
+      each one building on the last.
+    </p>
+
+    <h2 class="lesson-heading">Beam — Not Committing Too Early</h2>
+
+    <p>
+      If it's unclear yet whether the topic is "the trip" or "the wedding" — both got
+      mentioned — instead of committing to one guess immediately, keep both possibilities in
+      mind as you keep listening, and let more information settle which one actually pans out.
+      Lesson 2.5 walks through this live, on the running <code>17 × 24</code> example.
+    </p>
+
+  </div>
+
+  <div class="lesson-content">
+    <h2 class="lesson-heading">Go Further</h2>
+    <p>
+      For real, interactive versions of these ideas running against actual trained models — not
+      this lesson's illustrative scene — see the collection at
+      <a href="https://dentro.de/ai/visualizations/" target="_blank" rel="noopener">dentro.de/ai/visualizations</a>,
+      in particular a live GPT-2 walkthrough with real attention visualization and a step-by-step
+      breakdown of real text generation.
+    </p>
+  </div>
+
+</LessonLayout>
+
+<style>
+  .l0008-caption {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  /* ── The Room ─────────────────────────────────────────────────────── */
+  .l0008-room {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .l0008-you {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .l0008-bubble {
+    background: var(--accent-lt, var(--bg3));
+    border: 1px solid var(--accent);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .l0008-people {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  .l0008-person {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    background: var(--bg);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    min-width: 8rem;
+    transition: opacity .2s, border-color .2s, transform .2s;
+  }
+  .l0008-person--high {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-lt, rgba(37,99,235,.15));
+    transform: scale(1.04);
+  }
+  .l0008-person--low { opacity: 0.55; }
+  .l0008-avatar { font-size: 1.6rem; line-height: 1; }
+  .l0008-name { font-weight: 700; font-size: 0.9rem; margin-top: 0.35rem; }
+  .l0008-sign {
+    font-family: monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-top: 0.3rem;
+  }
+
+  /* ── Map of Meaning ───────────────────────────────────────────────── */
+  .l0008-map {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .l0008-dot {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    margin-left: -5px;
+    margin-top: -5px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+  .l0008-dot--person { background: var(--accent); width: 12px; height: 12px; margin-left: -6px; margin-top: -6px; }
+  .l0008-dot::after {
+    content: attr(data-label);
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.05rem 0.35rem;
+  }
+</style>
