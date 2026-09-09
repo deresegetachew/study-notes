@@ -1,0 +1,119 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+import DeepDive      from '@/components/DeepDive.astro';
+
+// Public assets (public/tools/...) aren't touched by Astro's base rewriting —
+// prefix by hand so the embed resolves under a subpath deploy too.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<LessonLayout title="2.4 — Branching Paths: Beam Search">
+
+  <LessonHeader
+    num="2.4"
+    title="Branching Paths: Beam Search"
+    subtitle="What happens when generation doesn't commit to one path — it explores several and prunes."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      Every trace we've stepped through so far (lessons 2.1, 2.2) followed <strong>one</strong>
+      path — at each pass, the model picks its single highest-probability token and moves on.
+      That's not the only way to decode. <strong>Beam search</strong> keeps several candidate
+      continuations alive in parallel, scores each by its running probability, and prunes the
+      weaker ones as they diverge — a real decision-making process happening entirely outside
+      the model itself, in the decoding harness.
+    </p>
+
+    <h2 class="lesson-heading">The Mechanics</h2>
+
+    <p>
+      At a decision point where several continuations are plausible, instead of picking one
+      token and moving on, keep the top-<em>K</em> (the "beam width"). Each surviving path is
+      generated independently from there — same layer stack, same mechanism as always, just
+      run once per path per step. Each path tracks a <strong>cumulative score</strong>: the
+      product of every token's probability along that path so far. When it's time to narrow
+      down, compare cumulative scores and keep only the strongest paths — or, at the end,
+      just the single best one.
+    </p>
+
+    <LessonCallout variant="warn" title="What gets compared isn't correctness">
+      <p>
+        The score being compared is <em>text likelihood</em>, not verified accuracy. Nothing
+        about beam search checks arithmetic, checks facts, or executes anything — it's still
+        pure next-token prediction, just explored down several paths instead of one, and
+        pruned by how <em>fluent</em> each path looks, not by whether it's right.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Try It: Same 17 × 24, Three Competing Decompositions</h2>
+
+    <p>
+      Step or play through it: three plausible ways to decompose <code>17 × 24</code> branch
+      out from the same starting point, get scored as they continue, and get pruned down to
+      one. Watch what happens to the branch that reaches a numerically correct-looking answer
+      early — and still loses.
+    </p>
+
+    <div class="l0007-embed">
+      <iframe
+        src={base + '/tools/branching-paths.html'}
+        title="Branching Paths — beam search simulator"
+        loading="lazy"
+      ></iframe>
+    </div>
+    <p class="l0007-embed-link">
+      <a href={base + '/tools/branching-paths.html'} target="_blank" rel="noopener">Open the tool in its own tab →</a>
+    </p>
+
+  </div>
+
+  <DeepDive
+    sources="maarten-grootendorst-newsletter, reasongraph-paper"
+    tensions={[
+      { a: 'Broader exploration', b: 'More passes spent per output' },
+      { a: 'Higher path score', b: 'Higher answer quality' },
+    ]}
+    questions={[
+      {
+        q:      'Beam search costs more compute than picking one path (K parallel paths means roughly K× the passes). What would justify that cost in a real product?',
+        hint:   'Think about where a single greedy path is most likely to go wrong.',
+        answer: '<p>Greedy single-path decoding commits early — a slightly-wrong token at step 2 can lock in a bad continuation for the rest of generation, since the model has no way to reconsider. Beam search is worth the extra compute when a wrong early commitment is expensive to recover from (long-form generation, code, translation) — you\'re paying compute to reduce the chance that one bad early guess propagates uncorrected through everything after it.</p>',
+      },
+      {
+        q:      'The simulator shows beam width 2 collapsing to 1 winner. What real technique keeps the beam wide and instead votes across the surviving paths, rather than pruning down to a single answer?',
+        hint:   'This is a named technique from the newsletter research pass.',
+        answer: '<p>Self-consistency / majority voting: run several full completions (not necessarily via beam search — plain independent sampling works too), then take the most common final answer across all of them, rather than trusting any single highest-scoring path. It trades the same extra compute for a different kind of robustness — instead of pruning early based on partial-path probability, it lets every path finish and checks which conclusion multiple independent attempts agree on.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Assuming a higher cumulative path score means a more correct answer — it means a more probable-looking token sequence, which is a different thing, as the simulator\'s pruned-but-correct branch demonstrates directly.',
+      'Forgetting that every parallel branch still pays the full per-pass cost — beam width K is not free width, it\'s roughly K times the compute of a single greedy path.',
+      'Conflating beam search (prune early, based on partial scores) with self-consistency (let every path finish, then vote) — they trade compute for reliability in different ways.',
+    ]}
+  />
+
+</LessonLayout>
+
+<style>
+  .l0007-embed {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    aspect-ratio: 16 / 12;
+    background: var(--bg2);
+  }
+  .l0007-embed iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
+  .l0007-embed-link {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+  }
+</style>

@@ -1,0 +1,205 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import CodeBlock     from '@/components/CodeBlock.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+import DeepDive      from '@/components/DeepDive.astro';
+
+const tokenizeExample = `
+"hello" → [7, 4, 11, 11, 14]     # each character mapped to an integer id
+`.trim();
+
+const embedExample = `
+token_id 7  → wte[7]  = [0.12, -0.44, 0.91, ...]   # what this token means
+position 0  → wpe[0]  = [0.00,  0.03, -0.02, ...]   # where in the sequence it sits
+input_vector = wte[token_id] + wpe[position]
+`.trim();
+
+const attentionSketch = `
+for the token currently being processed:
+  query  = "what am I looking for?"        (from this token)
+  key    = "what do I contain?"            (from every cached token, incl. this one)
+  value  = "what do I offer if you attend to me?"   (from every cached token)
+
+score[i]  = dot(query, key[i]) / sqrt(head_dim)     # how relevant is token i?
+weight[i] = softmax(score)[i]                       # normalize scores to sum to 1
+output    = sum(weight[i] * value[i] for i in cached tokens)
+`.trim();
+
+const trainingLoss = `
+loss = -log( probability the model assigned to the token that actually came next )
+
+# training = repeatedly adjust every weight to make that probability higher
+`.trim();
+
+const kvCacheGrowth = `
+pass 1: cache = [ K/V for "17" ]
+pass 2: cache = [ K/V for "17", K/V for "×" ]
+pass 3: cache = [ K/V for "17", K/V for "×", K/V for "20" ]
+  ...
+each new pass computes Q/K/V for only the ONE new token,
+then attends that one query against every K/V already sitting in the cache.
+`.trim();
+---
+
+<LessonLayout title="2.3 — How the Model Actually Works">
+
+  <LessonHeader
+    num="2.3"
+    title="How the Model Actually Works"
+    subtitle="Tokens, embeddings, attention, and training — grounded in Karpathy's microGPT, the smallest version that still teaches something true."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      Lessons 2.1 and 2.2 treated "the layer stack" as a black box — a fixed pipeline that
+      somehow lets a later pass "read" an earlier token. This lesson opens that box. Every
+      piece below is a real, load-bearing part of how a transformer works, distilled from
+      Andrej Karpathy's from-scratch microGPT implementation — nothing here is decorative.
+    </p>
+
+    <h2 class="lesson-heading">1. Tokenization — Text Becomes Integers</h2>
+
+    <p>
+      A model can't read letters. The first step of everything is a lookup table: every
+      character (or, in production models, every sub-word chunk) gets assigned an integer id.
+    </p>
+
+    <CodeBlock lang="text" label="tokenize.py" code={tokenizeExample} />
+
+    <p>
+      That's it — tokenization is bookkeeping, not intelligence. A small toy model might use
+      ~27 possible tokens (letters + a stop token); production models use tens of thousands of
+      sub-word chunks (byte-pair encoding), so common words are one token and rare words split
+      into several.
+    </p>
+
+    <h2 class="lesson-heading">2. Embeddings — Integers Become Vectors</h2>
+
+    <p>
+      An integer id carries no meaning by itself — <code>7</code> isn't "more" or "less" than
+      <code>4</code> in any useful sense. So each token id is looked up in a table of learned
+      vectors (<code>wte</code>, "token embeddings") — during training, tokens that behave
+      similarly end up with similar vectors. A second table (<code>wpe</code>, "position
+      embeddings") encodes <em>where</em> in the sequence a token sits, since attention itself
+      has no built-in sense of order. The two get added together to form what the model
+      actually operates on.
+    </p>
+
+    <CodeBlock lang="text" label="embed.py" code={embedExample} />
+
+    <h2 class="lesson-heading">3. Attention — How a Pass Reads Earlier Tokens</h2>
+
+    <p>
+      This is the mechanism lesson 2.2 asserted without explaining. For the token currently
+      being processed, the model computes three things from every token available to it (a
+      <strong>query</strong>, a <strong>key</strong>, and a <strong>value</strong>), then asks:
+      how relevant is each earlier token to what I need right now?
+    </p>
+
+    <CodeBlock lang="text" label="attention.py" code={attentionSketch} />
+
+    <p>
+      Read it plainly: <em>query</em> is "what am I looking for," <em>key</em> is "what do I
+      contain" (offered by every token, including earlier ones), and the dot product between
+      them is a relevance score — high when a key matches what the query wants. Those scores
+      get normalized with softmax into weights that sum to 1, and the output is a weighted
+      blend of every token's <em>value</em>. This is the literal mechanism behind "a later pass
+      can read an earlier token" — not a metaphor, an actual weighted sum over real vectors.
+    </p>
+
+    <p>
+      Real models don't do this once per pass — they do it in parallel across several
+      <strong>heads</strong>, each learning to attend to different kinds of relationships (one
+      head might track "what's the subject of this clause," another "what number was mentioned
+      three steps back"), then concatenate and combine the results.
+    </p>
+
+    <LessonCallout variant="key" title="The KV cache, precisely">
+      <p>
+        Lesson 2.2 said a new pass "reads the entire sequence so far" — true in effect, but
+        mechanically imprecise. Real implementations cache each token's key and value the
+        moment they're computed, so a new pass only computes Q/K/V for the <em>one new token</em>
+        and attends it against the growing cache — it never recomputes attention for tokens
+        already processed.
+      </p>
+    </LessonCallout>
+
+    <CodeBlock lang="text" label="kv-cache.py" code={kvCacheGrowth} />
+
+    <h2 class="lesson-heading">4. Residuals and the Feedforward Block</h2>
+
+    <p>
+      Two more pieces per layer, briefly: a <strong>residual connection</strong> adds each
+      block's input back onto its output, which is what makes stacking dozens of layers
+      trainable at all (it gives gradients a direct path back through the network during
+      training, instead of having to flow through every transformation). And a small
+      <strong>feedforward network</strong> follows attention in every layer — if attention is
+      "communication between token positions," the feedforward block is "computation within
+      one position," done independently for every token.
+    </p>
+
+    <h2 class="lesson-heading">5. Training — Just: Raise the Right Probability</h2>
+
+    <p>
+      Everything above describes a model that already has learned weights. Training is what
+      sets those weights, and the objective is simpler than it sounds:
+    </p>
+
+    <CodeBlock lang="text" label="loss.py" code={trainingLoss} />
+
+    <p>
+      Feed the model real text, one position at a time, and check what probability it assigned
+      to the token that actually came next. Adjust every weight — via backpropagation, the same
+      chain-rule machinery regardless of model size — to make that probability slightly higher.
+      Repeat billions of times. Nothing more exotic than that produces everything this whole
+      lesson sequence has been built on.
+    </p>
+
+    <p>
+      One more knob worth naming since it appears in every API you'll use:
+      <strong>temperature</strong>. Before turning scores into probabilities, you can divide
+      them by a temperature value first — near 0 makes the highest-scoring token dominate
+      almost completely (near-deterministic output), higher values flatten the distribution
+      out (more variety, more risk of a low-probability token getting picked).
+    </p>
+
+    <LessonCallout variant="info" title="Nothing here mentions reasoning">
+      <p>
+        Notice this whole lesson never needed the word "reasoning." Tokenization, embeddings,
+        attention, training — none of it is CoT-specific. Chain-of-thought is a
+        <em>behavior</em> that emerges from prompting (or, per lesson 2.1's newsletter research,
+        from RL training) on top of this base mechanism — it's not a separate architectural
+        component sitting somewhere in the stack.
+      </p>
+    </LessonCallout>
+
+  </div>
+
+  <DeepDive
+    sources="karpathy-microgpt, ibm-ai-reasoning"
+    tensions={[
+      { a: 'Mechanistic transparency', b: 'Reasoning faithfulness' },
+      { a: 'Toy-model clarity', b: 'Production-model scale' },
+    ]}
+    questions={[
+      {
+        q:      'We now know exactly how a token gets attended to (query/key/value dot products). Does that mean we can now trust that a written chain-of-thought step accurately reflects what the model actually computed?',
+        hint:   'Think about what attention weights tell you versus what they don\'t.',
+        answer: '<p>No — and this is the "faithfulness" gap the CoT-visualization research (lesson 2.1/2.2 research pass) explicitly flags as unresolved. Attention weights tell you which tokens influenced a computation, not whether the written-out reasoning text is an honest description of that computation. A model can write a clean-looking derivation while its actual attention patterns did something else entirely. Understanding the mechanism precisely does not, by itself, verify the narrative the model writes about itself.</p>',
+      },
+      {
+        q:      'A toy model like microGPT has one layer and a 27-token vocabulary. What actually changes at production scale (GPT-4-class), and what stays exactly the same in kind?',
+        hint:   'Separate "more of the same thing" from "a genuinely different mechanism."',
+        answer: '<p>Stays the same in kind: tokenize → embed → attention + feedforward per layer → predict next token → sample → append → repeat. That loop is identical. What changes is scale and engineering: tens of thousands of sub-word tokens instead of characters, dozens to hundreds of layers instead of one, GPU-parallelized tensor math instead of scalar Python, additions like RoPE (a more sophisticated position encoding) and grouped-query attention (an efficiency trick for the KV cache), and a post-training stage (supervised fine-tuning + RLHF) that turns a raw next-token completer into something that behaves like a helpful chatbot rather than just continuing arbitrary text.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Treating attention weights as a transparent, human-readable explanation of "why" the model answered a certain way — they are a real computational signal, not a plain-language justification.',
+      'Assuming a bigger model has a fundamentally different generation mechanism than a toy one — it does not; it has more of the same fixed structure, plus post-training on top.',
+      'Confusing embeddings with meaning in any human sense — a token vector is just coordinates the model found useful for predicting text well, not a definition.',
+    ]}
+  />
+
+</LessonLayout>
