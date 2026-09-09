@@ -54,6 +54,33 @@ import LessonDiagram  from '@/components/LessonDiagram.astro';
     </div>
     <p class="l0008-caption">Sarah's "sign" matches your question — she lights up. The others fade into background noise.</p>
 
+    <h2 class="lesson-heading">What Each Piece Represents</h2>
+
+    <p>
+      Worth being explicit about this before going further — every piece of the scene maps to a
+      specific, real thing, not a vague vibe:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>In the scene</th><th>In the model</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>"You," asking a question</td><td>The computation for <em>one token position</em> — every token in the room is its own "You," running this at the same time.</td></tr>
+          <tr><td>Everyone in the room</td><td>The current context — every token in the conversation so far.</td></tr>
+          <tr><td>A person's "sign"</td><td>That token's <strong>Key</strong>.</td></tr>
+          <tr><td>What they'd tell you if you listened</td><td>That token's <strong>Value</strong>.</td></tr>
+          <tr><td>Your question, right now</td><td>That token's <strong>Query</strong> — recomputed fresh, not fixed, at every layer (see "Layers" below).</td></tr>
+          <tr><td>The map of meaning</td><td>The <strong>embedding space</strong>.</td></tr>
+          <tr><td>Your instinct for reading people</td><td>The model's <strong>weights</strong>.</td></tr>
+          <tr><td>A chain of advisors, one after another</td><td>The stack of <strong>layers</strong> — each with its own, separately-trained weights.</td></tr>
+          <tr><td>Tonight's specific guest list</td><td><strong>Context</strong> — grows during one conversation, forgotten once it ends.</td></tr>
+          <tr><td>Your fundamental judgment/skill</td><td><strong>Parameters</strong> — fixed until retrained, same at every party.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
     <h2 class="lesson-heading">Embeddings — Meaning as Coordinates, Not Labels</h2>
 
     <p>
@@ -193,25 +220,51 @@ flowchart LR
       independently.
     </p>
 
-    <h2 class="lesson-heading">Layers — Doing the Whole Cycle Again</h2>
+    <h2 class="lesson-heading">Layers — A Chain of Advisors, Not One Person Trying Again</h2>
 
     <p>
-      One round of "listen around the room, then think privately" gives a rough first
-      impression. Doing it again — with your now-slightly-better understanding — refines it
-      further.
+      Correction worth making precisely: a layer is <em>not</em> you repeating the same
+      listen-then-think cycle with your own judgment. It's handing your current understanding to
+      a <strong>different advisor standing behind you — someone with their own, separately
+      trained judgment</strong> — who does their own listen-and-think cycle starting from what
+      you handed them, then passes their refined take to the next advisor in line. Nobody
+      designs what each advisor is good at; it emerges from training. In practice, earlier
+      advisors tend to catch surface-level patterns, later ones more abstract relationships.
     </p>
 
-    <LessonDiagram definition={`
-flowchart LR
-  L1["Layer 1&colon;<br/>'they're talking<br/>about a trip'"]:::step --> L2["Layer 2&colon;<br/>'Sarah seems<br/>annoyed about it'"]:::step --> L3["Layer 3&colon;<br/>'annoyed because<br/>of a delayed flight'"]:::done
-
-  classDef step fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
-  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
-    `} />
-
     <p>
-      Each layer is one more round of that same two-step cycle (listen, then think privately),
-      each one building on the last.
+      And here's the part worth sitting with: <strong>each advisor isn't re-asking your original
+      question — they're asking their own, sharper question</strong>, made possible by what the
+      previous advisor already figured out. The query gets recomputed fresh at every layer, from
+      whatever the current understanding is — not replayed unchanged from layer to layer.
+    </p>
+
+    <div class="l0008-advisors">
+      <div class="l0008-advisor">
+        <span class="l0008-avatar">🧑‍🦱</span>
+        <div class="l0008-adv-name">Advisor 1</div>
+        <div class="l0008-adv-specialty">🔍 catches the topic</div>
+        <div class="l0008-adv-question">"who's talking about the trip?"</div>
+      </div>
+      <div class="l0008-adv-arrow">→</div>
+      <div class="l0008-advisor">
+        <span class="l0008-avatar">🧑‍🦰</span>
+        <div class="l0008-adv-name">Advisor 2</div>
+        <div class="l0008-adv-specialty">🧩 connects the pieces</div>
+        <div class="l0008-adv-question">"why was Sarah delayed?"</div>
+      </div>
+      <div class="l0008-adv-arrow">→</div>
+      <div class="l0008-advisor">
+        <span class="l0008-avatar">🧑</span>
+        <div class="l0008-adv-name">Advisor 3</div>
+        <div class="l0008-adv-specialty">💡 reads between the lines</div>
+        <div class="l0008-adv-question">"how does she feel about it?"</div>
+      </div>
+    </div>
+    <p class="l0008-caption">
+      Each advisor = one layer, its own trained weights. The question sharpens at every hand-off
+      — advisor 2 couldn't have asked "why was Sarah delayed" without already knowing, from
+      advisor 1, that a delay is what's being discussed.
     </p>
 
     <h2 class="lesson-heading">The Room Isn't Static</h2>
@@ -370,5 +423,47 @@ flowchart LR
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 0.05rem 0.35rem;
+  }
+
+  /* ── Chain of Advisors (layers) ──────────────────────────────────── */
+  .l0008-advisors {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+  }
+  .l0008-advisor {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    background: var(--bg2);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    min-width: 9rem;
+    flex: 1 1 9rem;
+  }
+  .l0008-adv-name { font-weight: 700; font-size: 0.9rem; margin-top: 0.35rem; }
+  .l0008-adv-specialty {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 0.3rem;
+  }
+  .l0008-adv-question {
+    font-family: monospace;
+    font-size: 0.72rem;
+    color: var(--accent);
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed var(--border);
+  }
+  .l0008-adv-arrow {
+    display: flex;
+    align-items: center;
+    font-size: 1.3rem;
+    color: var(--muted);
+    padding: 0 0.25rem;
   }
 </style>
