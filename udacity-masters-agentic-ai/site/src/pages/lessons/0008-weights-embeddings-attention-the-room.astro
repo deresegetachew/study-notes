@@ -316,6 +316,38 @@ flowchart LR
       advisor 1, that a delay is what's being discussed.
     </p>
 
+    <h3 class="lesson-heading">Watching the Coordinate Narrow Down</h3>
+
+    <p>
+      Each hand-off doesn't just sharpen the question — it moves the <strong>coordinate itself</strong>
+      on the map of meaning from the Embeddings section, and shrinks how uncertain it is. Same
+      map, same "trip"/"vacation" neighborhood — now tracking where the current understanding
+      actually sits after each advisor.
+    </p>
+
+    <div class="l0008-map">
+      <span class="l0008-dot l0008-dot--person" style="left:64%;top:20%;" data-label="Sarah"></span>
+      <span class="l0008-dot" style="left:58%;top:32%;" data-label="trip"></span>
+      <span class="l0008-dot" style="left:70%;top:38%;" data-label="delay"></span>
+
+      <svg class="l0008-path-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <polyline points="38,62 58,35 66,23" class="l0008-path-line" />
+        <circle cx="38" cy="62" r="17" class="l0008-path-circle" />
+        <circle cx="58" cy="35" r="9" class="l0008-path-circle" />
+        <circle cx="66" cy="23" r="3" class="l0008-path-circle" />
+      </svg>
+
+      <span class="l0008-path-label" style="left:38%;top:62%;">after advisor 1</span>
+      <span class="l0008-path-label" style="left:58%;top:35%;">after advisor 2</span>
+      <span class="l0008-path-label" style="left:66%;top:23%;">after advisor 3</span>
+    </div>
+    <p class="l0008-caption">
+      The large, fuzzy circle after advisor 1 means "broadly somewhere around this topic, not
+      committed to specifics." By advisor 3, the circle has tightened almost onto Sarah's own
+      coordinate — the understanding has narrowed from "something trip-related" down to
+      something precise enough to actually answer the question with.
+    </p>
+
     <h3 class="lesson-heading">What If an Advisor Is Bad?</h3>
 
     <p>
@@ -549,5 +581,40 @@ flowchart LR
     font-size: 1.3rem;
     color: var(--muted);
     padding: 0 0.25rem;
+  }
+
+  /* ── Narrowing-down path overlay (on top of .l0008-map) ─────────────── */
+  .l0008-path-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .l0008-path-line {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 0.6;
+    stroke-dasharray: 2 1.5;
+  }
+  .l0008-path-circle {
+    fill: var(--accent);
+    fill-opacity: 0.12;
+    stroke: var(--accent);
+    stroke-width: 0.4;
+    stroke-opacity: 0.55;
+  }
+  .l0008-path-label {
+    position: absolute;
+    transform: translate(-50%, -170%);
+    white-space: nowrap;
+    font-family: monospace;
+    font-size: 0.66rem;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 0.05rem 0.35rem;
   }
 </style>
