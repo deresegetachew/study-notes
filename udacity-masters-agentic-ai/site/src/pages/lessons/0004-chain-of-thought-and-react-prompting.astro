@@ -1,0 +1,206 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import CodeBlock     from '@/components/CodeBlock.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+import DeepDive      from '@/components/DeepDive.astro';
+
+const roleGoal = `You are a Supply Chain Logistics Coordinator. Your goal is to diagnose shipment delays by gathering information from different systems.`.trim();
+
+const thinkActCycle = `
+You must use a step-by-step reasoning process. For each step, respond with a single THINK/ACT message.
+
+THINK: First, you will reason about the problem and determine the next logical action to take.
+ACT: Based on your thought process, you will call ONE of the available tools.
+`.trim();
+
+const toolDefinitions = `
+## Available Tools
+
+1. get_shipment_status(tracking_id: str)
+   - Use this to get the last known location and status of a shipment.
+   - Example Input:  ACT: get_shipment_status(tracking_id="XYZ123")
+   - Example Output: OBSERVE: {"status": "Delayed", "location": "Chicago Rail Yard"}
+
+2. check_facility_alerts(facility_name: str)
+   - Use this to check for operational alerts (e.g., weather delays, closures) at a specific facility.
+   - Example Input:  ACT: check_facility_alerts(facility_name="Chicago Rail Yard")
+   - Example Output: OBSERVE: {"alert": "Severe Weather Alert: All operations suspended."}
+
+3. final_answer(summary: str)
+   - Use this tool ONLY when you have diagnosed the problem and can provide a complete summary.
+   - Example Input: ACT: final_answer(summary="Shipment XYZ123 is delayed in Chicago due to a severe weather-related closure at the rail yard.")
+`.trim();
+
+const workedExample = `
+User: Find out why shipment XYZ123 is delayed.
+
+AI Assistant:
+THINK: I need to find out why shipment XYZ123 is delayed. My first step is to get the
+current status and location of the shipment using the get_shipment_status tool.
+ACT: get_shipment_status(tracking_id="XYZ123")
+
+(System provides OBSERVE: {"status": "Delayed", "location": "Chicago Rail Yard"}
+and the AI continues...)
+`.trim();
+---
+
+<LessonLayout title="2.1 — Chain-of-Thought & ReAct Prompting">
+
+  <LessonHeader
+    num="2.1"
+    title="Chain-of-Thought & ReAct Prompting"
+    subtitle="Structuring a ReAct system prompt: Role, the THINK/ACT cycle, Tools, and a worked example."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      The ReAct technique needs a comprehensive system prompt that teaches the agent
+      how to use the ReAct framework — this single prompt sets the rules, defines the
+      tools, and teaches the model how to "think." A good ReAct system prompt has four
+      parts.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Part</th><th>Answers</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Role and Goal</td><td>Who is the agent? What is its purpose?</td></tr>
+          <tr><td>THINK/ACT Instruction</td><td>How must the agent format its reasoning and actions?</td></tr>
+          <tr><td>Tool Definitions</td><td>What tools can the agent use, and how do they work?</td></tr>
+          <tr><td>Complete Example</td><td>A full example of a multi-turn interaction.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">1. Define the Role and Goal</h2>
+
+    <p>Tell the agent its identity and overall mission.</p>
+
+    <p><em>Scenario used throughout: an AI agent helping a logistics coordinator track a delayed shipment.</em></p>
+
+    <CodeBlock lang="text" label="role-and-goal" code={roleGoal} />
+
+    <h2 class="lesson-heading">2. The THINK/ACT Cycle</h2>
+
+    <p>
+      Give the agent explicit instructions on how to structure its response — the core
+      of the ReAct framework.
+    </p>
+
+    <CodeBlock lang="text" label="think-act-cycle" code={thinkActCycle} />
+
+    <h2 class="lesson-heading">3. Define the Available Tools</h2>
+
+    <p>
+      List every tool the agent can use. For each: name, parameters, a short
+      description, and an example of its input (<code>ACT</code>) and output
+      (<code>OBSERVE</code>).
+    </p>
+
+    <CodeBlock lang="text" label="tool-definitions" code={toolDefinitions} />
+
+    <h2 class="lesson-heading">4. A Complete Example Interaction</h2>
+
+    <p>
+      Put it together by showing the agent a full, multi-step example of how to use
+      these components to solve a problem — this few-shot example is often the most
+      effective way for the agent to learn the pattern.
+    </p>
+
+    <CodeBlock lang="text" label="worked-example" code={workedExample} />
+
+    <h2 class="lesson-heading">What's Actually Happening: Model vs. Harness</h2>
+
+    <p>
+      It's worth separating <strong>Chain-of-Thought</strong> from <strong>ReAct</strong>
+      here, because they don't need the same amount of machinery.
+    </p>
+
+    <p>
+      An LLM is an autoregressive next-token predictor — every token it generates gets
+      appended back into its own context and conditions the <em>next</em> token. Saying
+      "think step by step" doesn't trigger a separate reasoning module; it just gets the
+      model to emit more tokens (a written-out scratchpad) before its final answer. Because
+      those intermediate tokens become part of the input for predicting the rest, the final
+      answer ends up conditioned on a worked-through trace instead of a jump straight to
+      the answer. That's the whole mechanism — and it happens inside <strong>one</strong>
+      completion. No loop, no tool calls, no harness required.
+    </p>
+
+    <p>
+      ReAct breaks from that at exactly one point: the <code>ACT</code> step. When the
+      model outputs <code>ACT: get_shipment_status(tracking_id="XYZ123")</code>, that's
+      just text — the model has no database connection and can't execute anything. It's
+      predicting what a plausible tool call looks like, not performing one. Something
+      outside the model has to actually run the tool, take the real return value, and feed
+      it back in as <code>OBSERVE: ...</code> before the model is called again for the next
+      <code>THINK</code>. That "something" is the harness — the agent loop from lesson
+      1.1's four-step cycle (Think → Act → Observe → loop back). The model is stateless
+      between calls; it only ever knows what's sitting in the messages array you hand it
+      next.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Technique</th><th>Needs a harness?</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Chain-of-Thought</td><td>No</td><td>Reasoning tokens condition the same completion — no external step required.</td></tr>
+          <tr><td>ReAct</td><td>Yes</td><td>The <code>ACT</code> step needs a real tool call executed outside the model, with the real result re-injected as <code>OBSERVE</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="info" title="Not reasoning in a separate sense">
+      <p>
+        The model isn't reasoning apart from its token prediction — CoT/ReAct prompting
+        just <em>structures</em> that prediction into visible intermediate steps. ReAct
+        additionally makes some of those steps genuinely load-bearing (the
+        <code>OBSERVE</code> results are real, not hallucinated) because the harness
+        intercepts <code>ACT</code> and substitutes ground truth before the model
+        continues.
+      </p>
+    </LessonCallout>
+
+    <LessonCallout variant="key" title="Remember">
+      <p>
+        A ReAct system prompt is Role/Goal + THINK/ACT format + Tool Definitions + a
+        Complete Example, combined — that's what gives the agent everything it needs to
+        begin the task. And structurally: CoT lives entirely inside one LLM call; ReAct
+        needs the surrounding agent loop to make <code>ACT</code> real.
+      </p>
+    </LessonCallout>
+
+  </div>
+
+  <DeepDive
+    sources="udacity-2.1"
+    tensions={[
+      { a: 'Reasoning visibility', b: 'Token cost' },
+      { a: 'Model-only simplicity', b: 'Grounded, real tool results' },
+    ]}
+    questions={[
+      {
+        q:      'If CoT works within a single completion, why does ReAct need multiple separate LLM calls instead of one long completion with fake tool outputs baked into the prompt?',
+        hint:   'Think about who actually knows the real shipment status.',
+        answer: '<p>Because the model cannot know the real return value of <code>get_shipment_status(...)</code> — only the actual system does. If you let the model complete straight through, it would have to hallucinate the OBSERVE content. Stopping at ACT, executing for real, and starting a fresh call with the true OBSERVE appended is what keeps the loop grounded instead of fictional.</p>',
+      },
+      {
+        q:      'Does a bigger/smarter model make the harness unnecessary for ReAct?',
+        hint:   'Think about what class of information the model can never have access to on its own.',
+        answer: '<p>No — model capability only affects how well it reasons about <em>what</em> to do and how it writes the ACT call. It never grants access to live external state (a real database row, a real API response). The harness is not a workaround for a weak model; it is the only channel through which real-world facts can enter the loop at all.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Treating CoT output as evidence the model "checked" something — it only checked its own generated text, not the real world.',
+      'Assuming a longer, more detailed ACT description makes the model more likely to get a correct real-world result — the harness still has to execute it faithfully; a well-written ACT call is necessary but not sufficient.',
+      'Forgetting that OBSERVE must come from the harness executing the real tool, not from the model continuing its own completion — letting the model write its own OBSERVE defeats the entire point of ReAct.',
+    ]}
+  />
+
+</LessonLayout>

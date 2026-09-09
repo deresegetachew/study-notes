@@ -1,0 +1,195 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import CodeBlock     from '@/components/CodeBlock.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+import DeepDive      from '@/components/DeepDive.astro';
+
+const agentLoop = `
+while (true) {
+  const response = await client.messages.create({ messages, tools, ... });
+  // ↑ the token-by-token decoding loop already ran to completion inside
+  //   this one call — you never see it, you just get the finished response.
+
+  if (response.stop_reason === 'end_turn') {
+    return extractText(response);
+  }
+
+  // stop_reason === 'tool_use'
+  messages.push({ role: 'assistant', content: response.content });
+  const results = runTools(response.content);
+  messages.push({ role: 'user', content: results });
+  // loop back — call the LLM again with a longer messages array
+}
+`.trim();
+---
+
+<LessonLayout title="2.2 — Behind the Scenes: Layers vs. Passes">
+
+  <LessonHeader
+    num="2.2"
+    title="Behind the Scenes: Layers vs. Passes"
+    subtitle="What a layer is, what a pass is, and who actually runs the concatenate-and-rerun loop."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      Lesson 2.1 covered <em>why</em> chain-of-thought prompting improves accuracy. This
+      one goes one level deeper — the actual mechanics of what changes between a direct
+      answer and a step-by-step one, and which parts of that are the model versus
+      surrounding code.
+    </p>
+
+    <h2 class="lesson-heading">A Layer, and a Pass</h2>
+
+    <p>
+      A transformer isn't one big transformation — it's a fixed stack of <strong>layers</strong>
+      (self-attention + a small per-position feedforward network), wired at training time and
+      never changed by the prompt. Typical models have dozens of these, all with distinct
+      learned weights, stacked so the output of layer 1 feeds layer 2, and so on to the end.
+    </p>
+
+    <p>
+      A <strong>pass</strong> is one full trip through <em>every</em> layer, for one token.
+      Generating a response isn't one pass — it's the whole layer stack run again, once per
+      output token, with each new pass reading the entire sequence so far, including tokens
+      the model itself wrote a moment earlier.
+    </p>
+
+    <LessonCallout variant="key" title="The part that doesn't change">
+      <p>
+        Direct answer or step-by-step — every single pass goes through the exact same N
+        layers, same order, same weights. Chain-of-thought never makes any individual pass
+        "deeper" or smarter. It only changes how many times the pass happens.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Why More Passes Happen: the Stop Condition</h2>
+
+    <p>
+      Generation stops when the decoding loop predicts a specific vocabulary entry — the
+      <strong>EOS</strong> (end-of-sequence) token — as the next token. EOS isn't
+      special-cased by the architecture; the model predicts its probability exactly like it
+      predicts any other token. The only rule bolted on from outside is procedural:
+      <em>if the predicted next token is EOS, stop looping.</em>
+    </p>
+
+    <p>
+      That's the whole reason chain-of-thought runs longer. After a bare answer like
+      <code>408</code>, EOS looks likely — that pattern (short answer, then done) is common
+      in training data. Mid-derivation, right after writing <code>17</code> or
+      <code>× 20</code>, EOS would look like a broken, truncated response — rare in
+      training data — so the model keeps predicting ordinary continuation tokens instead,
+      all the way until the reasoning-plus-answer shape is actually complete.
+    </p>
+
+    <h2 class="lesson-heading">Who Runs the Concatenate-and-Rerun Loop: Agent vs. Harness</h2>
+
+    <p>
+      This is worth being precise about, because it's easy to conflate two different loops
+      that happen to look similar.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Layer</th><th>What it does</th><th>Who runs it</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Token decoding loop</td><td>append predicted token → rerun all N layers → check for EOS</td><td>the model provider's serving infrastructure — invisible to your code</td></tr>
+          <tr><td>One API call</td><td>produces one complete response (the token loop already ran fully inside it)</td><td>the API</td></tr>
+          <tr><td>Agent loop</td><td>decide, per complete response, whether to call the API again or return</td><td>your code</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The token-by-token append-and-rerun loop — the one that makes chain-of-thought take
+      many more passes than a direct answer — happens <em>inside</em> a single
+      <code>messages.create()</code> call, before your code gets control back. You never
+      write it, see it, or intervene mid-way; you only shape it indirectly via parameters
+      like <code>max_tokens</code> or <code>stop_sequences</code>. Your own agent code — the
+      loop from lesson 1.1 — operates one level up, on whole finished responses:
+    </p>
+
+    <CodeBlock lang="typescript" label="agent-loop.ts" code={agentLoop} />
+
+    <LessonCallout variant="info" title="So &quot;the harness&quot; can mean two different things">
+      <p>
+        The inference/decoding harness (token-by-token, buried in serving infrastructure)
+        and the agent harness (your <code>while</code> loop, deciding whether to call the
+        LLM again based on <code>stop_reason</code>) are different code, owned by different
+        parties, operating at different granularities. Neither one is "the agent reasoning"
+        — both are ordinary procedural code wrapped around next-token prediction.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Try It: Same Layers, More Passes</h2>
+
+    <p>
+      An interactive walkthrough of the exact <code>17 × 24</code> example above — step or
+      play through both a direct-answer run and a chain-of-thought run, watch the fixed
+      layer stack fire on every pass, and see the EOS probability climb differently in each
+      case.
+    </p>
+
+    <div class="l0005-embed">
+      <iframe
+        src="/tools/layers-vs-passes.html"
+        title="Same Layers, More Passes — interactive simulator"
+        loading="lazy"
+      ></iframe>
+    </div>
+    <p class="l0005-embed-link">
+      <a href="/tools/layers-vs-passes.html" target="_blank" rel="noopener">Open the tool in its own tab →</a>
+    </p>
+
+  </div>
+
+  <DeepDive
+    sources="udacity-2.2"
+    tensions={[
+      { a: 'Fixed architecture', b: 'Variable-length reasoning' },
+      { a: 'Predicted decomposition', b: 'Correct decomposition' },
+    ]}
+    questions={[
+      {
+        q:      'If EOS is just an ordinary predicted token, could a model ever predict EOS in the middle of a correct chain-of-thought derivation by mistake — and what would that look like?',
+        hint:   'Think about what "mistake" even means for a next-token predictor with no separate stopping logic.',
+        answer: '<p>Yes — since EOS is scored the same way as any other token, a low-but-nonzero probability of EOS exists at every step. If it gets sampled early, generation just stops mid-derivation, producing a truncated, incomplete-looking answer. There is no separate check verifying the reasoning is actually finished — the stopping decision is exactly as fallible as any other token prediction.</p>',
+      },
+      {
+        q:      'Since the decoding loop is invisible to your agent code, how would you even detect that a response used many more passes than expected (e.g. an unexpectedly long chain-of-thought)?',
+        hint:   'Think about what a response object actually reports back about its own generation.',
+        answer: '<p>Token usage/output-length fields on the API response (e.g. output token counts) are the visible proxy — more output tokens roughly means more passes happened, since it is one pass per generated token. You cannot see the decoding loop directly, but you can measure its side effect: how long the response turned out to be.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Assuming a longer chain-of-thought means the model is "trying harder" — length only measures how many passes ran, not reasoning quality.',
+      'Confusing the token-decoding loop (inside one API call, invisible) with the agent loop (across API calls, your own code) — they solve different problems and are owned by different code.',
+      'Treating EOS timing as a deliberate decision the model makes about being "done" — it is the same undifferentiated next-token prediction as every other token, just one whose meaning happens to be "stop."',
+    ]}
+  />
+
+</LessonLayout>
+
+<style>
+  .l0005-embed {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    aspect-ratio: 16 / 11;
+    background: var(--bg2);
+  }
+  .l0005-embed iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
+  .l0005-embed-link {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+  }
+</style>
