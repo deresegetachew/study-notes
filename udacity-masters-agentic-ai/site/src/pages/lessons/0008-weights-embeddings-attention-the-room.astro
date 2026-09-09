@@ -251,6 +251,17 @@ flowchart LR
       many small checks, keep the ones that fired, fold the rest away — is exactly right.
     </p>
 
+    <LessonCallout variant="info" title="&quot;Feedforward&quot; means two different things">
+      <p>
+        The private-thinking routine above is the narrow meaning. The word is also used more
+        broadly for the whole architecture: information flows only one direction — advisor 1 to
+        advisor 2 to advisor 3, never backward — which makes the entire chain "a feedforward
+        network," as opposed to designs where information can loop back on itself. Same word,
+        two scopes: one sub-step inside a layer, or the whole one-directional chain of layers.
+        Everywhere else in this lesson, "feedforward" means the narrow one.
+      </p>
+    </LessonCallout>
+
     <h2 class="lesson-heading">Layers — A Chain of Advisors, Not One Person Trying Again</h2>
 
     <p>
@@ -261,6 +272,13 @@ flowchart LR
       take to the next advisor in line. Nobody designs what each advisor is good at; it emerges
       from training. In practice, earlier advisors tend to catch surface-level patterns, later
       ones more abstract relationships.
+    </p>
+
+    <p>
+      What actually gets passed at each hand-off: <strong>one refined coordinate per person in
+      the room</strong>, not one value for the whole scene. Every guest gets their own updated
+      coordinate from every advisor — Sarah's, the bartender's, everyone's — all produced in
+      that same round, all the same size as what came in, ready to be handed to the next advisor.
     </p>
 
     <p>
@@ -296,6 +314,42 @@ flowchart LR
       Each advisor = one layer, its own trained weights. The question sharpens at every hand-off
       — advisor 2 couldn't have asked "why was Sarah delayed" without already knowing, from
       advisor 1, that a delay is what's being discussed.
+    </p>
+
+    <h3 class="lesson-heading">What If an Advisor Is Bad?</h3>
+
+    <p>
+      An advisor's judgment can be bad two ways: undertrained (their instincts are still close to
+      random — see "Untrained ≠ broken, just random" above), or just unhelpful for this
+      particular conversation. Either way, the damage is bounded, because of one detail the scene
+      has glossed over: <strong>an advisor doesn't replace your understanding with their own take
+      — they add their refinement on top of it.</strong>
+    </p>
+
+    <div class="l0008-advisors">
+      <div class="l0008-advisor">
+        <span class="l0008-avatar">🗒️</span>
+        <div class="l0008-adv-name">What you had</div>
+        <div class="l0008-adv-specialty">your understanding<br/>before this advisor</div>
+      </div>
+      <div class="l0008-adv-arrow">+</div>
+      <div class="l0008-advisor">
+        <span class="l0008-avatar">🧑‍🦱</span>
+        <div class="l0008-adv-name">Their contribution</div>
+        <div class="l0008-adv-specialty">could be sharp,<br/>could be noise</div>
+      </div>
+      <div class="l0008-adv-arrow">=</div>
+      <div class="l0008-advisor">
+        <span class="l0008-avatar">📝</span>
+        <div class="l0008-adv-name">What the next advisor gets</div>
+        <div class="l0008-adv-specialty">your original understanding,<br/>still intact, plus their addition</div>
+      </div>
+    </div>
+    <p class="l0008-caption">
+      A confused advisor dents the conversation a little — their noise gets added in. They never
+      get to erase what you already knew. This is a real, named part of the architecture (a
+      "residual connection"), and it's the reason stacking dozens of advisors doesn't mean
+      dozens of chances for one bad one to wreck everything.
     </p>
 
     <h2 class="lesson-heading">The Room Isn't Static</h2>
