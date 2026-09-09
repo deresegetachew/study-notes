@@ -57,17 +57,13 @@ while (true) {
     <p>
       A <strong>pass</strong> is one full trip through <em>every</em> layer, for one token.
       Generating a response isn't one pass — it's the whole layer stack run again, once per
-      output token, with each new pass able to attend over everything written so far,
-      including tokens the model itself wrote a moment earlier.
-    </p>
-
-    <p>
-      <em>Correction worth making precise:</em> "attend over everything so far" doesn't mean
-      each pass recomputes attention from scratch over the whole sequence. Real
-      implementations keep a <strong>KV cache</strong> — the key/value vectors for every past
-      token, computed once and reused — so a new pass only has to compute attention for the
-      <em>one new token</em> against that growing cache, not reprocess everything. Lessons 2.3
-      and 2.4 cover what a key and value actually are and why this matters.
+      output token, with each new pass able to attend over everything written so far, including
+      tokens the model itself wrote a moment earlier. That doesn't mean every pass recomputes
+      attention from scratch over the whole sequence, though: real implementations keep a
+      <strong>KV cache</strong> — the key/value vectors for every past token, computed once and
+      reused — so a new pass only has to compute attention for the <em>one new token</em>
+      against that growing cache, not reprocess everything. Lessons 2.3 and 2.4 cover what a key
+      and value actually are and why this matters.
     </p>
 
     <LessonCallout variant="key" title="The part that doesn't change">
@@ -100,8 +96,8 @@ while (true) {
     <h2 class="lesson-heading">Who Runs the Concatenate-and-Rerun Loop: Agent vs. Harness</h2>
 
     <p>
-      This is worth being precise about, because it's easy to conflate two different loops
-      that happen to look similar.
+      There are two different loops here that happen to look similar, and it's easy to
+      conflate them.
     </p>
 
     <div class="lesson-table">
