@@ -54,6 +54,24 @@ import LessonDiagram  from '@/components/LessonDiagram.astro';
     </div>
     <p class="l0008-caption">Sarah's "sign" matches your question — she lights up. The others fade into background noise.</p>
 
+    <h2 class="lesson-heading">Is the Question Being Asked to a Person, or a Function?</h2>
+
+    <p>
+      Worth settling before anything else: <strong>"You" in this scene is a function, not a
+      person</strong> — a fixed, deterministic calculation, the same every time it's given the
+      same input. Every verb this lesson uses — listen, judge, think, decide — is a metaphor for
+      one part of that calculation, not a claim that anything resembling a person is doing it.
+    </p>
+
+    <p>
+      So the honest framing of the opening question isn't "someone taps your shoulder and asks
+      you." It's closer to: <strong>a fixed calculation gets handed some numbers, and returns
+      other numbers, the same way every single time.</strong> The party, the tapping shoulder,
+      the listening — all of it is scaffolding to make that calculation graspable. Keep this in
+      the back of your mind through every section below; it comes back explicitly at
+      Feedforward, where "thinking" gets defined precisely rather than left as a metaphor.
+    </p>
+
     <h2 class="lesson-heading">What Each Piece Represents</h2>
 
     <p>
@@ -117,6 +135,13 @@ import LessonDiagram  from '@/components/LessonDiagram.astro';
         closeness is something you can measure, not something a human pre-labeled.</li>
       </ul>
 
+    <div class="l0008-math-note">
+      <span class="l0008-math-tag">∑ in math terms</span>
+      <p>An embedding is a lookup table: token id in, one fixed list of numbers out — e.g. token
+        <code>4291</code> ("trip") always maps to the same vector, something like
+        <code>[0.12, -0.44, 0.91, …]</code>. That vector <em>is</em> the coordinate.</p>
+    </div>
+
     <h2 class="lesson-heading">Attention — Query, Key, Value</h2>
 
     <p>
@@ -158,6 +183,15 @@ flowchart LR
   classDef out    fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
     `} />
 
+    <div class="l0008-math-note">
+      <span class="l0008-math-tag">∑ in math terms</span>
+      <p>Query, key, and value are each just the input coordinate multiplied by a different fixed
+        matrix. "Match score" is a dot product (multiply the query and key numbers pairwise, add
+        them up) — one number, higher when the two vectors point in a similar direction. The
+        "blend" is a weighted sum of every value vector, using those match scores (turned into
+        percentages via softmax) as the weights.</p>
+    </div>
+
     <h2 class="lesson-heading">Weights — Where the Judgment Comes From</h2>
 
     <p>
@@ -177,6 +211,13 @@ flowchart LR
         architecture works from the start; the <em>judgment</em> only exists after training.
       </p>
     </LessonCallout>
+
+    <div class="l0008-math-note">
+      <span class="l0008-math-tag">∑ in math terms</span>
+      <p>The "fixed matrices" mentioned above, for turning a coordinate into a query, a key, or a
+        value — their actual numbers <em>are</em> the weights. Training doesn't change the
+        formula (multiply by a matrix); it changes what numbers sit inside that matrix.</p>
+    </div>
 
     <h2 class="lesson-heading">Fixed Judgment, Changing Room</h2>
 
@@ -251,6 +292,66 @@ flowchart LR
       many small checks, keep the ones that fired, fold the rest away — is exactly right.
     </p>
 
+    <h3 class="lesson-heading">What Is a Matrix, and Why Multiply by One?</h3>
+
+    <p>
+      A matrix is nothing more than a grid of numbers. "Multiply by a matrix" means: for each
+      output number, take a specific weighted combination of every input number, and add it up
+      — one such combination per row of the matrix. That's the entire operation, made concrete
+      with actual numbers below.
+    </p>
+
+    <p>
+      Say attention just handed over the blended impression <code>[0.8, -0.2]</code> (shortened
+      to two numbers here, for space — a real one has hundreds). "Run small checks" multiplies
+      it by a matrix, one row per check:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Check (a row of the matrix)</th><th>Weighted sum</th><th>Result</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>[0.5, 1.2]</code></td><td><code>0.5×0.8 + 1.2×(-0.2)</code></td><td><code>0.16</code></td></tr>
+          <tr><td><code>[-0.3, 0.9]</code></td><td><code>-0.3×0.8 + 0.9×(-0.2)</code></td><td><code>-0.42</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Every row of the matrix is one fixed, learned weighting — multiply, then add. More rows
+      just means more of these weighted combinations computed at once. "Drop what didn't fire"
+      is then the blunt rule from before: negative result → zero (<code>-0.42</code> gets
+      dropped, <code>0.16</code> survives). Nothing here is a lookup, a guess, or a decision in
+      any deliberative sense — it's the same fixed arithmetic, on whatever numbers came in.
+    </p>
+
+    <LessonCallout variant="warn" title="Is this actually &quot;thinking&quot;?">
+      <p>
+        Depends what the word means. If "thinking" means a deterministic mathematical
+        transformation, shaped by training, that turns one set of numbers into a more useful set
+        of numbers — yes, precisely that is happening. If "thinking" means what a person does —
+        weighing options, being aware of considering something, being able to hesitate or change
+        course mid-thought — none of that is happening here, and nothing in this operation could
+        produce it. The calculation runs forward once, deterministically, and that's the whole
+        event. There's no "inside" where deliberation could occur — just the weighted sums above.
+      </p>
+      <p>
+        The word gets used because the <em>output</em> resembles what thinking produces (a
+        rough impression getting refined into a sharper one) — not because the
+        <em>mechanism</em> resembles how a person thinks. Worth keeping those two senses of the
+        word apart every time it shows up in this lesson.
+      </p>
+    </LessonCallout>
+
+    <div class="l0008-math-note">
+      <span class="l0008-math-tag">∑ in math terms</span>
+      <p>Feedforward = multiply by a matrix (expand), zero out negatives, multiply by a second
+        matrix (compress back down). Two matrix multiplications and one comparison. That's the
+        entire operation this section has been calling "private thinking."</p>
+    </div>
+
     <LessonCallout variant="info" title="&quot;Feedforward&quot; means two different things">
       <p>
         The private-thinking routine above is the narrow meaning. The word is also used more
@@ -315,6 +416,13 @@ flowchart LR
       — advisor 2 couldn't have asked "why was Sarah delayed" without already knowing, from
       advisor 1, that a delay is what's being discussed.
     </p>
+
+    <div class="l0008-math-note">
+      <span class="l0008-math-tag">∑ in math terms</span>
+      <p>A layer = one attention step + one feedforward step, using that layer's own matrices.
+        "Advisor 2" is just that same pair of operations run again, with a different set of
+        learned numbers, on the output of advisor 1.</p>
+    </div>
 
     <h3 class="lesson-heading">Watching the Coordinate Narrow Down</h3>
 
@@ -581,6 +689,25 @@ flowchart LR
     font-size: 1.3rem;
     color: var(--muted);
     padding: 0 0.25rem;
+  }
+
+  /* ── Math translation notes ──────────────────────────────────────── */
+  .l0008-math-note {
+    background: var(--bg2);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 0.7rem 0.9rem;
+    margin: 1rem 0 1.5rem;
+  }
+  .l0008-math-note p { margin-top: 0.4rem; font-size: 0.88rem; }
+  .l0008-math-tag {
+    display: inline-block;
+    font-family: monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
   }
 
   /* ── Narrowing-down path overlay (on top of .l0008-map) ─────────────── */
