@@ -295,36 +295,82 @@ flowchart LR
     <h3 class="lesson-heading">What Is a Matrix, and Why Multiply by One?</h3>
 
     <p>
-      A matrix is nothing more than a grid of numbers. "Multiply by a matrix" means: for each
-      output number, take a specific weighted combination of every input number, and add it up
-      — one such combination per row of the matrix. That's the entire operation, made concrete
-      with actual numbers below.
+      A matrix is nothing more than a grid of numbers — rows across, columns down. Say attention
+      just handed over the blended impression <code>[0.8, -0.2]</code> (shortened to two numbers
+      here, for space — a real one has hundreds). "Run small checks" multiplies it by this grid:
     </p>
 
+    <div class="l0008-matrix-grid">
+      <div class="l0008-matrix-col-label">2 columns — one per input number</div>
+      <div class="l0008-matrix-row">
+        <table class="l0008-matrix-table">
+          <thead>
+            <tr><th></th><th>col 1</th><th>col 2</th></tr>
+          </thead>
+          <tbody>
+            <tr><th>row 1</th><td>0.5</td><td>1.2</td></tr>
+            <tr><th>row 2</th><td>-0.3</td><td>0.9</td></tr>
+          </tbody>
+        </table>
+        <div class="l0008-matrix-row-label">2 rows —<br/>one per<br/>output check</div>
+      </div>
+    </div>
+
     <p>
-      Say attention just handed over the blended impression <code>[0.8, -0.2]</code> (shortened
-      to two numbers here, for space — a real one has hundreds). "Run small checks" multiplies
-      it by a matrix, one row per check:
+      <strong>Columns must match the input</strong> — two numbers in, so two columns; column 1's
+      weights always apply to input #1, column 2's to input #2. <strong>Rows are however many
+      outputs you want</strong> — each row is its own complete, independent recipe. To compute
+      one output, take one whole row, multiply it against the input position-by-position, and
+      add:
     </p>
 
     <div class="lesson-table">
       <table>
         <thead>
-          <tr><th>Check (a row of the matrix)</th><th>Weighted sum</th><th>Result</th></tr>
+          <tr><th>Row</th><th>Weighted sum</th><th>Result</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>[0.5, 1.2]</code></td><td><code>0.5×0.8 + 1.2×(-0.2)</code></td><td><code>0.16</code></td></tr>
-          <tr><td><code>[-0.3, 0.9]</code></td><td><code>-0.3×0.8 + 0.9×(-0.2)</code></td><td><code>-0.42</code></td></tr>
+          <tr><td>row 1: <code>[0.5, 1.2]</code></td><td><code>0.5×0.8 + 1.2×(-0.2)</code></td><td><code>0.16</code></td></tr>
+          <tr><td>row 2: <code>[-0.3, 0.9]</code></td><td><code>-0.3×0.8 + 0.9×(-0.2)</code></td><td><code>-0.42</code></td></tr>
         </tbody>
       </table>
     </div>
 
     <p>
-      Every row of the matrix is one fixed, learned weighting — multiply, then add. More rows
-      just means more of these weighted combinations computed at once. "Drop what didn't fire"
-      is then the blunt rule from before: negative result → zero (<code>-0.42</code> gets
-      dropped, <code>0.16</code> survives). Nothing here is a lookup, a guess, or a decision in
-      any deliberative sense — it's the same fixed arithmetic, on whatever numbers came in.
+      "Drop what didn't fire" is then the blunt rule from before: negative result → zero
+      (<code>-0.42</code> gets dropped, <code>0.16</code> survives). Nothing here is a lookup, a
+      guess, or a decision in any deliberative sense — it's the same fixed arithmetic, on
+      whatever numbers came in.
+    </p>
+
+    <h3 class="lesson-heading">What a Matrix Is Actually Doing to the Coordinate</h3>
+
+    <p>
+      Here's the part worth being explicit about, since it's easy to see the arithmetic above and
+      still not see why it matters: <strong>a matrix takes a point positioned in one coordinate
+      space and re-expresses it in a different, purpose-built coordinate space.</strong> That's
+      the actual connection back to the map of meaning from the Embeddings section.
+    </p>
+
+    <p>
+      Sarah's embedding — her one general coordinate on that map — is a decent all-purpose
+      summary of roughly what she's about, but it wasn't built for any one specific comparison.
+      Recall from the Attention section that the same coordinate gets reshaped three different
+      ways: into a <strong>Key</strong> (a version of her position built specifically for "how
+      well do I match an incoming question"), a <strong>Value</strong> (a version built for "what
+      do I actually have to contribute"), and — for whoever's asking — a <strong>Query</strong>
+      (a version built for "what am I looking for"). Three different matrices, three different
+      purpose-built reshapings of the exact same starting point. That's why the comparison in
+      Attention (query vs. key) can be a simple, cheap calculation — dot the two together — even
+      though that comparison wouldn't have meant anything done directly on the raw, general
+      embeddings. The matrix did the work of moving both into a shared space where "closeness"
+      actually means "relevance."</p>
+
+    <p>
+      Feedforward's matrix does the same kind of reshaping, just toward a different purpose: each
+      row re-expresses the incoming coordinate as "how strongly does this look like the one
+      specific pattern I check for" — many independent, purpose-built re-readings of the same
+      point, computed in parallel.
     </p>
 
     <h3 class="lesson-heading">Why a Weighted Sum, and Why It Needs a GPU</h3>
@@ -723,6 +769,46 @@ flowchart LR
     font-size: 1.3rem;
     color: var(--muted);
     padding: 0 0.25rem;
+  }
+
+  /* ── Matrix grid (rows/columns) ──────────────────────────────────── */
+  .l0008-matrix-grid {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 1rem 0;
+  }
+  .l0008-matrix-col-label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-align: center;
+  }
+  .l0008-matrix-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .l0008-matrix-table {
+    border-collapse: collapse;
+    font-family: monospace;
+    font-size: 0.85rem;
+  }
+  .l0008-matrix-table th,
+  .l0008-matrix-table td {
+    border: 1px solid var(--border);
+    padding: 0.4rem 0.75rem;
+    text-align: center;
+  }
+  .l0008-matrix-table thead th,
+  .l0008-matrix-table tbody th {
+    background: var(--bg2);
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .l0008-matrix-row-label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.3;
   }
 
   /* ── Math translation notes ──────────────────────────────────────── */
