@@ -140,7 +140,10 @@ import LessonDiagram  from '@/components/LessonDiagram.astro';
       <span class="l0008-math-tag">∑ in math terms</span>
       <p>An embedding is a lookup table: token id in, one fixed list of numbers out — e.g. token
         <code>4291</code> ("shipment") always maps to the same vector, something like
-        <code>[0.12, -0.44, 0.91, …]</code>. That vector <em>is</em> the coordinate.</p>
+        <code>[0.12, -0.44, 0.91, …]</code>. That vector <em>is</em> the coordinate. To keep the
+        arithmetic below followable, say Sarah's own embedding — shortened to two numbers, same
+        as every worked example in this lesson — comes out to <code>[0.7, -0.35]</code>. That's
+        the number the rest of this lesson actually follows through Attention and Feedforward.</p>
     </div>
 
     <h2 class="lesson-heading">Attention — Query, Key, Value</h2>
@@ -168,15 +171,15 @@ flowchart LR
   K1["🏷️ Sarah's profile&colon;<br/>shipment, delay, logistics"]:::key
   K2["🏷️ Marcus's profile&colon;<br/>event scheduling, sports"]:::key
   K3["🏷️ Priya's profile&colon;<br/>hospitality, customer service"]:::key
-  Q -->|"70% match"| K1
-  Q -->|"5% match"| K2
-  Q -->|"3% match"| K3
+  Q -->|"80% match"| K1
+  Q -->|"10% match"| K2
+  Q -->|"10% match"| K3
   K1 --> V1["💬 Sarah's answer"]:::value
   K2 --> V2["💬 Marcus's answer"]:::value
   K3 --> V3["💬 Priya's answer"]:::value
-  V1 -->|"× 0.70"| OUT["🧠 Blended read&colon;<br/>mostly Sarah's answer, a little of the others"]:::out
-  V2 -->|"× 0.05"| OUT
-  V3 -->|"× 0.03"| OUT
+  V1 -->|"× 0.80"| OUT["🧠 Blended read&colon;<br/>mostly Sarah's answer, a little of the others"]:::out
+  V2 -->|"× 0.10"| OUT
+  V3 -->|"× 0.10"| OUT
 
   classDef query fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
   classDef key    fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
@@ -192,6 +195,85 @@ flowchart LR
         "blend" is a weighted sum of every value vector, using those match scores (turned into
         percentages via softmax) as the weights.</p>
     </div>
+
+    <h3 class="lesson-heading">Following One Set of Numbers All the Way Through</h3>
+
+    <p>
+      Here's where the continuity actually happens — the same numbers, followed from the
+      coordinate on the map to the blended output, so "then what?" has a concrete answer instead
+      of a jump. Sarah's raw embedding was <code>[0.7, -0.35]</code>. That single coordinate gets
+      reshaped <em>twice</em> — once by the Key matrix, once by the Value matrix — into two
+      different-purpose vectors. The interviewer's question goes through its own Query matrix the
+      same way. (The reshaping matrices themselves aren't repeated here — the full worked example
+      of "multiply a coordinate by a matrix" is one section down, in Feedforward, using this exact
+      output as its input.)
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Embedding</th><th>→ Key</th><th>→ Value</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Sarah</td><td><code>[0.7, -0.35]</code></td><td><code>[0.8, -0.4]</code></td><td><code>[0.9, -0.3]</code></td></tr>
+          <tr><td>Marcus</td><td><code>[-0.5, 0.5]</code></td><td><code>[0.1, 0.6]</code></td><td><code>[0.5, 0.1]</code></td></tr>
+          <tr><td>Priya</td><td><code>[-0.4, -0.5]</code></td><td><code>[0.0, 0.5]</code></td><td><code>[0.3, 0.3]</code></td></tr>
+          <tr><td>Question</td><td><code>[0.75, -0.3]</code></td><td>→ Query <code>[1.0, -0.5]</code></td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Match score = dot product of the Query against each Key — multiply pairwise, add up:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Candidate</th><th>Dot product</th><th>Raw score</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Sarah</td><td><code>1.0×0.8 + (-0.5)×(-0.4)</code></td><td><code>1.0</code></td></tr>
+          <tr><td>Marcus</td><td><code>1.0×0.1 + (-0.5)×0.6</code></td><td><code>-0.2</code></td></tr>
+          <tr><td>Priya</td><td><code>1.0×0.0 + (-0.5)×0.5</code></td><td><code>-0.25</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Sarah's score is far above the other two — running these three raw scores through softmax
+      (turns any set of numbers into percentages that sum to 100%, covered in lesson 2.4) is what
+      actually produces the <strong>80% / 10% / 10%</strong> already shown in the diagram above,
+      not an assertion. Now blend the Value vectors using those percentages as weights:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Candidate</th><th>Weight × Value</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Sarah</td><td><code>0.80 × [0.9, -0.3] = [0.72, -0.24]</code></td></tr>
+          <tr><td>Marcus</td><td><code>0.10 × [0.5, 0.1] = [0.05, 0.01]</code></td></tr>
+          <tr><td>Priya</td><td><code>0.10 × [0.3, 0.3] = [0.03, 0.03]</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Add the three results together, column by column: <code>[0.72+0.05+0.03, -0.24+0.01+0.03]
+      = [0.8, -0.2]</code>.
+    </p>
+
+    <LessonCallout variant="key" title="This is not a new number">
+      <p>
+        <code>[0.8, -0.2]</code> is the attention blend just computed above — and it's the exact
+        same <code>[0.8, -0.2]</code> that Feedforward's matrix walkthrough, further down, uses as
+        its input. That's not a coincidence or a reused placeholder: it's the same coordinate,
+        continuing through the pipeline. Embedding → (reshaped into) Key/Value/Query → (compared
+        and blended by) Attention → (this exact output) → Feedforward.
+      </p>
+    </LessonCallout>
 
     <h2 class="lesson-heading">Weights — Where the Judgment Comes From</h2>
 
@@ -297,9 +379,10 @@ flowchart LR
     <h3 class="lesson-heading">What Is a Matrix, and Why Multiply by One?</h3>
 
     <p>
-      A matrix is nothing more than a grid of numbers — rows across, columns down. Say attention
-      just handed over the blended impression <code>[0.8, -0.2]</code> (shortened to two numbers
-      here, for space — a real one has hundreds). "Run small checks" multiplies it by this grid:
+      A matrix is nothing more than a grid of numbers — rows across, columns down. Attention just
+      handed over <code>[0.8, -0.2]</code> — the exact blended impression computed at the end of
+      the Attention section above, not a fresh number (shortened to two numbers here for space —
+      a real one has hundreds). "Run small checks" multiplies it by this grid:
     </p>
 
     <div class="l0008-matrix-grid">
