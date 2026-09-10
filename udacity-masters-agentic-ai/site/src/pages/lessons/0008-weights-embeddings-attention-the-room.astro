@@ -58,18 +58,18 @@ import LessonDiagram  from '@/components/LessonDiagram.astro';
 
     <p>
       Worth settling before anything else: <strong>"You" in this scene is a function, not a
-      person</strong> — a fixed, deterministic calculation, the same every time it's given the
-      same input. Every verb this lesson uses — listen, judge, think, decide — is a metaphor for
-      one part of that calculation, not a claim that anything resembling a person is doing it.
+      person</strong> — a fixed, deterministic calculation that returns the same output every
+      time it's given the same input. Every verb the rest of this lesson uses — listen, judge,
+      think, decide — is a metaphor for one part of that calculation, not a claim that anything
+      resembling a person is doing it.
     </p>
 
     <p>
-      So the honest framing of the opening question isn't "someone taps your shoulder and asks
+      So the honest version of the opening question isn't "someone taps your shoulder and asks
       you." It's closer to: <strong>a fixed calculation gets handed some numbers, and returns
       other numbers, the same way every single time.</strong> The party, the tapping shoulder,
-      the listening — all of it is scaffolding to make that calculation graspable. Keep this in
-      the back of your mind through every section below; it comes back explicitly at
-      Feedforward, where "thinking" gets defined precisely rather than left as a metaphor.
+      the listening — all of it is scaffolding to make that calculation graspable, not a claim
+      that anything person-like is happening underneath it.
     </p>
 
     <h2 class="lesson-heading">What Each Piece Represents</h2>
@@ -325,6 +325,40 @@ flowchart LR
       is then the blunt rule from before: negative result → zero (<code>-0.42</code> gets
       dropped, <code>0.16</code> survives). Nothing here is a lookup, a guess, or a decision in
       any deliberative sense — it's the same fixed arithmetic, on whatever numbers came in.
+    </p>
+
+    <h3 class="lesson-heading">Why a Weighted Sum, and Why It Needs a GPU</h3>
+
+    <p>
+      Weighted sums aren't the only way to combine numbers together — they're the choice that
+      makes two other things possible, and the architecture is built around that trade-off, not
+      around weighted sums being special in themselves. First, every weight is independently
+      adjustable, which is exactly what training needs: a knob per weight that nudging up or
+      down has a simple, predictable effect on the output. Messier operations mostly don't have
+      that property, which makes them impractical to train at the scale this needs.
+    </p>
+
+    <p>
+      Second — and this is why the zero-cutoff rule isn't optional decoration — stack weighted
+      sums directly on top of each other with nothing in between, and no matter how many you
+      stack, the result is mathematically no more powerful than a single one. Linear combinations
+      of linear combinations are still just a linear combination. The cutoff is the one place a
+      layer does something a pure weighted sum can't, and it's the reason adding advisor 2 and
+      advisor 3 actually buys something advisor 1 alone couldn't produce.
+    </p>
+
+    <p>
+      This is also where the "checks" in the diagram above stop being just a teaching device and
+      start explaining real hardware. Checking "mentions transport?" doesn't require finishing
+      "expresses frustration?" first — every row of that matrix is a completely independent
+      calculation. A regular processor (a CPU) is built to do one complex task very fast, one
+      after another — one advisor working through the whole checklist alone. A GPU is built
+      differently: thousands of small, simple cores, each capable of running one weighted sum at
+      once, all simultaneously — the checklist handed out to a thousand assistants at the same
+      moment instead of one advisor working through it in order. Matrix multiplication is made
+      entirely of identical, independent little calculations like this, which is exactly the
+      shape of problem a GPU exists to solve — and exactly the shape of problem a CPU handles
+      comparatively slowly, one weighted sum at a time.
     </p>
 
     <LessonCallout variant="warn" title="Is this actually &quot;thinking&quot;?">
