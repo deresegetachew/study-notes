@@ -5,181 +5,164 @@ import LessonCallout  from '@/components/LessonCallout.astro';
 import LessonDiagram  from '@/components/LessonDiagram.astro';
 ---
 
-<LessonLayout title="2.3 — Weights, Embeddings & Attention: The Interview Panel">
+<LessonLayout title="2.3 — Vectors, Embeddings & Attention">
 
   <LessonHeader
     num="2.3"
-    title="Weights, Embeddings & Attention: The Interview Panel"
-    subtitle="One scene, no math yet — everything from here builds on this exact picture."
+    title="Vectors, Embeddings & Attention"
+    subtitle="What a vector is, what an embedding is, and how a word's position shifts with context."
   />
 
   <div class="lesson-content">
 
-    <p>
-      Before any formulas: one consistent real-world scene, and every core idea — weights,
-      embeddings, attention, feedforward, layers — mapped onto it directly. The next lesson
-      (2.4) covers the same ideas with real terminology and code. This one is just the picture.
-    </p>
-
-    <h2 class="lesson-heading">The Scene</h2>
+    <h2 class="lesson-heading">A Vector Is Just a Position</h2>
 
     <p>
-      You're one interviewer on a panel hiring for a Logistics Coordinator role. Between
-      candidates, you need to answer: <strong>"Which candidate has actually handled a delayed
-      shipment before?"</strong> You don't weigh every candidate's background equally — you
-      unconsciously tune toward whoever's relevant and tune out the rest.
-    </p>
-
-    <div class="l0008-room">
-      <div class="l0008-you">
-        <span class="l0008-avatar">🎙️</span>
-        <div class="l0008-bubble">"Which candidate has handled a delayed shipment before?"</div>
-      </div>
-      <div class="l0008-people">
-        <div class="l0008-person l0008-person--high">
-          <span class="l0008-avatar">🧍‍♀️</span>
-          <div class="l0008-name">Sarah</div>
-          <div class="l0008-sign">🏷️ shipment · delay · logistics</div>
-        </div>
-        <div class="l0008-person l0008-person--low">
-          <span class="l0008-avatar">🧍</span>
-          <div class="l0008-name">Marcus</div>
-          <div class="l0008-sign">🏷️ event scheduling · sports</div>
-        </div>
-        <div class="l0008-person l0008-person--low">
-          <span class="l0008-avatar">🧍‍♂️</span>
-          <div class="l0008-name">Priya</div>
-          <div class="l0008-sign">🏷️ hospitality · customer service</div>
-        </div>
-      </div>
-    </div>
-    <p class="l0008-caption">Sarah's profile matches your question — she stands out. The others fade into the background.</p>
-
-    <h2 class="lesson-heading">Is the Question Being Asked to a Person, or a Function?</h2>
-
-    <p>
-      Worth settling before anything else: <strong>"You" in this scene is a function, not a
-      person</strong> — a fixed, deterministic calculation that returns the same output every
-      time it's given the same input. Every verb the rest of this lesson uses — listen, judge,
-      think, decide — is a metaphor for one part of that calculation, not a claim that anything
-      resembling a person is doing it.
+      One number places something on a line. Say the number is 5 — now you know exactly where
+      that thing sits on a one-dimensional line.
     </p>
 
     <p>
-      So the honest version of the opening question isn't "you're sitting across from candidates,
-      deciding who's relevant." It's closer to: <strong>a fixed calculation gets handed some
-      numbers, and returns other numbers, the same way every single time.</strong> The interview
-      room, the panel, the listening — all of it is scaffolding to make that calculation
-      graspable, not a claim that anything person-like is happening underneath it.
+      Two numbers place something on a flat map: five steps right, three steps up. That pair of
+      numbers is already a <strong>vector</strong> — a set of numbers that tells you where
+      something is in a space.
     </p>
 
-    <h2 class="lesson-heading">What Each Piece Represents</h2>
-
     <p>
-      Every piece of the scene maps to a specific, real thing, not a vague vibe:
+      A third number puts that same point in 3D space. Keep adding numbers — hundreds, thousands
+      — and you're locating something in a space too large to draw. The picture stops being
+      possible to visualize, but the idea never changes: a vector is a position, nothing more.
     </p>
 
-    <div class="lesson-table">
-      <table>
-        <thead>
-          <tr><th>In the scene</th><th>In the model</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>"You," the interviewer asking a question</td><td>The computation for <em>one token position</em> — every token in the room is its own "You," running this at the same time.</td></tr>
-          <tr><td>Everyone in the interview room</td><td>The current context — every token in the conversation so far.</td></tr>
-          <tr><td>A candidate's profile</td><td>That token's <strong>Key</strong>.</td></tr>
-          <tr><td>What they'd actually say if given the floor</td><td>That token's <strong>Value</strong>.</td></tr>
-          <tr><td>Your question, right now</td><td>That token's <strong>Query</strong> — recomputed fresh, not fixed, at every layer (see "Layers" below).</td></tr>
-          <tr><td>The map of meaning</td><td>The <strong>embedding space</strong>.</td></tr>
-          <tr><td>Your hiring instincts</td><td>The model's <strong>weights</strong>.</td></tr>
-          <tr><td>A panel of interviewers, one after another</td><td>The stack of <strong>layers</strong> — each with its own, separately-trained weights.</td></tr>
-          <tr><td>Today's specific candidate pool</td><td><strong>Context</strong> — grows during one conversation, forgotten once it ends.</td></tr>
-          <tr><td>Your fundamental hiring judgment/skill</td><td><strong>Parameters</strong> — fixed until retrained, same for every candidate.</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <h2 class="lesson-heading">Embeddings — Meaning as Coordinates, Not Labels</h2>
+    <h2 class="lesson-heading">A Word Doesn't Get One Number — It Gets a Position</h2>
 
     <p>
-      For that "who's relevant" instinct to become something a computer can actually compute,
-      every candidate first needs a precise <strong>coordinate</strong> — not a word tag, an
-      actual point in space, decided by meaning. Candidates and backgrounds that are similar end
-      up near each other on this map.
+      A word like <code>cat</code> doesn't get a single number. It gets a position — a vector —
+      somewhere inside a learned space of meaning. Nearby positions mean related ideas:
+      <code>cat</code>, <code>dog</code>, and <code>kitten</code> end up close together.
+      <code>car</code> sits far from all three — different meaning, different neighborhood.
     </p>
 
     <div class="l0008-map">
-      <span class="l0008-dot l0008-dot--person" style="left:64%;top:20%;" data-label="Sarah"></span>
-      <span class="l0008-dot" style="left:58%;top:32%;" data-label="shipment"></span>
-      <span class="l0008-dot" style="left:70%;top:38%;" data-label="logistics"></span>
-      <span class="l0008-dot l0008-dot--person" style="left:20%;top:58%;" data-label="Priya"></span>
-      <span class="l0008-dot" style="left:16%;top:74%;" data-label="hospitality"></span>
-      <span class="l0008-dot" style="left:30%;top:80%;" data-label="scheduling"></span>
+      <span class="l0008-dot l0008-dot--person" style="left:62%;top:24%;" data-label="cat"></span>
+      <span class="l0008-dot" style="left:70%;top:32%;" data-label="kitten"></span>
+      <span class="l0008-dot" style="left:56%;top:36%;" data-label="dog"></span>
+      <span class="l0008-dot" style="left:18%;top:72%;" data-label="car"></span>
+      <span class="l0008-dot" style="left:28%;top:80%;" data-label="truck"></span>
     </div>
-    <p class="l0008-caption">"Shipment" and "logistics" land close together. "Hospitality" lands far from both — different meaning, different neighborhood.</p>
+    <p class="l0008-caption"><code>cat</code>, <code>kitten</code>, and <code>dog</code> land close together. <code>car</code> and <code>truck</code> land in a different neighborhood entirely.</p>
 
     <p>
-      Why coordinates specifically, not just labels? Three concrete reasons:
+      Nobody draws this map by hand. During training, words used in similar contexts get pushed
+      closer together; words used in different contexts drift apart — a side effect of the model
+      getting better at predicting text, not something anyone designed directly.
+    </p>
+
+    <h2 class="lesson-heading">The Chain: Token → ID → Vector</h2>
+
+    <p>
+      Three words, precisely defined, because they get confused for each other constantly:
     </p>
 
     <ul>
-      <li><strong>You can calculate a match score.</strong> Two labels ("shipment" vs.
-        "logistics") give a computer nothing to work with. Two coordinates let you do real
-        arithmetic — multiply and add the numbers — and get back an actual match score you can
-        rank candidates by, instead of a guess.</li>
-      <li><strong>You can blend information.</strong> You can't "70%-blend" two sentences. You
-        can take 70% of one coordinate and 30% of another, number by number, and get a new,
-        meaningful coordinate back — this is exactly what happens once relevance is decided.</li>
-      <li><strong>Relationships become measurable, not hand-written.</strong> Nobody tells the
-        model "shipment and logistics are similar" — words used in similar contexts naturally end
-        up at similar coordinates as a side effect of training. Because it's numeric, that
-        closeness is something you can measure, not something a human pre-labeled.</li>
-      </ul>
+      <li><strong>Token</strong> — a piece of text.</li>
+      <li><strong>Token ID</strong> — just an address. A row number in a table. It carries no
+        meaning by itself, the same way a house number doesn't describe the house.</li>
+      <li><strong>Embedding</strong> — the learned vector sitting at that row. <em>This</em> is
+        where meaning actually lives.</li>
+    </ul>
 
     <div class="l0008-math-note">
       <span class="l0008-math-tag">∑ in math terms</span>
-      <p>An embedding is a lookup table: token id in, one fixed list of numbers out — e.g. token
-        <code>4291</code> ("shipment") always maps to the same vector, something like
-        <code>[0.12, -0.44, 0.91, …]</code>. That vector <em>is</em> the coordinate. To keep the
-        arithmetic below followable, say Sarah's own embedding — shortened to two numbers, same
-        as every worked example in this lesson — comes out to <code>[0.7, -0.35]</code>. That's
-        the number the rest of this lesson actually follows through Attention and Feedforward.</p>
+      <p>Token <code>"cat"</code> → id <code>4291</code> → row <code>4291</code> of the embedding
+        matrix → <code>[0.12, -0.44, 0.91, …]</code>. That row <em>is</em> the embedding. The
+        model never touches the word "cat" directly — only the number, and then the vector that
+        number points to.</p>
     </div>
+
+    <h2 class="lesson-heading">Training: Building a Geometry, Not Memorizing a Dictionary</h2>
+
+    <p>
+      Before training, every row of that table is a random vector — the map means nothing yet.
+      Training repeatedly nudges those numbers to reduce prediction error, over and over, across
+      enormous amounts of text. <strong>Weights</strong> are exactly this: the numbers inside the
+      embedding table (and every matrix downstream of it), adjusted by training until they're
+      useful.
+    </p>
+
+    <LessonCallout variant="key" title="The model isn't memorizing a dictionary">
+      <p>
+        It's building a geometry of the language. Nobody tells it <code>cat</code> and
+        <code>dog</code> are related — that closeness emerges because both words keep showing up
+        in similar contexts, and training keeps nudging their positions toward each other as a
+        side effect of getting better at prediction.
+      </p>
+    </LessonCallout>
+
+    <p>
+      Why go to the trouble of turning words into positions at all? Because <strong>math cannot
+      operate on meaning directly — it can operate on positions.</strong> You can't compute "how
+      similar are these two sentences," but you can compute the distance between two vectors. You
+      can't "70%-blend" two words, but you can take 70% of one vector and 30% of another and get
+      a new, meaningful vector back. Turning words into numbers isn't a technicality — it's what
+      makes every later step in this lesson possible at all.
+    </p>
+
+    <h2 class="lesson-heading">One Embedding, Many Contexts</h2>
+
+    <p>
+      Here's the limit of everything so far: the embedding table gives <code>bank</code> exactly
+      <strong>one</strong> starting position, the same every time, regardless of sentence. But
+      "I'm going to the <em>bank</em> to deposit money" and "I'm sitting on the <em>bank</em> of a
+      river" clearly don't mean the same thing. Something has to move <code>bank</code>'s position
+      differently depending on what's actually around it — and that something is
+      <strong>attention</strong>.
+    </p>
+
+    <div class="l0008-map">
+      <span class="l0008-dot l0008-dot--person" style="left:48%;top:48%;" data-label="bank (start)"></span>
+      <span class="l0008-dot" style="left:75%;top:20%;" data-label="river"></span>
+      <span class="l0008-dot" style="left:82%;top:30%;" data-label="water"></span>
+      <span class="l0008-dot" style="left:18%;top:75%;" data-label="deposit"></span>
+      <span class="l0008-dot" style="left:26%;top:85%;" data-label="account"></span>
+      <svg class="l0008-path-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <polyline points="48,48 74,26" class="l0008-path-line" />
+        <polyline points="48,48 24,78" class="l0008-path-line" />
+      </svg>
+    </div>
+    <p class="l0008-caption">Same starting position. "…bank of a river" pulls it toward river/water. "…bank to deposit money" pulls it toward deposit/account. Attention is what moves it, and which direction it moves depends entirely on the words actually present.</p>
 
     <h2 class="lesson-heading">Attention — Query, Key, Value</h2>
 
     <p>
-      Back on the panel, three things are happening at once:
+      To decide which direction to move, the model computes three things for every word:
     </p>
 
     <ul>
-      <li><strong>Query</strong> — the question itself, in your head: <em>"who's handled a shipment delay?"</em></li>
-      <li><strong>Key</strong> — what each candidate's profile signals about their background.</li>
-      <li><strong>Value</strong> — the actual answer that candidate would give if given the floor.</li>
+      <li><strong>Query</strong> — what <code>bank</code> is currently looking for, given where it sits.</li>
+      <li><strong>Key</strong> — what each nearby word is offering.</li>
+      <li><strong>Value</strong> — the actual content that word contributes if it's a good match.</li>
     </ul>
 
     <p>
-      You compare your query against every candidate's key. High match → listen closely. Low
-      match → mostly ignore. Then you blend together what everyone would say, weighted by how
-      well their key matched — not "pick the one best candidate," a <em>blend</em>, weighted by
-      relevance.
+      Compare the query against every key — a dot product, one number per comparison, higher when
+      the two vectors point in a similar direction. Turn those comparisons into percentages
+      (softmax), then blend every value using those percentages as weights. That blend is added
+      to <code>bank</code>'s position, moving it — a small step, one layer's worth — toward
+      whichever neighbors actually matched.
     </p>
 
     <LessonDiagram definition={`
 flowchart LR
-  Q["❓ Query&colon; who's handled a<br/>shipment delay before?"]:::query
-  K1["🏷️ Sarah's profile&colon;<br/>shipment, delay, logistics"]:::key
-  K2["🏷️ Marcus's profile&colon;<br/>event scheduling, sports"]:::key
-  K3["🏷️ Priya's profile&colon;<br/>hospitality, customer service"]:::key
-  Q -->|"80% match"| K1
-  Q -->|"10% match"| K2
-  Q -->|"10% match"| K3
-  K1 --> V1["💬 Sarah's answer"]:::value
-  K2 --> V2["💬 Marcus's answer"]:::value
-  K3 --> V3["💬 Priya's answer"]:::value
-  V1 -->|"× 0.80"| OUT["🧠 Blended read&colon;<br/>mostly Sarah's answer, a little of the others"]:::out
-  V2 -->|"× 0.10"| OUT
-  V3 -->|"× 0.10"| OUT
+  Q["❓ bank's query&colon;<br/>what fits here?"]:::query
+  K1["🏷️ river's key"]:::key
+  K2["🏷️ deposit's key"]:::key
+  Q -->|"85% match"| K1
+  Q -->|"15% match"| K2
+  K1 --> V1["💬 river's value"]:::value
+  K2 --> V2["💬 deposit's value"]:::value
+  V1 -->|"× 0.85"| OUT["🧭 direction to move&colon;<br/>mostly toward water"]:::out
+  V2 -->|"× 0.15"| OUT
 
   classDef query fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
   classDef key    fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
@@ -187,202 +170,23 @@ flowchart LR
   classDef out    fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
     `} />
 
-    <div class="l0008-math-note">
-      <span class="l0008-math-tag">∑ in math terms</span>
-      <p>Query, key, and value are each just the input coordinate multiplied by a different fixed
-        matrix. "Match score" is a dot product (multiply the query and key numbers pairwise, add
-        them up) — one number, higher when the two vectors point in a similar direction. The
-        "blend" is a weighted sum of every value vector, using those match scores (turned into
-        percentages via softmax) as the weights.</p>
-    </div>
-
-    <h3 class="lesson-heading">Following One Set of Numbers All the Way Through</h3>
-
-    <p>
-      Here's where the continuity actually happens — the same numbers, followed from the
-      coordinate on the map to the blended output, so "then what?" has a concrete answer instead
-      of a jump. Sarah's raw embedding was <code>[0.7, -0.35]</code>. That single coordinate gets
-      reshaped <em>twice</em> — once by the Key matrix, once by the Value matrix — into two
-      different-purpose vectors. The interviewer's question goes through its own Query matrix the
-      same way. (The reshaping matrices themselves aren't repeated here — the full worked example
-      of "multiply a coordinate by a matrix" is one section down, in Feedforward, using this exact
-      output as its input.)
-    </p>
-
-    <div class="lesson-table">
-      <table>
-        <thead>
-          <tr><th></th><th>Embedding</th><th>→ Key</th><th>→ Value</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Sarah</td><td><code>[0.7, -0.35]</code></td><td><code>[0.8, -0.4]</code></td><td><code>[0.9, -0.3]</code></td></tr>
-          <tr><td>Marcus</td><td><code>[-0.5, 0.5]</code></td><td><code>[0.1, 0.6]</code></td><td><code>[0.5, 0.1]</code></td></tr>
-          <tr><td>Priya</td><td><code>[-0.4, -0.5]</code></td><td><code>[0.0, 0.5]</code></td><td><code>[0.3, 0.3]</code></td></tr>
-          <tr><td>Question</td><td><code>[0.75, -0.3]</code></td><td>→ Query <code>[1.0, -0.5]</code></td><td>—</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <p>
-      Match score = dot product of the Query against each Key — multiply pairwise, add up:
-    </p>
-
-    <div class="lesson-table">
-      <table>
-        <thead>
-          <tr><th>Candidate</th><th>Dot product</th><th>Raw score</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Sarah</td><td><code>1.0×0.8 + (-0.5)×(-0.4)</code></td><td><code>1.0</code></td></tr>
-          <tr><td>Marcus</td><td><code>1.0×0.1 + (-0.5)×0.6</code></td><td><code>-0.2</code></td></tr>
-          <tr><td>Priya</td><td><code>1.0×0.0 + (-0.5)×0.5</code></td><td><code>-0.25</code></td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <p>
-      Sarah's score is far above the other two — running these three raw scores through softmax
-      (turns any set of numbers into percentages that sum to 100%, covered in lesson 2.4) is what
-      actually produces the <strong>80% / 10% / 10%</strong> already shown in the diagram above,
-      not an assertion. Now blend the Value vectors using those percentages as weights:
-    </p>
-
-    <div class="lesson-table">
-      <table>
-        <thead>
-          <tr><th>Candidate</th><th>Weight × Value</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Sarah</td><td><code>0.80 × [0.9, -0.3] = [0.72, -0.24]</code></td></tr>
-          <tr><td>Marcus</td><td><code>0.10 × [0.5, 0.1] = [0.05, 0.01]</code></td></tr>
-          <tr><td>Priya</td><td><code>0.10 × [0.3, 0.3] = [0.03, 0.03]</code></td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <p>
-      Add the three results together, column by column: <code>[0.72+0.05+0.03, -0.24+0.01+0.03]
-      = [0.8, -0.2]</code>.
-    </p>
-
-    <LessonCallout variant="key" title="This is not a new number">
-      <p>
-        <code>[0.8, -0.2]</code> is the attention blend just computed above — and it's the exact
-        same <code>[0.8, -0.2]</code> that Feedforward's matrix walkthrough, further down, uses as
-        its input. That's not a coincidence or a reused placeholder: it's the same coordinate,
-        continuing through the pipeline. Embedding → (reshaped into) Key/Value/Query → (compared
-        and blended by) Attention → (this exact output) → Feedforward.
-      </p>
-    </LessonCallout>
-
-    <h2 class="lesson-heading">Weights — Where the Judgment Comes From</h2>
-
-    <p>
-      How do you even know how to read a candidate's profile and match it to your question? That
-      skill isn't innate — years of interviewing taught you what "relevant experience" sounds
-      like. <strong>Weights are that trained judgment, stored as numbers.</strong> Before any
-      experience, your judgment is just random guessing — you'd rate Priya's hospitality
-      background as highly as Sarah's logistics background, with no basis to tell them apart.
-      Training is the slow process of correcting that judgment based on whether your hiring
-      guesses turned out right.
-    </p>
-
-    <LessonCallout variant="key" title="Untrained ≠ broken, just random">
-      <p>
-        An untrained model has this exact same wiring — query, key, value, blending — fully
-        functional. What it doesn't have is good judgment. Its weights are random numbers, so
-        its "relevance scores" are meaningless, and its blended answer is noise. The
-        architecture works from the start; the <em>judgment</em> only exists after training.
-      </p>
-    </LessonCallout>
+    <p class="l0008-caption">In "…bank of a river," river's key matches bank's query far better than deposit's does — so the blend leans almost entirely toward river's value.</p>
 
     <div class="l0008-math-note">
       <span class="l0008-math-tag">∑ in math terms</span>
-      <p>The "fixed matrices" mentioned above, for turning a coordinate into a query, a key, or a
-        value — their actual numbers <em>are</em> the weights. Training doesn't change the
-        formula (multiply by a matrix); it changes what numbers sit inside that matrix.</p>
+      <p>Query, key, and value are each the input vector multiplied by a different fixed matrix —
+        three different reshapings of the same starting point, each built for a different job
+        (matching, offering, contributing). That's why the query-vs-key comparison can be a cheap
+        dot product: both got moved into a shared space where "closeness" means "relevance," even
+        though that wouldn't have meant anything on the raw embeddings.</p>
     </div>
 
-    <h2 class="lesson-heading">Fixed Judgment, Changing Candidate Pool</h2>
+    <h2 class="lesson-heading">What a Matrix Actually Is</h2>
 
     <p>
-      Your interviewing skill — how you read a profile, how you judge relevance — was built over
-      years of past interviews, and it doesn't change during any given hiring round. To actually
-      change that underlying judgment, you'd have to go conduct more interviews and let them
-      reshape you. That's retraining. Nothing about one round updates your instincts.
-    </p>
-
-    <p>
-      But <strong>who's currently in the candidate pool is a completely different thing</strong>
-      — that's not your judgment, that's just who's in front of you today. You don't need new
-      career experience to notice a candidate walked in and remember what they said five minutes
-      ago. You're using your already-fixed skill to process an unfolding conversation. The skill
-      is frozen; what it's currently looking at keeps changing.
-    </p>
-
-    <LessonCallout variant="info" title="Parametric memory vs. context">
-      <p>
-        This split has a name: <strong>parametric memory</strong> (facts baked into the weights
-        via training — slow, expensive, needs retraining to change) versus <strong>context</strong>
-        (whoever's currently in the room — cheap, instant, gone once the session ends). Walk into
-        tomorrow's hiring round and the pool is empty again — same trained skill, zero memory of
-        yesterday's candidates, unless someone specifically hands you their file at the door.
-        This is the entire idea behind RAG (retrieval-augmented generation): rather than
-        retraining a model to "know" something new, you just make sure the relevant fact walks
-        into the room as part of the context, and let the model's already-frozen judgment work
-        with it.
-      </p>
-    </LessonCallout>
-
-    <h2 class="lesson-heading">Feedforward — The Private Thinking Step</h2>
-
-    <p>
-      After hearing a candidate's answer, you don't immediately score them — you take a beat,
-      privately, to make sense of what you heard. Nobody else on the panel is involved yet; it's
-      just you, alone, processing. Attention is "whose answer did I weigh." Feedforward is "what
-      did I privately make of it." Every candidate's answer gets its own private processing,
-      independently — and it's not a vague "mulling it over." It's a fixed, three-step routine:
-    </p>
-
-    <div class="l0008-advisors">
-      <div class="l0008-advisor">
-        <span class="l0008-avatar">🎧</span>
-        <div class="l0008-adv-name">What you heard</div>
-        <div class="l0008-adv-specialty">the blended impression<br/>from listening</div>
-      </div>
-      <div class="l0008-adv-arrow">→</div>
-      <div class="l0008-advisor">
-        <span class="l0008-avatar">🔎</span>
-        <div class="l0008-adv-name">Run small checks</div>
-        <div class="l0008-adv-specialty">"logistics-specific?" "composure<br/>under pressure?" — many at once</div>
-      </div>
-      <div class="l0008-adv-arrow">→</div>
-      <div class="l0008-advisor">
-        <span class="l0008-avatar">🚫</span>
-        <div class="l0008-adv-name">Drop what didn't fire</div>
-        <div class="l0008-adv-specialty">keep only the checks<br/>that actually matched</div>
-      </div>
-      <div class="l0008-adv-arrow">→</div>
-      <div class="l0008-advisor">
-        <span class="l0008-avatar">🧵</span>
-        <div class="l0008-adv-name">Fold together</div>
-        <div class="l0008-adv-specialty">the surviving checks become<br/>one refined understanding</div>
-      </div>
-    </div>
-    <p class="l0008-caption">
-      "Run small checks" and "drop what didn't fire" are the two fixed operations underneath —
-      the same routine every single time, on whatever attention just handed over. Labels like
-      "logistics-specific?" are illustrative: the real checks aren't human-nameable, but the
-      shape — many small checks, keep the ones that fired, fold the rest away — is exactly right.
-    </p>
-
-    <h3 class="lesson-heading">What Is a Matrix, and Why Multiply by One?</h3>
-
-    <p>
-      A matrix is nothing more than a grid of numbers — rows across, columns down. Attention just
-      handed over <code>[0.8, -0.2]</code> — the exact blended impression computed at the end of
-      the Attention section above, not a fresh number (shortened to two numbers here for space —
-      a real one has hundreds). "Run small checks" multiplies it by this grid:
+      A matrix is a grid of numbers — rows across, columns down. "Multiply by a matrix" means:
+      for each output number, take one row, multiply it against the input position-by-position,
+      add it up. One row = one independent, complete recipe.
     </p>
 
     <div class="l0008-matrix-grid">
@@ -397,354 +201,84 @@ flowchart LR
             <tr><th>row 2</th><td>-0.3</td><td>0.9</td></tr>
           </tbody>
         </table>
-        <div class="l0008-matrix-row-label">2 rows —<br/>one per<br/>output check</div>
+        <div class="l0008-matrix-row-label">2 rows —<br/>2 outputs</div>
       </div>
     </div>
 
     <p>
-      <strong>Columns must match the input</strong> — two numbers in, so two columns; column 1's
-      weights always apply to input #1, column 2's to input #2. <strong>Rows are however many
-      outputs you want</strong> — each row is its own complete, independent recipe. To compute
-      one output, take one whole row, multiply it against the input position-by-position, and
-      add:
+      Say <code>bank</code>'s blended position (the output of Attention above) is
+      <code>[0.8, -0.2]</code>. One row of a matrix like the one above produces one output:
+      <code>0.5×0.8 + 1.2×(-0.2) = 0.16</code>. A different row produces a different, independent
+      output from that same input. More rows, more independent outputs — computed from the exact
+      same numbers, in parallel. <strong>Weights</strong> are just the numbers filling that grid;
+      training changes them, never the shape of the operation itself.
     </p>
 
-    <div class="lesson-table">
-      <table>
-        <thead>
-          <tr><th>Row</th><th>Weighted sum</th><th>Result</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>row 1: <code>[0.5, 1.2]</code></td><td><code>0.5×0.8 + 1.2×(-0.2)</code></td><td><code>0.16</code></td></tr>
-          <tr><td>row 2: <code>[-0.3, 0.9]</code></td><td><code>-0.3×0.8 + 0.9×(-0.2)</code></td><td><code>-0.42</code></td></tr>
-        </tbody>
-      </table>
-    </div>
+    <h2 class="lesson-heading">Feedforward — A Second, Private Pass</h2>
 
     <p>
-      "Drop what didn't fire" is then the blunt rule from before: negative result → zero
-      (<code>-0.42</code> gets dropped, <code>0.16</code> survives). Nothing here is a lookup, a
-      guess, or a decision in any deliberative sense — it's the same fixed arithmetic, on
-      whatever numbers came in.
+      Attention only ever produces a <em>blend</em> of existing information — a weighted average.
+      It can't create a genuinely new combination on its own. After attention, every position runs
+      through one more transformation, independently: multiply by a matrix (many small checks
+      computed at once), zero out anything negative (keep only the checks that actually fired),
+      multiply by a second matrix (fold the survivors back into one vector). That extra step —
+      expand, cut, compress — is what lets the network represent things a pure blend can't.
     </p>
 
-    <h3 class="lesson-heading">What a Matrix Is Actually Doing to the Coordinate</h3>
-
-    <p>
-      Here's the part worth being explicit about, since it's easy to see the arithmetic above and
-      still not see why it matters: <strong>a matrix takes a point positioned in one coordinate
-      space and re-expresses it in a different, purpose-built coordinate space.</strong> That's
-      the actual connection back to the map of meaning from the Embeddings section.
-    </p>
-
-    <p>
-      Sarah's embedding — her one general coordinate on that map — is a decent all-purpose
-      summary of roughly what she's about, but it wasn't built for any one specific comparison.
-      Recall from the Attention section that the same coordinate gets reshaped three different
-      ways: into a <strong>Key</strong> (a version of her position built specifically for "how
-      well do I match an incoming question"), a <strong>Value</strong> (a version built for "what
-      do I actually have to contribute"), and — for whoever's asking — a <strong>Query</strong>
-      (a version built for "what am I looking for"). Three different matrices, three different
-      purpose-built reshapings of the exact same starting point. That's why the comparison in
-      Attention (query vs. key) can be a simple, cheap calculation — dot the two together — even
-      though that comparison wouldn't have meant anything done directly on the raw, general
-      embeddings. The matrix did the work of moving both into a shared space where "closeness"
-      actually means "relevance."</p>
-
-    <p>
-      Feedforward's matrix does the same kind of reshaping, just toward a different purpose: each
-      row re-expresses the incoming coordinate as "how strongly does this look like the one
-      specific pattern I check for" — many independent, purpose-built re-readings of the same
-      point, computed in parallel.
-    </p>
-
-    <h3 class="lesson-heading">Why a Weighted Sum, and Why It Needs a GPU</h3>
-
-    <p>
-      Weighted sums aren't the only way to combine numbers together — they're the choice that
-      makes two other things possible, and the architecture is built around that trade-off, not
-      around weighted sums being special in themselves. First, every weight is independently
-      adjustable, which is exactly what training needs: a knob per weight that nudging up or
-      down has a simple, predictable effect on the output. Messier operations mostly don't have
-      that property, which makes them impractical to train at the scale this needs.
-    </p>
-
-    <p>
-      Second — and this is why the zero-cutoff rule isn't optional decoration — stack weighted
-      sums directly on top of each other with nothing in between, and no matter how many you
-      stack, the result is mathematically no more powerful than a single one. Linear combinations
-      of linear combinations are still just a linear combination. The cutoff is the one place a
-      layer does something a pure weighted sum can't, and it's the reason adding interviewer 2 and
-      interviewer 3 actually buys something interviewer 1 alone couldn't produce.
-    </p>
-
-    <p>
-      This is also where the "checks" in the diagram above stop being just a teaching device and
-      start explaining real hardware. Checking "logistics-specific?" doesn't require finishing
-      "composure under pressure?" first — every row of that matrix is a completely independent
-      calculation. A regular processor (a CPU) is built to do one complex task very fast, one
-      after another — one interviewer working through the whole checklist alone. A GPU is built
-      differently: thousands of small, simple cores, each capable of running one weighted sum at
-      once, all simultaneously — the checklist handed out to a thousand assistants at the same
-      moment instead of one interviewer working through it in order. Matrix multiplication is
-      made entirely of identical, independent little calculations like this, which is exactly the
-      shape of problem a GPU exists to solve — and exactly the shape of problem a CPU handles
-      comparatively slowly, one weighted sum at a time.
-    </p>
-
-    <LessonCallout variant="warn" title="Is this actually &quot;thinking&quot;?">
+    <LessonCallout variant="warn" title="Is this &quot;thinking&quot;?">
       <p>
-        Depends what the word means. If "thinking" means a deterministic mathematical
-        transformation, shaped by training, that turns one set of numbers into a more useful set
-        of numbers — yes, precisely that is happening. If "thinking" means what a person does —
-        weighing options, being aware of considering something, being able to hesitate or change
-        course mid-thought — none of that is happening here, and nothing in this operation could
-        produce it. The calculation runs forward once, deterministically, and that's the whole
-        event. There's no "inside" where deliberation could occur — just the weighted sums above.
-      </p>
-      <p>
-        The word gets used because the <em>output</em> resembles what thinking produces (a
-        rough impression getting refined into a sharper one) — not because the
-        <em>mechanism</em> resembles how a person thinks. Worth keeping those two senses of the
-        word apart every time it shows up in this lesson.
+        If "thinking" means a deterministic transformation of numbers, shaped by training — yes,
+        precisely that is happening. If it means deliberation, awareness, or the ability to
+        hesitate — no; the calculation runs forward once and that's the entire event, with no
+        "inside" where anything like that could occur. The word gets used because the
+        <em>output</em> resembles what thinking produces, not because the mechanism resembles how
+        a person thinks.
       </p>
     </LessonCallout>
 
-    <div class="l0008-math-note">
-      <span class="l0008-math-tag">∑ in math terms</span>
-      <p>Feedforward = multiply by a matrix (expand), zero out negatives, multiply by a second
-        matrix (compress back down). Two matrix multiplications and one comparison. That's the
-        entire operation this section has been calling "private thinking."</p>
-    </div>
+    <h2 class="lesson-heading">Layers — Repeating the Whole Cycle</h2>
 
-    <LessonCallout variant="info" title="&quot;Feedforward&quot; means two different things">
+    <p>
+      Stack that whole cycle — attention, then feedforward — many times, each with its own,
+      separately-trained weights. Each pass refines <code>bank</code>'s position a little further,
+      using whatever the previous pass already figured out.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  L1["Layer 1&colon;<br/>near water or money"]:::step --> L2["Layer 2&colon;<br/>specifically near a river"]:::step --> L3["Layer 3&colon;<br/>the sloped ground<br/>beside flowing water"]:::done
+
+  classDef step fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <p>
+      Run the same sentence's twin — "…bank to deposit money" — through the same three layers,
+      and the path bends the other way at layer 1 and never recovers: "near water or money" →
+      "specifically near a transaction" → "a financial institution." Same architecture, same
+      number of layers, same fixed operations at each one — the only thing that differs is which
+      neighbors actually matched at that first attention step.
+    </p>
+
+    <LessonCallout variant="info" title="Weights fixed, context free to change">
       <p>
-        The private-thinking routine above is the narrow meaning. The word is also used more
-        broadly for the whole architecture: information flows only one direction — interviewer 1
-        to interviewer 2 to interviewer 3, never backward — which makes the entire chain "a
-        feedforward network," as opposed to designs where information can loop back on itself.
-        Same word, two scopes: one sub-step inside a layer, or the whole one-directional chain of
-        layers. Everywhere else in this lesson, "feedforward" means the narrow one.
+        The weights that do this reshaping — every matrix, every layer — were set once, during
+        training, and don't change again until the model is retrained. What's free to change is
+        <strong>context</strong>: whichever words actually surround <code>bank</code> right now.
+        Same fixed skill, applied fresh to whatever's actually in front of it — which is also why
+        a model can incorporate a brand-new fact without retraining at all, simply by putting that
+        fact in the context (the idea behind RAG, retrieval-augmented generation) rather than
+        baking it into the weights.
       </p>
     </LessonCallout>
-
-    <h2 class="lesson-heading">Layers — The Interview Panel, Not One Person Trying Again</h2>
-
-    <p>
-      A layer is <em>not</em> you repeating the same listen-then-think cycle with your own
-      judgment. It's handing your current notes to a <strong>different interviewer on the panel
-      — someone with their own, separately trained judgment</strong> — who runs their own
-      listen-and-think cycle starting from what you handed them, then passes their refined notes
-      to the next interviewer in line. Nobody designs what each interviewer is good at; it
-      emerges from training. In practice, earlier interviewers tend to catch surface-level
-      patterns, later ones more abstract relationships.
-    </p>
-
-    <p>
-      What actually gets passed at each hand-off: <strong>one refined coordinate per candidate in
-      the room</strong>, not one value for the whole scene. Every candidate gets their own
-      updated coordinate from every interviewer — Sarah's, Marcus's, Priya's — all produced in
-      that same round, all the same size as what came in, ready to be handed to the next
-      interviewer.
-    </p>
-
-    <p>
-      <strong>Each interviewer isn't re-asking your original question — they're asking their own,
-      sharper question</strong>, made possible by what the previous interviewer already figured
-      out. The query gets recomputed fresh at every layer, from whatever the current
-      understanding is — not replayed unchanged from layer to layer.
-    </p>
-
-    <div class="l0008-advisors">
-      <div class="l0008-advisor">
-        <span class="l0008-avatar">🧑‍🦱</span>
-        <div class="l0008-adv-name">Interviewer 1</div>
-        <div class="l0008-adv-specialty">🔍 catches the topic</div>
-        <div class="l0008-adv-question">"who mentioned a shipment delay?"</div>
-      </div>
-      <div class="l0008-adv-arrow">→</div>
-      <div class="l0008-advisor">
-        <span class="l0008-avatar">🧑‍🦰</span>
-        <div class="l0008-adv-name">Interviewer 2</div>
-        <div class="l0008-adv-specialty">🧩 connects the pieces</div>
-        <div class="l0008-adv-question">"did Sarah resolve it herself?"</div>
-      </div>
-      <div class="l0008-adv-arrow">→</div>
-      <div class="l0008-advisor">
-        <span class="l0008-avatar">🧑</span>
-        <div class="l0008-adv-name">Interviewer 3</div>
-        <div class="l0008-adv-specialty">💡 reads between the lines</div>
-        <div class="l0008-adv-question">"how did she handle the pressure?"</div>
-      </div>
-    </div>
-    <p class="l0008-caption">
-      Each interviewer = one layer, its own trained weights. The question sharpens at every
-      hand-off — interviewer 2 couldn't have asked "did Sarah resolve it herself" without
-      already knowing, from interviewer 1, that a shipment delay is what's being discussed.
-    </p>
-
-    <div class="l0008-math-note">
-      <span class="l0008-math-tag">∑ in math terms</span>
-      <p>A layer = one attention step + one feedforward step, using that layer's own matrices.
-        "Interviewer 2" is just that same pair of operations run again, with a different set of
-        learned numbers, on the output of interviewer 1.</p>
-    </div>
-
-    <h3 class="lesson-heading">How the Panel's View of the Room Changes</h3>
-
-    <p>
-      There's a second thing evolving alongside the sharpening question. Each interviewer doesn't
-      just inherit the previous interviewer's notes and think them over — they also
-      <strong>re-read the whole room fresh</strong>, through their own personal lens (their own
-      trained Query/Key/Value matrices), before folding anything in. The same three candidates
-      get looked at again and again, and each interviewer notices something a little different.
-    </p>
-
-    <div class="l0008-multiview">
-      <div class="l0008-view">
-        <div class="l0008-view-label">Interviewer 1's read</div>
-        <div class="l0008-view-people">
-          <div class="l0008-person l0008-person--high"><div class="l0008-name">Sarah</div><div class="l0008-sign">mentions shipping</div></div>
-          <div class="l0008-person l0008-person--low"><div class="l0008-name">Marcus</div><div class="l0008-sign">mentions scheduling</div></div>
-          <div class="l0008-person l0008-person--low"><div class="l0008-name">Priya</div><div class="l0008-sign">mentions service</div></div>
-        </div>
-      </div>
-      <div class="l0008-view-arrow">→</div>
-      <div class="l0008-view">
-        <div class="l0008-view-label">Interviewer 2's read</div>
-        <div class="l0008-view-people">
-          <div class="l0008-person l0008-person--high"><div class="l0008-name">Sarah</div><div class="l0008-sign">handled a shipment delay</div></div>
-          <div class="l0008-person l0008-person--low"><div class="l0008-name">Marcus</div><div class="l0008-sign">scheduling ≠ logistics</div></div>
-          <div class="l0008-person l0008-person--low"><div class="l0008-name">Priya</div><div class="l0008-sign">no logistics background</div></div>
-        </div>
-      </div>
-      <div class="l0008-view-arrow">→</div>
-      <div class="l0008-view">
-        <div class="l0008-view-label">Interviewer 3's read</div>
-        <div class="l0008-view-people">
-          <div class="l0008-person l0008-person--high"><div class="l0008-name">Sarah</div><div class="l0008-sign">resolved it calmly — strong fit</div></div>
-          <div class="l0008-person l0008-person--faded"><div class="l0008-name">Marcus</div></div>
-          <div class="l0008-person l0008-person--faded"><div class="l0008-name">Priya</div></div>
-        </div>
-      </div>
-    </div>
-    <p class="l0008-caption">
-      Same candidates throughout — nobody left the room. What changed is how each interviewer's
-      own matrices reshape their profiles into relevance for that interviewer's specific
-      question. By interviewer 3, Marcus and Priya have all but faded from consideration — not
-      because they left, but because interviewer 3's lens finds almost nothing in their profiles
-      relevant to the question at hand.
-    </p>
-
-    <h3 class="lesson-heading">Watching the Coordinate Narrow Down</h3>
-
-    <p>
-      Each hand-off doesn't just sharpen the question — it moves the <strong>coordinate itself</strong>
-      on the map of meaning from the Embeddings section, and shrinks how uncertain it is. Same
-      map, same "shipment"/"logistics" neighborhood — now tracking where the current
-      understanding actually sits after each interviewer.
-    </p>
-
-    <div class="l0008-map">
-      <span class="l0008-dot l0008-dot--person" style="left:64%;top:20%;" data-label="Sarah"></span>
-      <span class="l0008-dot" style="left:58%;top:32%;" data-label="shipment"></span>
-      <span class="l0008-dot" style="left:70%;top:38%;" data-label="logistics"></span>
-
-      <svg class="l0008-path-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <polyline points="38,62 58,35 66,23" class="l0008-path-line" />
-        <circle cx="38" cy="62" r="17" class="l0008-path-circle" />
-        <circle cx="58" cy="35" r="9" class="l0008-path-circle" />
-        <circle cx="66" cy="23" r="3" class="l0008-path-circle" />
-      </svg>
-
-      <span class="l0008-path-label" style="left:38%;top:62%;">after interviewer 1</span>
-      <span class="l0008-path-label" style="left:58%;top:35%;">after interviewer 2</span>
-      <span class="l0008-path-label" style="left:66%;top:23%;">after interviewer 3</span>
-    </div>
-    <p class="l0008-caption">
-      The large, fuzzy circle after interviewer 1 means "broadly somewhere around this topic, not
-      committed to specifics." By interviewer 3, the circle has tightened almost onto Sarah's own
-      coordinate — the understanding has narrowed from "something shipment-related" down to
-      something precise enough to actually answer the question with.
-    </p>
-
-    <h3 class="lesson-heading">What If an Interviewer Is Bad?</h3>
-
-    <p>
-      An interviewer's judgment can be bad two ways: undertrained (their instincts are still
-      close to random — see "Untrained ≠ broken, just random" above), or just unhelpful for this
-      particular candidate. Either way, the damage is bounded, because of one detail the scene
-      has glossed over: <strong>an interviewer doesn't replace your notes with their own take —
-      they add their refinement on top of them.</strong>
-    </p>
-
-    <div class="l0008-advisors">
-      <div class="l0008-advisor">
-        <span class="l0008-avatar">🗒️</span>
-        <div class="l0008-adv-name">What you had</div>
-        <div class="l0008-adv-specialty">your notes<br/>before this interviewer</div>
-      </div>
-      <div class="l0008-adv-arrow">+</div>
-      <div class="l0008-advisor">
-        <span class="l0008-avatar">🧑‍🦱</span>
-        <div class="l0008-adv-name">Their contribution</div>
-        <div class="l0008-adv-specialty">could be sharp,<br/>could be noise</div>
-      </div>
-      <div class="l0008-adv-arrow">=</div>
-      <div class="l0008-advisor">
-        <span class="l0008-avatar">📝</span>
-        <div class="l0008-adv-name">What the next interviewer gets</div>
-        <div class="l0008-adv-specialty">your original notes,<br/>still intact, plus their addition</div>
-      </div>
-    </div>
-    <p class="l0008-caption">
-      A confused interviewer dents the assessment a little — their noise gets added in. They
-      never get to erase what you already knew. This is a real, named part of the architecture
-      (a "residual connection"), and it's the reason stacking dozens of interviewers doesn't mean
-      dozens of chances for one bad one to wreck everything.
-    </p>
-
-    <h2 class="lesson-heading">The Candidate Pool Isn't Static</h2>
-
-    <p>
-      The room isn't a snapshot — two things about it keep changing.
-    </p>
-
-    <p>
-      <strong>Candidates keep entering.</strong> Every new token is a new candidate walking
-      through the door. Once someone's been interviewed, their notes stay on file — but a
-      candidate who just walked in can be assessed in light of everyone already interviewed
-      today, while nobody already assessed ever gets reconsidered based on who walks in later.
-      Their read was formed before the newcomer arrived, and it's locked in. That rule is called
-      <strong>causal masking</strong>, and it's why generation has to happen one token at a time,
-      in order — nobody in the room is allowed to know who's about to walk in next. The room also
-      has a capacity — the <strong>context window</strong> — and letting candidates in forever
-      eventually means either turning people away at the door or the room getting too crowded to
-      track everyone in it well.
-    </p>
-
-    <p>
-      <strong>The same name can mean different people.</strong> Imagine two different candidates
-      named Sarah interviewing on the same day. Glance at name tags alone and they're identical —
-      that name tag is the <strong>static embedding</strong>, the same starting coordinate every
-      time, regardless of which Sarah or which sentence. But as each Sarah actually answers
-      questions — discusses different backgrounds, gets folded into different lines of
-      questioning — her representation gets refined, layer after layer, by what's actually been
-      discussed with her. By the third interviewer, "Sarah who worked in shipping" and "Sarah who
-      worked in retail" have drifted into genuinely different coordinates, despite starting at
-      the exact same spot. That's a <strong>contextual embedding</strong> — the same word
-      reshaped differently every time by whatever surrounds it, which is a big part of why this
-      architecture beats older one-fixed-vector-per-word methods.
-    </p>
 
     <h2 class="lesson-heading">Beam — Not Committing Too Early</h2>
 
     <p>
-      If it's unclear yet whether Sarah's most relevant experience is "the shipment delay" or
-      "the warehouse audit" — both got mentioned — instead of committing to one guess
-      immediately, keep both possibilities in mind as you keep listening, and let more
-      information settle which one actually pans out. Lesson 2.5 walks through this live, on the
-      running <code>17 × 24</code> example.
+      If the surrounding words are genuinely ambiguous — a sentence that could plausibly continue
+      toward either meaning — instead of committing to one direction immediately, the model can
+      keep several candidate continuations alive and let more information settle which one
+      actually pans out. Lesson 2.5 walks through this live, on a worked example.
     </p>
 
   </div>
@@ -753,7 +287,7 @@ flowchart LR
     <h2 class="lesson-heading">Go Further</h2>
     <p>
       For real, interactive versions of these ideas running against actual trained models — not
-      this lesson's illustrative scene — see the collection at
+      this lesson's illustrative numbers — see the collection at
       <a href="https://dentro.de/ai/visualizations/" target="_blank" rel="noopener">dentro.de/ai/visualizations</a>,
       in particular a live GPT-2 walkthrough with real attention visualization and a step-by-step
       breakdown of real text generation.
@@ -768,63 +302,6 @@ flowchart LR
     color: var(--muted);
     margin-top: 0.5rem;
     margin-bottom: 1.5rem;
-  }
-
-  /* ── The Room ─────────────────────────────────────────────────────── */
-  .l0008-room {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-  .l0008-you {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  .l0008-bubble {
-    background: var(--accent-lt, var(--bg3));
-    border: 1px solid var(--accent);
-    color: var(--ink);
-    border-radius: 10px;
-    padding: 0.5rem 0.85rem;
-    font-size: 0.9rem;
-    font-weight: 600;
-  }
-  .l0008-people {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-  }
-  .l0008-person {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    background: var(--bg);
-    border: 2px solid var(--border);
-    border-radius: 10px;
-    padding: 0.75rem 1rem;
-    min-width: 8rem;
-    transition: opacity .2s, border-color .2s, transform .2s;
-  }
-  .l0008-person--high {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-lt, rgba(37,99,235,.15));
-    transform: scale(1.04);
-  }
-  .l0008-person--low { opacity: 0.55; }
-  .l0008-person--faded { opacity: 0.25; }
-  .l0008-avatar { font-size: 1.6rem; line-height: 1; }
-  .l0008-name { font-weight: 700; font-size: 0.9rem; margin-top: 0.35rem; }
-  .l0008-sign {
-    font-family: monospace;
-    font-size: 0.72rem;
-    color: var(--muted);
-    margin-top: 0.3rem;
   }
 
   /* ── Map of Meaning ───────────────────────────────────────────────── */
@@ -863,86 +340,19 @@ flowchart LR
     padding: 0.05rem 0.35rem;
   }
 
-  /* ── Chain of interviewers (layers) ──────────────────────────────── */
-  .l0008-advisors {
-    display: flex;
-    align-items: stretch;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    justify-content: center;
+  /* ── Narrowing-down path overlay (on top of .l0008-map) ─────────────── */
+  .l0008-path-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
   }
-  .l0008-advisor {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    background: var(--bg2);
-    border: 2px solid var(--border);
-    border-radius: 10px;
-    padding: 0.85rem 1rem;
-    min-width: 9rem;
-    flex: 1 1 9rem;
-  }
-  .l0008-adv-name { font-weight: 700; font-size: 0.9rem; margin-top: 0.35rem; }
-  .l0008-adv-specialty {
-    font-size: 0.75rem;
-    color: var(--muted);
-    margin-top: 0.3rem;
-  }
-  .l0008-adv-question {
-    font-family: monospace;
-    font-size: 0.72rem;
-    color: var(--accent);
-    margin-top: 0.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px dashed var(--border);
-  }
-  .l0008-adv-arrow {
-    display: flex;
-    align-items: center;
-    font-size: 1.3rem;
-    color: var(--muted);
-    padding: 0 0.25rem;
-  }
-
-  /* ── Multi-view (panel's changing read of the room) ──────────────── */
-  .l0008-multiview {
-    display: flex;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    justify-content: center;
-    margin: 1rem 0;
-  }
-  .l0008-view {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    flex: 1 1 12rem;
-    min-width: 11rem;
-  }
-  .l0008-view-label {
-    font-family: monospace;
-    font-size: 0.7rem;
-    letter-spacing: 0.04em;
-    color: var(--muted);
-    text-align: center;
-  }
-  .l0008-view-people {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-  .l0008-view-people .l0008-person {
-    min-width: 0;
-    padding: 0.5rem 0.6rem;
-  }
-  .l0008-view-arrow {
-    display: flex;
-    align-items: center;
-    font-size: 1.3rem;
-    color: var(--muted);
-    padding-top: 2rem;
+  .l0008-path-line {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 0.6;
+    stroke-dasharray: 2 1.5;
   }
 
   /* ── Matrix grid (rows/columns) ──────────────────────────────────── */
@@ -1002,40 +412,5 @@ flowchart LR
     text-transform: uppercase;
     color: var(--accent);
     font-weight: 700;
-  }
-
-  /* ── Narrowing-down path overlay (on top of .l0008-map) ─────────────── */
-  .l0008-path-svg {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-  }
-  .l0008-path-line {
-    fill: none;
-    stroke: var(--accent);
-    stroke-width: 0.6;
-    stroke-dasharray: 2 1.5;
-  }
-  .l0008-path-circle {
-    fill: var(--accent);
-    fill-opacity: 0.12;
-    stroke: var(--accent);
-    stroke-width: 0.4;
-    stroke-opacity: 0.55;
-  }
-  .l0008-path-label {
-    position: absolute;
-    transform: translate(-50%, -170%);
-    white-space: nowrap;
-    font-family: monospace;
-    font-size: 0.66rem;
-    font-weight: 700;
-    color: var(--accent);
-    background: var(--bg);
-    border: 1px solid var(--accent);
-    border-radius: 4px;
-    padding: 0.05rem 0.35rem;
   }
 </style>
