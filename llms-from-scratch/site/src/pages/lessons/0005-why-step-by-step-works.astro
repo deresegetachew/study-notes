@@ -1,0 +1,400 @@
+---
+import LessonLayout  from '@/layouts/LessonLayout.astro';
+import LessonHeader  from '@/components/LessonHeader.astro';
+import LessonCallout from '@/components/LessonCallout.astro';
+import LessonDiagram from '@/components/LessonDiagram.astro';
+import LessonQuiz    from '@/components/LessonQuiz.astro';
+import CodeBlock     from '@/components/CodeBlock.astro';
+import DeepDive      from '@/components/DeepDive.astro';
+import SourceBadge   from '@/components/SourceBadge.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const scratchpad = `
+17 × 20 = 340
+17 × 4  = 68
+340 + 68 = 408
+`.trim();
+
+const spikeTrace = `
+Step 1: Identify the largest spike.
+Product 5 on 2024-01-12 sold 342 units, compared with roughly 100 on other days.
+`.trim();
+
+const mindMap = `
+# Why “Think Step by Step” Works
+## Next-token prediction
+### Output format, not the whole process
+### Each token sees the whole context
+## Why steps help
+### Fixed compute per token
+### Written tokens = working memory
+### Prompt shifts likely continuations
+## Attention
+### Query · key → softmax → values
+### Learned, not programmed
+### Many heads in parallel
+## Layers
+### Attention + feedforward + residual
+### Multi-step dependencies need many rounds
+## Numbers as tokens
+### BPE splits numbers
+### Use tools for exact math
+## For agents
+### Context is everything
+### Validate intermediate steps
+`.trim();
+---
+
+<LessonLayout title="5 — Why &quot;Think Step by Step&quot; Works">
+
+  <LessonHeader
+    num="5"
+    title="Why &quot;Think Step by Step&quot; Works"
+    subtitle="If an LLM only predicts the next token, how can one sentence in the prompt change the answer? Attention, layers, and tokens, from the bottom up."
+  />
+
+  <div class="lesson-content">
+
+    <p>
+      The Udacity CoT exercise (Demand-Spike Detective) showed that adding "Think step by step" changes the response. This
+      lesson explains why, using the mechanics from Sebastian Raschka's <em>Build a Large Language
+      Model (From Scratch)</em>. Lesson 2 covers the basics of embeddings and query/key/value;
+      this lesson builds on it.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Topic here</th><th>Where it lives in the book</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Tokens, BPE, numbers as tokens</td><td>Ch. 2: Working with text data</td></tr>
+          <tr><td>Attention, Q/K/V weight matrices, multi-head</td><td>Ch. 3: Coding attention mechanisms</td></tr>
+          <tr><td>Layers (transformer blocks), one token per forward pass</td><td>Ch. 4: Implementing a GPT model from scratch</td></tr>
+          <tr><td>How the weights learn what to look for</td><td>Ch. 5: Pretraining on unlabeled data</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Next-Token Prediction Is the Output, Not the Whole Process <SourceBadge source="book" /></h2>
+
+    <p>
+      "Next-token prediction" describes the output: one token at a time. It says nothing about how
+      much computation goes into choosing each token. Two things separate an LLM from phone
+      autocomplete:
+    </p>
+
+    <ul>
+      <li>
+        <strong>Every token is chosen after looking at the whole input.</strong> Attention can read
+        every earlier token: all 35 sales rows, the promotions, the weather, and everything the
+        model has already written.
+      </li>
+      <li>
+        <strong>Predicting text well requires learning what it means.</strong> To continue
+        "The largest spike in the data was for Product ___", you have to actually compare the
+        numbers. Training on huge amounts of text pushed the model to learn the comparisons and
+        lookups such text requires, because that was the only way to predict it well.
+      </li>
+    </ul>
+
+    <p>Here's the step-by-step response from the exercise, one decision at a time:</p>
+
+    <CodeBlock lang="text" label="model-output" code={spikeTrace} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Writing…</th><th>Where the information comes from</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>Step 1: Identify the largest spike.</code></td><td>"Think step by step" plus the task. Analyst write-ups in the training data often start this way.</td></tr>
+          <tr><td><code>Product</code></td><td>The sentence it just wrote says "largest spike", so a product comes next.</td></tr>
+          <tr><td><code>5</code></td><td>Attention looks over the sales rows. Internally, 342 stands out next to values around 100, and it belongs to P005.</td></tr>
+          <tr><td><code>2024-01-12</code></td><td>Attention goes back to the row containing 342 and copies its date.</td></tr>
+          <tr><td><code>342 … roughly 100</code></td><td>Copied from the data and summarized from the neighboring rows.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Why Step by Step Changes the Answer <SourceBadge source="book" /></h2>
+
+    <p>
+      In the book's text-generation loop (Ch. 4), the model does one forward pass and picks one
+      token. That token is appended to the input, and the whole thing runs again. Two consequences
+      follow.
+    </p>
+
+    <h3 class="lesson-heading">1. Each token gets a fixed amount of computation</h3>
+
+    <p>
+      Each forward pass runs through a fixed stack of layers (GPT-2 small, the book's model, has 12),
+      so producing <code>the</code> costs the same as producing the answer to a hard question. If the
+      model answers immediately, the entire computation has to fit inside the one pass that
+      produces the first answer token.
+    </p>
+
+    <h3 class="lesson-heading">2. Tokens it writes become its working memory</h3>
+
+    <p>
+      Every generated token is fed back in as input. When the model writes intermediate results,
+      later tokens can attend to them:
+    </p>
+
+    <CodeBlock lang="text" label="scratchpad" code={scratchpad} />
+
+    <p>
+      Each line is an easy prediction that reads the lines above it. By the time it writes
+      <code>408</code>, it's adding two numbers already on the page. The model doesn't get smarter.
+      It gets more forward passes, plus a place to store what it has worked out.
+    </p>
+
+    <h3 class="lesson-heading">3. The prompt changes which continuation is likely</h3>
+
+    <p>
+      In human-written text, an answer that follows a worked solution is usually correct. "Think
+      step by step" pushes the model toward continuations that look like worked solutions, so the
+      answer token is predicted from the derivation. Each step it writes then acts like an
+      instruction to itself: "Step 1: Identify the spike" makes actually finding the spike the
+      natural next thing to write.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  subgraph D["Direct answer"]
+    Q1["question"]:::step --> P1["1 forward pass"]:::warn --> A1["answer"]:::warn
+  end
+  subgraph C["Step by step"]
+    Q2["question"]:::step --> S1["pass → step 1"]:::step --> S2["pass → step 2"]:::step --> S3["pass → step 3"]:::step --> A2["answer reads steps"]:::done
+  end
+
+  classDef step fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <LessonCallout variant="warn" title="Limits">
+      <p>
+        Simple tasks don't benefit, because one pass is enough. An early mistake gets copied into
+        every later step, because the model trusts what's on the page. And the written reasoning
+        is computation the model reads back, not necessarily a faithful record of how it reached
+        the answer.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">What Attention Is Looking For <SourceBadge source="book" /></h2>
+
+    <p>
+      Tokens are numbers, but not single numbers. Each token ID selects a row of the embedding
+      matrix, a vector of hundreds or thousands of values (768 in GPT-2 small). Layer by layer, the
+      vector at <code>342</code> gains context. It stops meaning only "the number 342" and also carries
+      "this is a quantity, in the P005 row, on Jan 12, much larger than its neighbors."
+    </p>
+
+    <p>
+      At each position, attention multiplies the vector by three trainable matrices (the book's
+      <code>W_query</code>, <code>W_key</code>, <code>W_value</code>) to get a query (what this position
+      is looking for), a key (what this token offers), and a value (what it passes along).
+      The query is dot-multiplied with every earlier key, the scores are scaled by the square root of
+      the key dimension, softmax turns them into weights, and the output is the weighted sum of
+      the values.
+    </p>
+
+    <p>
+      A toy version with three made-up features, <code>[is quantity, is unusually large, is date]</code>.
+      The model has written "...the largest spike was for Product" and its query is
+      <code>[2, 4, 0]</code>: it wants a quantity, above all an unusually large one. (Scaling is skipped
+      here to keep the numbers readable.)
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Earlier token</th><th>Key</th><th>Q·K</th><th>Softmax weight</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>Product</code></td><td>[0, 0, 0]</td><td>0</td><td>0.2%</td></tr>
+          <tr><td><code>255</code> (normal P001 day)</td><td>[1, 0, 0]</td><td>2</td><td>1.8%</td></tr>
+          <tr><td><code>342</code> (P005, Jan 12)</td><td>[1, 1, 0]</td><td><strong>6</strong></td><td><strong>97.7%</strong></td></tr>
+          <tr><td><code>2024-01-12</code></td><td>[0, 0, 1]</td><td>0</td><td>0.2%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Nearly all the weight goes to <code>342</code>, and its value (carrying "P005, Jan 12") flows into
+      the current position. No decision is made. The weight is just the result of the arithmetic.
+      Real features don't have readable labels like these; they're spread across many dimensions.
+    </p>
+
+    <h3 class="lesson-heading">How does it know what to look for?</h3>
+
+    <p>
+      Nobody tells it. The Q/K/V matrices start out random. In pretraining (Ch. 5), the model
+      predicts the next token, the loss measures how wrong it was, and backpropagation nudges
+      every weight so the correct token becomes slightly more likely. Matrices that produce useful
+      lookups lower the loss, so training reinforces them. Multi-head attention runs many of these
+      lookups in parallel, each head with its own matrices, so one head can match the same
+      product, another the same row, another the same date.
+    </p>
+
+    <h2 class="lesson-heading">Layers: Why Stack Them <SourceBadge source="book" /></h2>
+
+    <p>
+      A layer (a transformer block in Ch. 4) is one round of processing applied to every token:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Part</th><th>Job</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Multi-head attention</td><td>Tokens exchange information</td></tr>
+          <tr><td>Feedforward network</td><td>Each token processes what it gathered, on its own</td></tr>
+          <tr><td>Shortcut (residual) connections + layer norm</td><td>Each block adds to the vector instead of replacing it, which keeps a deep stack trainable</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Humans choose the architecture (number of layers, vector size, number of heads). Every layer
+      has the same shape and its own weights. <strong>Specialization isn't assigned.</strong> Early
+      layers handling simpler features is a pattern researchers observe in trained models, because
+      each layer can only build on what the layers below it have produced.
+    </p>
+
+    <p>
+      Many layers are needed because one round of attention moves information only one step.
+      Finding the largest spike takes several steps in sequence: <code>342</code> first picks up its
+      row (product and date), then gets compared against other quantities (which need their own
+      labels first), and finally the answer position looks for "the quantity marked unusually
+      large." Each step depends on the one before it.
+    </p>
+
+    <LessonCallout variant="key" title="Back to step by step">
+      <p>
+        The number of layers is fixed, so the number of rounds per token is fixed. If a problem
+        needs more steps than the layers provide, it can't be solved in one token. Each token the
+        model writes is another full pass through all the layers, and its text keeps the
+        intermediate results. That's the mechanical reason chain of thought works.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Numbers as Tokens <SourceBadge source="book" /></h2>
+
+    <p>
+      GPT-style models use byte-pair encoding (BPE, Ch. 2), which splits text into frequent
+      chunks, not into words or digits. A number like <code>15547.35</code> can be split into
+      several pieces, and the model never sees a numeric value, only token IDs. Arithmetic is a
+      learned approximation, which is why LLMs can sound confident and still get calculations
+      wrong.
+    </p>
+
+    <p>
+      Numbers written as words ("three hundred fifty") are still understood, since "fifty" and "50"
+      appear in similar contexts. But the model has to assemble the value across several tokens
+      before comparing it, which uses up some of its fixed rounds, and mixed formats make errors
+      more likely.
+    </p>
+
+    <h2 class="lesson-heading">What This Means for Building Agents <SourceBadge source="book" /></h2>
+
+    <p>
+      You don't need the attention math to build agents, just like you don't need TCP to build a
+      web app. But these rules follow directly from the mechanics and affect real design choices:
+    </p>
+
+    <ul>
+      <li><strong>The model only sees its context, and its own output becomes part of that context.</strong> That's why CoT, scratchpads, and ReAct's think → act → observe loop work.</li>
+      <li><strong>Each token gets a fixed amount of computation.</strong> Give hard problems room: written steps, or several calls.</li>
+      <li><strong>LLMs are unreliable at math and exact lookups.</strong> Use tools (code, pandas, a database) for anything that must be correct.</li>
+      <li><strong>Clean input gives better output.</strong> Normalize data (consistent digits and units) before it goes into the prompt.</li>
+      <li><strong>Mistakes carry forward.</strong> Validate intermediate outputs in agent loops.</li>
+    </ul>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="book" /></h2>
+
+    <LessonChecklist
+      title="You can explain:"
+      items={[
+        'Why next-token prediction is the <strong>output format</strong>, not a limit on how much computation goes into each token',
+        'The three reasons written steps help: <strong>fixed compute per token</strong>, <strong>output as working memory</strong>, <strong>conditioning</strong>',
+        'What attention’s query/key scores do in the spike example, and why softmax concentrates weight',
+        'Who decides what an attention head looks for (training, not engineers)',
+        'Why <strong>layers are stacked</strong>, and how that connects to chain of thought',
+        'Why numbers in BPE make in-context arithmetic unreliable',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="book" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Why can writing intermediate steps let a model solve a problem it fails when answering directly?',
+        options: [
+          'Step-by-step prompts switch the model into a separate reasoning mode',
+          'Each written token adds a full forward pass, and the written steps become input later tokens can attend to',
+          'The model re-trains its weights on the steps it just wrote',
+          'Longer answers are sampled at a lower temperature',
+        ],
+        answer:  1,
+        explain: 'Compute per token is fixed, so more tokens means more passes, and the text acts as working memory. No mode switch and no weight updates are involved.',
+      },
+      {
+        q:       'Who decides what an attention head looks for?',
+        options: [
+          'The engineers, by writing a rule for each head',
+          'The prompt, by naming what to attend to',
+          'Training: the Q/K/V matrices start random and backpropagation shapes them to lower next-token loss',
+          'The tokenizer, by grouping related tokens',
+        ],
+        answer:  2,
+        explain: 'Humans choose the architecture. The lookups each head performs emerge from training.',
+      },
+      {
+        q:       'Why does a model need many stacked layers rather than one big attention step?',
+        options: [
+          'Each layer stores a different part of the vocabulary',
+          'One round of attention moves information one step; multi-step dependencies need several rounds in sequence',
+          'Layers exist only to make the model larger for marketing',
+          'Each layer handles a different position in the sequence',
+        ],
+        answer:  1,
+        explain: 'Finding the spike needs: attach number to row, compare across rows, then read off the winner. Each depends on the previous.',
+      },
+    ]} />
+
+
+
+  </div>
+
+  <DeepDive
+    sources="raschka-llms-from-scratch (ch. 2–5), Udacity CoT exercise"
+    tensions={[
+      { a: 'More reasoning tokens', b: 'Cost, latency, and error propagation' },
+      { a: 'Model doing math in-context', b: 'Calling a tool for exact answers' },
+    ]}
+    questions={[
+      {
+        q:      'Reasoning models produce hidden chains of thought before answering. Is that a different mechanism from "think step by step"?',
+        hint:   'What gets fed back into the next forward pass in each case?',
+        answer: '<p>Same mechanism. Both generate tokens that are appended to the context and attended to by later tokens. The difference is that reasoning models were trained (e.g. with reinforcement learning) to produce long, useful chains by default, instead of relying on the prompt to trigger them, and the chain may be hidden from the user.</p>',
+      },
+      {
+        q:      'If written reasoning helps, why can it also make an answer worse?',
+        hint:   'What does a later token trust?',
+        answer: '<p>Later tokens attend to earlier ones as if they were true. A wrong early step (a misread row, a promotion attached to the wrong product) becomes input that later steps build on, so the error carries through to the conclusion. The Demand-Spike run did this: it blamed a promotion that only covered Product 2.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Picturing next-token prediction as phone autocomplete — each token is chosen by a deep computation over the whole context.',
+      'Reading the visible chain of thought as a faithful record of how the model decided — it is computation the model reads back, not a log.',
+      'Trusting in-context arithmetic over many numbers — BPE splits numbers into arbitrary chunks; use a tool when the answer must be exact.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

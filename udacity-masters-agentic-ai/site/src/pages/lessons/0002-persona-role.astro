@@ -2,6 +2,26 @@
 import LessonLayout  from '@/layouts/LessonLayout.astro';
 import LessonHeader  from '@/components/LessonHeader.astro';
 import LessonCallout from '@/components/LessonCallout.astro';
+import SourceBadge   from '@/components/SourceBadge.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const mindMap = `
+# Persona / Role
+## What it does
+### Defines personality
+### Tone
+### Perspective
+## Why it works
+### Trained on diverse styles
+### Without a role → any tone
+### Role narrows style + focus
+## Result
+### No role → unpredictable
+### Defined role → controlled, on-target
+`.trim();
 ---
 
 <LessonLayout title="1.2 — Persona / Role">
@@ -14,14 +34,14 @@ import LessonCallout from '@/components/LessonCallout.astro';
 
   <div class="lesson-content">
 
-    <h2 class="lesson-heading">What a Persona Does</h2>
+    <h2 class="lesson-heading">What a Persona Does <SourceBadge source="course" /></h2>
 
     <p>
       A <strong>Persona (Role)</strong> defines how the agent should behave — its
       personality, tone, and perspective.
     </p>
 
-    <h2 class="lesson-heading">Why It's So Effective</h2>
+    <h2 class="lesson-heading">Why It's So Effective <SourceBadge source="course" /></h2>
 
     <p>
       LLMs are trained on broad, diverse data, so without guidance they can default to any
@@ -36,6 +56,56 @@ import LessonCallout from '@/components/LessonCallout.astro';
       </p>
     </LessonCallout>
 
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
+
+    <LessonChecklist
+      title="When writing a role:"
+      items={[
+        '<strong>Say who the agent is</strong> — e.g. “a meticulous Retail Demand Analyst”',
+        '<strong>Match the role to the task</strong> — the persona should imply the right expertise and tone',
+        '<strong>Pair it with a task and constraints</strong> — a role sets the lens, not the job',
+        '<strong>Compare with and without the role</strong> — check it actually changes the output the way you want',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'What does a persona (role) define?',
+        options: ['How the agent behaves — personality, tone, perspective', 'Which tools the agent can call', 'The model’s maximum output length', 'The facts the model knows'],
+        answer:  0,
+        explain: 'A role shapes behavior and style; it doesn’t add tools or knowledge.',
+      },
+      {
+        q:       'Why does assigning a role make output more predictable?',
+        options: ['The model was trained on many styles, and a role narrows which one it uses', 'It switches the model to a specialized version', 'It lowers the temperature', 'It shortens the context'],
+        answer:  0,
+        explain: 'Without guidance the model can default to any tone; the role directs style and focus.',
+      },
+    ]} />
+
   </div>
+
+  <DeepDive
+    sources="udacity-1.2"
+    tensions={[
+      { a: 'Strong persona flavor', b: 'Clear, neutral output' },
+    ]}
+    questions={[
+      {
+        q:      'Does telling a model “you are an expert accountant” give it accounting knowledge it didn’t have?',
+        hint:   'What does a role change: style, or facts?',
+        answer: '<p>No. A role steers tone, focus, and reasoning depth toward how an expert would respond, which can surface knowledge the model already has. It can’t add facts the model lacks; those have to come from the context (see the pirate-ship example in 3.1).</p>',
+      },
+    ]}
+    pitfalls={[
+      'Expecting a role alone to fix wrong answers — missing facts belong in the context, not the persona.',
+      'Choosing a persona whose style (e.g. a pirate) makes the output harder to use downstream.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
 
 </LessonLayout>

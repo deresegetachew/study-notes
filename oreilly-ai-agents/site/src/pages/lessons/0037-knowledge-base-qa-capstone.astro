@@ -422,7 +422,7 @@ flowchart TD
           'Batch ingest requests to reduce embed API calls',
         ],
         answer:  2,
-        explain: 'Reducing retrieved chunks from 5 to 3 directly shrinks every prompt sent to the LLM — the context section is typically 60–70% of total token cost. Switching to Haiku (option A) also helps but degrades quality for complex technical questions. Embed API calls are cheap compared to LLM inference.',
+        explain: 'Reducing retrieved chunks from 5 to 3 directly shrinks every prompt sent to the LLM — the context section is typically 60–70% of total token cost. Switching to Haiku also helps but degrades quality for complex technical questions. Embed API calls are cheap compared to LLM inference.',
       },
     ]} />
 

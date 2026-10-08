@@ -1,0 +1,1125 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+import SourceBadge     from '@/components/SourceBadge.astro';
+import LessonCollapsible from '@/components/LessonCollapsible.astro';
+import LessonToc       from '@/components/LessonToc.astro';
+
+const chainCode = String.raw`
+# Each call is stateless, so the previous output is passed in explicitly.
+concepts = get_completion(
+    user_prompt="List the key concepts of AI agents.",
+    model=MODEL, client=client,
+)
+
+summary = get_completion(
+    user_prompt=f"Summarize these concepts in 5 bullet points:\n\n{concepts}",
+    model=MODEL, client=client,
+)
+
+post = get_completion(
+    user_prompt=f"Draft a LinkedIn post under 150 words based on this summary:\n\n{summary}",
+    model=MODEL, client=client,
+)
+`.trim();
+
+const workflowCode = String.raw`
+query = "What time is my dental appointment tomorrow?"
+
+# LLM call 1: a yes/no classifier that the code branches on
+needs_calendar = get_completion(
+    user_prompt=f"Will this query require fetching calendar data? Answer Yes or No.\nQUERY: {query}",
+    model=MODEL, client=client,
+)
+
+if needs_calendar.strip().lower().startswith("yes"):
+    calendar = get_calendar()                     # code calls the tool, not the LLM
+    answer = get_completion(                      # LLM call 2: answer with the data
+        user_prompt=f"Calendar:\n{calendar}\n\nUsing the calendar, answer: {query}",
+        model=MODEL, client=client,
+    )
+else:
+    answer = get_completion(user_prompt=query, model=MODEL, client=client)
+`.trim();
+
+const gatePseudo = String.raw`
+output = call_llm(prompt_step1)
+
+if validate_output(output):          # the gate check
+    next_input = process(output)
+    call_llm(prompt_step2, next_input)
+else:
+    handle_error(output)             # halt, retry, or retry with feedback
+`.trim();
+
+const researchGate = String.raw`
+import json
+from pydantic import BaseModel, ValidationError
+
+class Finding(BaseModel):
+    claim: str
+    quote: str        # must be copied word-for-word from a source
+    source_id: int
+
+def check_research(raw: str, sources: list[str]) -> list[str]:
+    """Gate check: returns a list of problems. Empty list = pass."""
+    # Format check: valid JSON, every item has the right fields and types
+    try:
+        findings = [Finding(**item) for item in json.loads(raw)]
+    except (json.JSONDecodeError, TypeError, ValidationError) as e:
+        return [f"Format: {e}"]
+
+    # Content check: each quote really appears in the source it cites
+    problems = []
+    for f in findings:
+        if not (0 <= f.source_id < len(sources)) or f.quote not in sources[f.source_id]:
+            problems.append(f"Quote not found in source {f.source_id}: {f.quote!r}")
+    return problems
+`.trim();
+
+const findingExplained = String.raw`
+raw = '[{"claim": "Cats sit on mats", "quote": "The cat sat on the mat.", "source_id": 0}]'
+
+data = json.loads(raw)
+# → [{"claim": "Cats sit on mats", "quote": "The cat sat on the mat.", "source_id": 0}]
+
+item = data[0]
+Finding(**item)
+# is exactly the same as:
+Finding(claim="Cats sit on mats", quote="The cat sat on the mat.", source_id=0)
+
+# and the list comprehension is shorthand for:
+findings = []
+for item in json.loads(raw):
+    findings.append(Finding(**item))
+`.trim();
+
+const retryLoop = String.raw`
+def run_step(prompt: str, check, max_attempts: int = 3) -> str:
+    """Run one chain step behind a gate check, retrying with the failure reasons."""
+    feedback = ""
+    for attempt in range(max_attempts):
+        output = call_llm(prompt + feedback)
+        problems = check(output)
+        if not problems:
+            return output                                  # gate passed
+        feedback = ("\n\nYour previous answer failed these checks:\n- "
+                    + "\n- ".join(problems) + "\nFix them.")
+    raise RuntimeError(f"Gate check failed after {max_attempts} attempts: {problems}")
+`.trim();
+
+const step1Code = String.raw`
+# --- Step 1: Generate the Outline ---
+prompt_step1 = """
+You are a helpful programming assistant.
+
+I need a Python script to read a CSV file named 'input_data.csv',
+calculate the average of a column named 'value', and write the
+average to a new file named 'output.txt'.
+
+Please provide a simple, step-by-step outline for this script.
+"""
+
+outline_response = get_completion(prompt_step1)
+print(outline_response)
+`.trim();
+
+const step1Output = `
+Here is a step-by-step outline for your script:
+1. Import the necessary libraries (csv).
+2. Open and read the 'input_data.csv' file.
+3. Extract the 'value' column and convert the values to numbers.
+4. Calculate the average of the values.
+5. Create and open a new file called 'output.txt'.
+6. Write the calculated average to 'output.txt'.
+`.trim();
+
+const step2Code = String.raw`
+# --- Step 2: Generate the Code (uses step 1's output) ---
+prompt_step2 = f"""
+You are a helpful programming assistant.
+
+Based on the following outline, please write the complete Python code for the script.
+Ensure you use standard libraries and include comments.
+
+Outline:
+---
+{outline_response}
+---
+"""
+
+code_response = get_completion(prompt_step2)
+print(code_response)
+`.trim();
+
+const step2Output = String.raw`
+import csv
+
+def analyze_data():
+    """
+    Reads data from input_data.csv, calculates the average of the 'value' column,
+    and writes the result to output.txt.
+    """
+    values = []
+    # 1 & 2. Read the CSV file and extract values
+    try:
+        with open('input_data.csv', mode='r') as infile:
+            reader = csv.DictReader(infile)
+            for row in reader:
+                # 3. Convert to number
+                values.append(float(row['value']))
+    except FileNotFoundError:
+        print("Error: input_data.csv not found.")
+        return
+
+    # 4. Calculate the average
+    if values:
+        average = sum(values) / len(values)
+    else:
+        average = 0
+
+    # 5 & 6. Write the result to the output file
+    with open('output.txt', mode='w') as outfile:
+        outfile.write(f"The average is: {average}")
+
+    print("Analysis complete. Check output.txt for the result.")
+
+analyze_data()
+`.trim();
+
+const step3Code = String.raw`
+import ast
+
+def check_python_syntax(code):
+    """Checks for syntax errors in a string of Python code."""
+    try:
+        ast.parse(code)
+        return True, "No syntax errors found."
+    except SyntaxError as e:
+        return False, f"Syntax Error: {e}"
+
+is_valid, message = check_python_syntax(code_response)
+print(f"Code is valid: {is_valid}")
+print(message)
+`.trim();
+
+const scriptChain = String.raw`
+import ast, re
+
+TASK = ("a Python script that reads a CSV, calculates the average of a column, "
+        "and writes the results to a new CSV")
+ALLOWED_IMPORTS = {"csv", "statistics", "sys"}
+MAX_REFINES = 3
+
+def strip_fences(text: str) -> str:
+    """Models usually wrap code in a Markdown fence; remove it before parsing."""
+    return re.sub(r"^\s*\x60{3}(?:python)?\s*\n|\n?\x60{3}\s*$", "", text.strip())
+
+def check_code(code: str) -> list[str]:
+    """Gate 2 (logic): parses as Python, and only imports allowed modules."""
+    try:
+        tree = ast.parse(code)                    # syntax check — never runs the code
+    except SyntaxError as e:
+        return [f"SyntaxError line {e.lineno}: {e.msg}"]
+    imported = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    imported |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+    return [f"Restricted import: {m}" for m in sorted(imported - ALLOWED_IMPORTS)]
+
+# Step 1: outline → Gate 1 (format: a list that mentions reading and writing)
+outline = call_llm(f"You are a helpful programming assistant. I need {TASK}. "
+                   "Please provide a simple step-by-step outline for this script.")
+is_list = any(line.lstrip().startswith(("1.", "-", "*")) for line in outline.splitlines())
+if not (is_list and "read" in outline.lower() and "write" in outline.lower()):
+    raise RuntimeError("Gate 1 failed: outline is not a step list covering read/write")
+
+# Step 2: code → Gate 2; Step 3: refine with the error feedback, up to MAX_REFINES times
+code = strip_fences(call_llm(
+    "Based on the following outline, please write the Python code for the script. "
+    f"Use standard libraries like 'csv' and 'statistics'.\n\nOutline:\n{outline}"))
+
+for attempt in range(MAX_REFINES + 1):
+    errors = check_code(code)
+    if not errors:
+        break                                     # ✅ Completed
+    if attempt == MAX_REFINES:
+        raise RuntimeError(f"❌ Failed after {MAX_REFINES} refinements: {errors}")
+    code = strip_fences(call_llm(
+        f"The following Python code contains errors:\n{code}\n\n"
+        f"Error feedback:\n{errors}\n\nPlease correct the code based on this feedback."))
+`.trim();
+
+const mindMap = `
+# Prompt Chaining
+## Why
+### One massive prompt → confusion, missed details
+### LLMs optimized for single input → output
+### Cake analogy: step-by-step instructions
+## Sequential prompting
+### Complex task → sub-tasks
+### One prompt per sub-task
+### Foundation of agentic workflows
+## Example
+### Research → summarize → LinkedIn post
+### In a chatbot: same chat history
+### In code: pass output into next prompt
+## Benefits
+### Focus on one goal at a time
+### More accurate steps
+### Improve each prompt separately
+## Prompt chaining in code
+### Output of call N → input of call N+1
+### Code carries state, not the API
+## Essential for agents (dental appointment)
+### Hard-coded workflow — code decides
+### LLM as yes/no classifier
+### ReAct agent — LLM decides
+## Not reliable alone
+### Hallucination, wrong format, ignored instructions
+### Domino effect
+### Needs intermediate validation
+## Gate checks
+### Validation between steps
+### On fail: halt · retry · retry with reason
+### Format — structure, fields (Pydantic)
+### Content — keywords, quotes in source
+### Logic — sane numbers, code compiles
+### Code checks first, LLM checks for fuzzy cases
+### Decision models (Jev) — shape guaranteed, not correctness
+### Temperature 0 ≠ deterministic (batching)
+## Use case: data-analysis script
+### Outline → Gate 1 (list, read/write)
+### Code → Gate 2 (ast syntax, imports)
+### Refine with errors → loop, max retries
+## Walkthrough in Python
+### Chaining = strings + sequential API calls
+### outline_response → f-string → prompt_step2
+### check_python_syntax → (is_valid, message)
+### Strip fences; syntax ≠ logic
+## Recap
+### Break down → sequential → chain → gate checks
+`.trim();
+---
+
+<LessonLayout title="4.2 — Prompt Chaining">
+
+  <LessonHeader
+    num="4.2"
+    title="Prompt Chaining"
+    subtitle="Breaking a complex task into a chain of smaller prompts, and validating each step with gate checks."
+  />
+
+  <div class="lesson-content">
+
+    <LessonToc />
+
+    <h2 class="lesson-heading">Complicated Tasks Need to Be Broken Down <SourceBadge source="course" /></h2>
+
+    <p>
+      Ask a friend who doesn't bake to make a multi-layered decorated cake and just say
+      <em>"bake the cake"</em>, and it won't work. You'd give steps: preheat the oven, mix the dry
+      ingredients, mix the wet ones, combine, bake layer 1, bake layer 2, make frosting, assemble,
+      decorate.
+    </p>
+
+    <p>
+      LLMs are similar. They're mainly optimized for <strong>single-task input → output</strong>. Give
+      them one massive prompt that asks them to juggle dependencies, take actions, and verify results
+      all at once, and it's like reciting the whole recipe in one breath: details get missed and the
+      result isn't what you expected. They do best when <strong>guided through a process</strong>.
+    </p>
+
+    <p>This chapter covers:</p>
+
+    <ul>
+      <li><strong>Sequential prompting</strong> for multi-step reasoning (below)</li>
+      <li><strong>Task chaining:</strong> feeding one step's output into the next step's input</li>
+      <li><strong>Gate checks:</strong> programmatic validation between steps</li>
+      <li><strong>Implementing gate checks</strong> in code</li>
+      <li><strong>Example:</strong> a chain for a multi-part coding assignment (outline → code → validate → refine)</li>
+    </ul>
+
+    <h2 class="lesson-heading">Sequential Prompting <SourceBadge source="course" /></h2>
+
+    <p>
+      <strong>Sequential prompting</strong> (multi-step reasoning) breaks a complex task into smaller,
+      manageable sub-tasks, each handled by <strong>its own prompt</strong>. It's a fundamental building
+      block of agentic workflows: instead of one overwhelming command, you guide the model through a
+      process.
+    </p>
+
+    <h3 class="lesson-heading">Example: research → summary → post</h3>
+
+    <p>
+      Instead of <em>"Research AI agents, summarize the key concepts, and write a LinkedIn post about
+      them"</em>, run three prompts:
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  P1["1️⃣ Research key<br/>concepts of AI agents"]:::step --> R1["📝 concepts"]:::out
+  R1 --> P2["2️⃣ Summarize the<br/>previous output"]:::step --> R2["📝 summary"]:::out
+  R2 --> P3["3️⃣ Draft a LinkedIn post<br/>from the summary"]:::step --> R3["✅ post"]:::done
+
+  classDef step fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef out  fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>One big prompt</th><th>Chained prompts</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Model's focus</td><td>Three goals at once</td><td>One goal per step</td></tr>
+          <tr><td>When it goes wrong</td><td>Hard to tell which part failed</td><td>You can see which step failed</td></tr>
+          <tr><td>Improving it</td><td>Rewrite the whole prompt</td><td>Iterate on one step's prompt</td></tr>
+          <tr><td>Checking between steps</td><td>Not possible</td><td>Possible (gate checks, coming up)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="lesson-heading">Try it by hand in a chatbot</h3>
+
+    <p>
+      In ChatGPT, Gemini, or Claude: paste a long document, ask it to extract what you care about,
+      then in the <strong>same chat</strong> ask it to summarize, then to draft the post. The chat
+      history carries each answer forward, so you're doing sequential prompting manually.
+    </p>
+
+    <h2 class="lesson-heading">Why It Works <SourceBadge source="course" /></h2>
+
+    <ul>
+      <li><strong>It mirrors how people solve problems:</strong> smaller, more digestible pieces, one goal at a time.</li>
+      <li><strong>Better accuracy:</strong> each step is a focused prompt, so its output is more likely to be accurate and relevant.</li>
+      <li><strong>Easier to improve:</strong> you can evaluate, iterate, and refine each prompt on its own, using the refinement loop from 3.1.</li>
+    </ul>
+
+    <p>
+      This is the same idea as lesson 1.1's "get away with a cheaper model": decompose the task
+      yourself, and even a small model can run each step reliably.
+    </p>
+
+    <h2 class="lesson-heading">Prompt Chaining: Connecting the Steps in Code <SourceBadge source="course" /></h2>
+
+    <p>
+      Once each prompt works on its own, the next step is to call the LLM with them
+      <strong>in succession, programmatically</strong>. <strong>Prompt chaining</strong> (task chaining)
+      connects prompts' inputs and outputs: the output of one LLM call becomes part of the input of the
+      next. It runs in your code or in an orchestrator, and it's what turns a manual chat into a
+      repeatable, scalable workflow.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  C1["📞 API call 1 · Research<br/>Research key concepts<br/>of AI agents"]:::step --> R1(["RESPONSE_1"]):::out
+  R1 -->|"inserted into"| C2["📞 API call 2 · Summarize<br/>Summarize the following<br/>key concepts: RESPONSE_1"]:::step --> R2(["RESPONSE_2"]):::out
+  R2 -->|"inserted into"| C3["📞 API call 3 · Draft<br/>Draft a LinkedIn post<br/>based on: RESPONSE_2"]:::step --> F(["FINAL_RESPONSE"]):::done
+
+  classDef step fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef out  fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <p>
+      Unlike the chatbot, an API call remembers nothing (as in 2.1), so your code does the carrying.
+      With the notebooks' <code>get_completion</code> helper:
+    </p>
+
+    <CodeBlock lang="python" label="chain.py" code={chainCode} />
+
+    <LessonCallout variant="warn" title="&quot;Research&quot; without a tool is just recall">
+      <p>
+        Step 1 says "research", but a plain LLM call can't browse. It can only recall what was in its
+        training data, which may be outdated. For real research, step 1 needs a search tool, which
+        turns this chain into an agent (4.1).
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Chaining Is Essential for Agents <SourceBadge source="course" /></h2>
+
+    <p>
+      Question: <em>"What time is my dental appointment tomorrow?"</em> The answer is in your calendar,
+      not in the model. There are two ways to chain the steps that get it.
+    </p>
+
+    <h3 class="lesson-heading">Option A: hard-coded workflow — your code decides</h3>
+
+    <LessonDiagram definition={`
+flowchart LR
+  Q["❓ What time is my dental<br/>appointment tomorrow?"]:::q --> L1["🤖 LLM call 1<br/>Does this need<br/>calendar data?"]:::llm
+  L1 -->|"Yes"| G["⚙️ Code calls<br/>get_calendar()"]:::code --> L2["🤖 LLM call 2<br/>answer using the<br/>calendar data"]:::llm --> A["✅ Your appointment<br/>is at 9am"]:::done
+  L1 -->|"No"| L3["🤖 LLM answers<br/>directly"]:::llm
+
+  classDef q    fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef code fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <p>
+      The first LLM call is used as a <strong>classifier</strong>: a yes/no question whose answer
+      your code branches on. The path is fixed in advance; the LLM only fills in each step.
+    </p>
+
+    <CodeBlock lang="python" label="hard_coded_workflow.py" code={workflowCode} />
+
+    <h3 class="lesson-heading">Option B: AI agent (ReAct) — the LLM decides</h3>
+
+    <LessonDiagram definition={`
+sequenceDiagram
+  participant U as 🙋 User
+  participant L as 🤖 LLM
+  participant O as ⚙️ Orchestrator
+  U->>L: What time is my dental appointment tomorrow?
+  L->>O: THOUGHT: I need the calendar.<br/>ACTION: get_calendar("tomorrow")
+  O->>O: runs get_calendar() → "9am"
+  O->>L: OBSERVATION: "9am"
+  L->>O: THOUGHT: It is at 9am.<br/>ACTION: final_answer("9am")
+  O->>U: Your appointment is at 9am
+    `} />
+
+    <p>
+      Same chain of steps (decide → fetch → answer), but no code path was written for this question.
+      The LLM chose to call <code>get_calendar</code>; the orchestrator ran it, exactly like the 2.1
+      Demand-Spike loop.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Hard-coded workflow</th><th>AI agent (ReAct)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Who picks the next step</td><td>Your code (if/else on LLM output)</td><td>The LLM, each turn</td></tr>
+          <tr><td>Predictability</td><td>High: same path every time</td><td>Lower: path can vary</td></tr>
+          <tr><td>Handles new kinds of requests</td><td>Only paths you wrote</td><td>Yes, if it has the right tools</td></tr>
+          <tr><td>Testing and debugging</td><td>Easier: test each fixed step</td><td>Harder: many possible paths</td></tr>
+          <tr><td>Cost and latency</td><td>Known number of calls</td><td>Varies with the number of steps</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Either way, it's prompt chaining that links the actions: each step's output feeds the next.
+      Rule of thumb: use a fixed workflow when you know the steps, and an agent when the steps depend
+      on what's discovered along the way.
+    </p>
+
+    <h2 class="lesson-heading">Chaining Alone Isn't Reliable <SourceBadge source="course" /></h2>
+
+    <p>
+      Each step in a chain can still go wrong. The LLM can <strong>hallucinate</strong>, return the
+      <strong>wrong format</strong>, or <strong>not follow an instruction</strong>. And because every
+      step trusts its input, one early error derails everything after it: the <strong>domino
+      effect</strong>.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  subgraph N["Without checks"]
+    direction LR
+    A1["Step 1<br/>❌ made-up fact"]:::warn --> A2["Step 2<br/>builds on it"]:::warn --> A3["Step 3<br/>❌ confident,<br/>wrong result"]:::warn
+  end
+  subgraph Y["With a gate check"]
+    direction LR
+    B1["Step 1"]:::step --> G{"🚦 Gate check<br/>valid?"}:::gate
+    G -->|"pass"| B2["Step 2"]:::step --> B3["Step 3 ✅"]:::done
+    G -->|"fail"| R["🔁 retry or stop"]:::warn
+  end
+
+  classDef step fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef gate fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <p>
+      You've seen this already: in the 2.1 CoT exercise, the model blamed a promotion that only
+      covered Product 2. Had that analysis fed a report-writing step, the report would have repeated
+      the error with confidence. Reliable systems need <strong>intermediate validation</strong>
+      between steps, which is where gate checks come in.
+    </p>
+
+    <h2 class="lesson-heading">Gate Checks: Output Validation <SourceBadge source="course" /></h2>
+
+    <p>
+      A <strong>gate check</strong> is a programmatic validation placed between steps of a chain: a
+      quality-control point that an output must pass before it's handed to the next step. Think of
+      each step as a brick: the gate check makes sure the brick is solid before you build on it. Gate
+      checks rein in the stochastic, unpredictable side of LLMs.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  S1["🤖 Step N<br/>LLM output"]:::step --> G{"🚦 Gate check<br/>meets criteria?"}:::gate
+  G -->|"✅ pass"| S2["🤖 Step N+1"]:::done
+  G -->|"❌ fail"| F1["🛑 Raise error, halt"]:::warn
+  G -->|"❌ fail"| F2["🔁 Retry the step"]:::retry
+  G -->|"❌ fail"| F3["🔁 Retry with the failure<br/>reason in the prompt"]:::retry
+  F2 -.-> S1
+  F3 -.-> S1
+
+  classDef step  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef gate  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn  fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+  classDef retry fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+    `} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>On failure</th><th>When to use it</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Raise an error and halt</td><td>Sensitive data or high-stakes actions, where a wrong output is worse than none</td></tr>
+          <tr><td>Retry the step</td><td>Random slips: the model usually gets it right</td></tr>
+          <tr><td>Retry with the failure reason</td><td>Systematic mistakes: telling the model <em>what</em> failed makes a repeat less likely</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="lesson-heading">Three types of gate check</h3>
+
+    <LessonDiagram definition={`
+flowchart LR
+  G["🚦 Gate checks"]:::gate --> F["📐 Format<br/>is the shape right?"]:::format
+  G --> C["📝 Content<br/>is the substance right?"]:::content
+  G --> L["🧮 Logic<br/>does it make sense?"]:::logic
+  F --> F1["JSON / XML structure<br/>length · required fields<br/>→ Pydantic, structured outputs"]:::detail
+  C --> C1["keywords · topics · relevance<br/>quotes exist in source<br/>→ regex, embeddings, LLM judge"]:::detail
+  L --> L1["numbers are reasonable<br/>code compiles · no banned imports<br/>→ ast, linters, sanity rules"]:::detail
+
+  classDef gate    fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef format  fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef content fill:#ccfbf1,color:#134e4a,stroke:#0d9488,stroke-width:2px
+  classDef logic   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef detail  fill:#f8fafc,color:#0f172a,stroke:#94a3b8,stroke-width:1px
+    `} />
+
+    <p>
+      Checks can be <strong>plain code</strong> (Python) or <strong>LLM-powered</strong>, e.g. a second
+      model call that flags harmful or biased text:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Code check</th><th>LLM-powered check</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Good for</td><td>Format, exact matches, syntax, numeric ranges</td><td>Fuzzy judgments: tone, harm, bias, relevance</td></tr>
+          <tr><td>Deterministic?</td><td>Yes: same input, same verdict</td><td>No: it's an LLM too, so it can be wrong</td></tr>
+          <tr><td>Cost</td><td>Free, instant</td><td>An extra model call</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Prefer code checks wherever they can do the job; use an LLM check only for what code can't judge.</p>
+
+    <h3 class="lesson-heading">Beyond the course: decision models and determinism (Oct 2026) <SourceBadge source="mine" /></h3>
+
+    <p>
+      Two different questions get mixed up when people ask whether an LLM check is "reliable":
+    </p>
+
+    <ul>
+      <li><strong>Determinism:</strong> does the same input always give the same verdict?</li>
+      <li><strong>Correctness:</strong> is the verdict right? A perfectly deterministic checker can be <em>consistently wrong</em>.</li>
+    </ul>
+
+    <h3 class="lesson-heading">Why LLM checks are non-deterministic (even at temperature 0)</h3>
+
+    <p>
+      Sampling (temperature above 0) is the obvious source. The less obvious one: hosted models batch
+      your request with other users' requests, and many GPU kernels give slightly different numbers
+      depending on batch size. Batch size changes with server load, so a temperature-0 call can still
+      return a different answer. Thinking Machines showed in 2025 that <strong>batch-invariant
+      kernels</strong> fix this (1,000 identical completions in their test) at some speed cost. Unless
+      your provider documents a deterministic mode, assume repeated calls can differ.
+    </p>
+
+    <h3 class="lesson-heading">Decision models: Jev</h3>
+
+    <p>
+      <strong>Jev</strong> (TypeSafe AI, early access since Sept 15, 2026) is built for exactly the
+      "LLM-powered check" slot. It <strong>doesn't generate text</strong>. You send it state (text or
+      JSON) plus typed questions whose answers you define, and it returns one of <em>your</em> answers
+      with a probability on every option:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Question type</th><th>Asks</th><th>Returns</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Noul</td><td>Is something true?</td><td>A probability from 0 to 1</td></tr>
+          <tr><td>Choice</td><td>Which option from a list (up to 255)?</td><td>The pick, a probability per option, a confidence</td></tr>
+          <tr><td>Score</td><td>Where on an ordered scale?</td><td>A level, a probability per level, a confidence</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Vendor claims: roughly 70–500 ms per decision and $0.042 per million input tokens (output is
+      free), about two orders of magnitude cheaper and faster than an LLM for these narrow judgments.
+      These are TypeSafe's own benchmarks.
+    </p>
+
+    <h3 class="lesson-heading">So is it deterministic?</h3>
+
+    <p>
+      <strong>Not as far as anything published says.</strong> TypeSafe doesn't document a guarantee that
+      identical inputs give identical outputs. What changes is the <em>shape</em> of the uncertainty:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Code check</th><th>LLM judge</th><th>Decision model (Jev)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Output shape guaranteed?</td><td>Yes</td><td>No: needs its own parse + format gate</td><td>Yes: always one of your options</td></tr>
+          <tr><td>Same input → same verdict?</td><td>Yes</td><td>Not guaranteed, even at temperature 0</td><td>Not documented</td></tr>
+          <tr><td>How uncertainty shows up</td><td>n/a</td><td>A differently worded answer</td><td>A probability you can threshold</td></tr>
+          <tr><td>Can be confidently wrong?</td><td>Only if the rule is wrong</td><td>Yes</td><td>Yes (see below)</td></tr>
+          <tr><td>Cost / latency</td><td>Free, instant</td><td>Highest</td><td>Low (vendor claims)</td></tr>
+          <tr><td>Good for</td><td>Format, syntax, exact matches</td><td>Judgments that need reasoning</td><td>High-volume narrow judgments: routing, triage, safety flags</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Guaranteed shape doesn't mean correct. TypeSafe itself says it guarantees the shape of answers,
+      not that every decision is right. Independent tests found <strong>overconfidence</strong>
+      (99.4% stated confidence vs. 90.2% accuracy in the top bucket in one test), and in another,
+      swapping option labels dropped accuracy (AUC 0.81 → 0.58): wrong answers hiding inside valid
+      structure. It also isn't a calculator, reads dates as text, and can be prompt-injected.
+    </p>
+
+    <h3 class="lesson-heading">Using it as a gate check</h3>
+
+    <p>The pattern people describe as "LLM writes, decision model decides, code acts":</p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  W["🤖 LLM writes<br/>draft / plan / code"]:::llm --> C{"⚙️ Code checks<br/>format · syntax · quotes"}:::code
+  C -->|"fail"| R["🔁 retry with reasons"]:::retry
+  C -->|"pass"| D["🎯 Decision model<br/>Noul: harmful or biased?<br/>→ probability p"]:::dec
+  D --> T{"⚙️ Code acts<br/>on thresholds"}:::code
+  T -->|"p < 0.1"| OK["✅ continue"]:::done
+  T -->|"p > 0.9"| NO["🛑 block"]:::warn
+  T -->|"in between"| H["🧑‍⚖️ escalate to<br/>LLM judge or human"]:::retry
+
+  classDef llm   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef code  fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+  classDef dec   fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn  fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+  classDef retry fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+    `} />
+
+    <ul>
+      <li><strong>Cheapest checks first:</strong> code, then the decision model, then an LLM judge or a human only for the uncertain band.</li>
+      <li><strong>Thresholds are yours to tune:</strong> set them on your own labeled examples, not the vendor's benchmark, because stated probabilities may be overconfident.</li>
+      <li><strong>Make runs comparable:</strong> pin the model version and log the probabilities, so a changed verdict can be traced.</li>
+    </ul>
+
+    <LessonCallout variant="key" title="Bottom line">
+      <p>
+        New decision models remove the <em>format</em> problem of LLM-powered checks and make them
+        cheap enough to run on every step, but not the <em>correctness</em> problem, and determinism
+        isn't guaranteed. Treat them as one fallible layer, not as a code check.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">The pattern in pseudocode</h3>
+
+    <CodeBlock lang="python" label="gate-check-pseudocode.py" code={gatePseudo} />
+
+    <h3 class="lesson-heading">Example: a research step with format + content checks</h3>
+
+    <p>
+      The course's research example checks two things: the output is properly formatted, and every
+      quoted passage <strong>actually exists</strong> in the source documents, which catches invented
+      quotes. In Python, with Pydantic for the format check:
+    </p>
+
+    <CodeBlock lang="python" label="research_gate.py" code={researchGate} />
+
+    <LessonCollapsible title="What does findings = [Finding(**item) for item in json.loads(raw)] do?">
+      <p>It turns the LLM's raw JSON text into a list of validated <code>Finding</code> objects, and fails loudly if anything is malformed. Read it inside out:</p>
+
+      <ol>
+        <li><strong><code>json.loads(raw)</code></strong> turns the text into Python data: a list of dicts.</li>
+        <li><strong><code>for item in …</code></strong> loops over that list; each <code>item</code> is one dict.</li>
+        <li><strong><code>Finding(**item)</code></strong> builds one Pydantic object from the dict. <code>**</code> unpacks the dict into keyword arguments: keys become parameter names, values become their values.</li>
+        <li><strong><code>[… for …]</code></strong> is a list comprehension: one <code>Finding</code> per dict, collected into a list.</li>
+      </ol>
+
+      <CodeBlock lang="python" label="what-it-means.py" code={findingExplained} />
+
+      <p><strong>Why it works as a gate check:</strong> creating a Pydantic object <em>validates</em> it. A mismatch raises an error instead of slipping through:</p>
+
+      <div class="lesson-table">
+        <table>
+          <thead>
+            <tr><th>LLM returned</th><th>What happens</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>An item without <code>source_id</code></td><td><code>ValidationError</code>: field required</td></tr>
+            <tr><td><code>"source_id": "abc"</code></td><td><code>ValidationError</code>: not a valid integer</td></tr>
+            <tr><td><code>"source_id": "2"</code></td><td>Accepted: Pydantic converts <code>"2"</code> to <code>2</code></td></tr>
+            <tr><td><code>Sure! Here's the JSON: […]</code></td><td><code>json.loads</code> raises <code>JSONDecodeError</code> before Pydantic runs</td></tr>
+            <tr><td>A single object instead of a list</td><td>The loop walks the dict's <em>keys</em> (strings), so <code>Finding(**"claim")</code> raises <code>TypeError</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        That's why the line sits in a <code>try</code> that catches all three error types: however the
+        format is wrong, you get one readable problem message, which becomes the feedback in the retry
+        prompt. If no error is raised, every finding is guaranteed to have a string <code>claim</code>,
+        a string <code>quote</code>, and an integer <code>source_id</code>, so the content check below
+        can rely on them.
+      </p>
+    </LessonCollapsible>
+
+    <p>
+      Returning a <em>list of problems</em> instead of True/False pays off on retry: the problems are
+      exactly what goes into the "retry with the failure reason" prompt.
+    </p>
+
+    <CodeBlock lang="python" label="retry_with_feedback.py" code={retryLoop} />
+
+    <h2 class="lesson-heading">Use Case: Generating a Data Analysis Script <SourceBadge source="course" /></h2>
+
+    <p>
+      Task: a Python script that reads a CSV, calculates the average of a column, and writes the result
+      to a new CSV. The whole chain:
+    </p>
+
+    <LessonDiagram definition={`
+flowchart TB
+  P1["1️⃣ Prompt: create an outline"]:::step --> G1{"🚦 Gate 1 · format<br/>a list? mentions read,<br/>process, write?"}:::gate
+  G1 -->|"fail"| X1["🛑 Stop or retry"]:::warn
+  G1 -->|"pass"| P2["2️⃣ Prompt: write the code<br/>from the outline<br/>csv + statistics only"]:::step
+  P2 --> G2{"🚦 Gate 2 · logic<br/>valid Python syntax?"}:::gate
+  G2 -->|"pass"| OK["✅ Completed"]:::done
+  G2 -->|"fail"| N{"retries left?"}:::gate
+  N -->|"yes"| P3["3️⃣ Prompt: refine<br/>code + error messages"]:::retry --> G2
+  N -->|"no"| X2["❌ Failed"]:::warn
+
+  classDef step  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef gate  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn  fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+  classDef retry fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+    `} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Step</th><th>Prompt (gist)</th><th>Expected output</th><th>Gate check</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1. Outline</td><td>"You are a helpful programming assistant… provide a simple step-by-step outline"</td><td>Numbered or bulleted list of high-level steps</td><td>Optional but good: list format, key phrases (read, process, write)</td></tr>
+          <tr><td>2. Code</td><td>"Based on the following outline, write the Python code… use standard libraries like csv and statistics. Outline: [step 1 output]"</td><td>Python code</td><td>Syntax check with <code>ast</code> or a linter (flake8, pylint), <strong>without running the code</strong></td></tr>
+          <tr><td>3. Refine (only if gate 2 failed)</td><td>"This code… contains syntax errors: [code]. Error feedback: [gate 2 errors]. Please correct it."</td><td>Corrected code</td><td>Gate 2 again; loop up to a maximum number of tries, then give up</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Step 3 is the "retry with the failure reason" option in action: the error messages from the gate
+      become part of the next prompt, which makes this a <strong>feedback loop</strong>.
+    </p>
+
+    <h2 class="lesson-heading">Walkthrough: Building the Chain in Python <SourceBadge source="course" /></h2>
+
+    <p>
+      At its core, prompt chaining is just <strong>managing strings and making API calls in
+      order</strong>. No framework is needed. Here's the data-analysis use case built from scratch, with
+      concrete file names: read <code>input_data.csv</code>, average the <code>value</code> column, write
+      the result to <code>output.txt</code>.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  P1["📝 prompt_step1<br/>role + task:<br/>give me an outline"]:::prompt --> L1["🤖 get_completion"]:::llm --> O1(["outline_response"]):::out
+  O1 -->|"f-string insert"| P2["📝 prompt_step2<br/>write the code<br/>from this outline"]:::prompt --> L2["🤖 get_completion"]:::llm --> O2(["code_response"]):::out
+  O2 --> G{"🚦 check_python_syntax<br/>ast.parse"}:::gate
+  G -->|"True"| D["✅ done"]:::done
+  G -->|"False + message"| F["🔁 optional step 3<br/>code + error → fix it"]:::retry
+
+  classDef prompt fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm    fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef out    fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef gate   fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done   fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef retry  fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <h3 class="lesson-heading">Step 1: generate the outline</h3>
+
+    <p>A role (programming assistant) and a specific task, asking for a plan rather than code:</p>
+
+    <CodeBlock lang="python" label="step1_outline.py" code={step1Code} />
+    <CodeBlock lang="text" label="likely output" code={step1Output} />
+
+    <h3 class="lesson-heading">Step 2: generate the code from the outline</h3>
+
+    <p>
+      <strong>The key move in prompt chaining:</strong> <code>outline_response</code> is inserted into
+      the next prompt with an f-string. The <code>---</code> lines fence it off so the model can tell
+      the outline apart from the instructions.
+    </p>
+
+    <CodeBlock lang="python" label="step2_code.py" code={step2Code} />
+
+    <LessonCollapsible title="Likely output: the generated script" label="Output">
+      <CodeBlock lang="python" label="code_response" code={step2Output} />
+      <p>Each comment (<code># 1 &amp; 2</code>, <code># 3</code>, …) points back to an outline step: step 2 really did build on step 1.</p>
+    </LessonCollapsible>
+
+    <h3 class="lesson-heading">Step 3: the gate check</h3>
+
+    <p>
+      Before trusting the code, check its syntax with Python's built-in <code>ast</code> (Abstract
+      Syntax Tree) module. <code>ast.parse</code> reads the code without running it:
+    </p>
+
+    <CodeBlock lang="python" label="step3_gate.py" code={step3Code} />
+
+    <p>
+      The function returns <strong>two</strong> things: a verdict for the code to branch on, and a
+      message. If <code>is_valid</code> is <code>False</code>, the optional next step sends the code
+      <em>and</em> that message back to the model to fix: the "retry with the failure reason" pattern.
+    </p>
+
+    <LessonCallout variant="warn" title="What this gate can and can't catch">
+      <p>
+        <strong>False alarm:</strong> models usually wrap code in a Markdown fence
+        (<code>```python … ```</code>). Passed straight to <code>ast.parse</code>, perfectly good code
+        fails, so strip the fence first.
+      </p>
+      <p>
+        <strong>Missed problems:</strong> the generated script parses fine, but look at what it does
+        with bad input. A missing file prints an error and returns quietly, and an empty column writes
+        <code>The average is: 0</code> as if 0 were a real result. A syntax gate can't see either; that
+        takes a logic gate, e.g. running the script on a small test CSV in a sandbox.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">A production-ready version</h3>
+
+    <p>
+      The course's walkthrough shows the core idea. This version closes the gaps from the warning
+      above and is closer to what you'd ship:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Gap in the walkthrough</th><th>How this version handles it</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>No check on the outline</td><td><strong>Gate 1:</strong> the outline must be a step list that mentions reading and writing</td></tr>
+          <tr><td>Markdown fences cause false syntax errors</td><td><code>strip_fences()</code> runs before every check</td></tr>
+          <tr><td>Syntax only; any library allowed</td><td><strong>Gate 2</strong> also walks the syntax tree and rejects imports outside <code>ALLOWED_IMPORTS</code></td></tr>
+          <tr><td>"Optional step 3" left unwritten</td><td>A refine loop that sends the code + errors back, capped at <code>MAX_REFINES</code></td></tr>
+          <tr><td>Failure just printed</td><td>Raises an error with the reasons, so the caller knows the chain failed</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="python" label="script_chain.py" code={scriptChain} />
+
+    <LessonCollapsible title="How the allowed-imports check works">
+      <p>
+        <code>ast.parse</code> turns the code into a tree of nodes without running it.
+        <code>ast.walk(tree)</code> visits every node, and two node types record imports:
+      </p>
+      <ul>
+        <li><code>ast.Import</code> for <code>import pandas as pd</code>: each name is in <code>node.names</code>.</li>
+        <li><code>ast.ImportFrom</code> for <code>from os import path</code>: the module is in <code>node.module</code>.</li>
+      </ul>
+      <p>
+        <code>.split(".")[0]</code> keeps the top-level package, so <code>os.path</code> counts as
+        <code>os</code>. Subtracting the allowed set leaves only the forbidden imports, each reported
+        as one problem. Testing it: <code>import pandas</code> and <code>import os.path</code> give
+        <code>["Restricted import: os", "Restricted import: pandas"]</code>, while
+        <code>import csv, statistics</code> passes.
+      </p>
+      <p>
+        This is a cheap <strong>logic check</strong>: it enforces the prompt's "use standard libraries"
+        instruction in code instead of trusting the model to follow it, and it's a basic safety net
+        before any generated code gets near an interpreter.
+      </p>
+    </LessonCollapsible>
+
+    <p>The core logic, in three lines:</p>
+
+    <ol>
+      <li><strong>Break the task into steps.</strong></li>
+      <li><strong>Use each prompt's output as the next prompt's input.</strong></li>
+      <li><strong>Put programmatic gate checks between steps.</strong></li>
+    </ol>
+
+    <h2 class="lesson-heading">Recap <SourceBadge source="course" /></h2>
+
+    <LessonDiagram definition={`
+flowchart LR
+  A["🧩 Break the task<br/>into small steps"]:::a --> B["📋 Sequential prompting<br/>one prompt per step"]:::b --> C["🔗 Prompt chaining<br/>code links the steps"]:::c --> D["🚦 Gate checks<br/>format · content · logic"]:::d --> E["✅ Reliable workflow"]:::e
+
+  classDef a fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef b fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef c fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef d fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef e fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <p>
+      These robust workflows are the backbone of many agent actions: processing health records,
+      generating content, triaging claims, generating and debugging code. Getting them right is
+      critical for reliable AI agents, especially agents that act on external systems.
+    </p>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
+
+    <LessonChecklist
+      title="Before chaining a task:"
+      items={[
+        '<strong>List the sub-tasks</strong> — each with one clear goal',
+        '<strong>Give each sub-task its own prompt</strong> — don’t pack several goals into one',
+        '<strong>Pass outputs forward explicitly</strong> — in code, each call only knows what you send it',
+        '<strong>Check where a step needs real data</strong> — that step needs a tool, not just a prompt',
+        '<strong>Refine steps individually</strong> — improve the weakest link, not the whole chain',
+        '<strong>Pick workflow or agent</strong> — fixed steps known upfront → hard-coded chain; steps depend on findings → agent',
+        '<strong>Make branch decisions parseable</strong> — ask for Yes/No (or a fixed label) when code branches on an LLM answer',
+        '<strong>Plan a check after each step</strong> — an early error dominoes through the rest',
+        '<strong>Cover format, content, and logic</strong> — structure first, then substance, then sense',
+        '<strong>Choose the failure policy per step</strong> — halt for sensitive data, retry for random slips, retry with reasons for systematic ones',
+        '<strong>Return the reasons a check failed</strong> — they become the feedback in the retry prompt',
+        '<strong>Cap the retries</strong> — a feedback loop needs a maximum, just like the ReAct loop',
+        '<strong>Fence inserted outputs</strong> — mark where the previous step’s output starts and ends in the next prompt',
+        '<strong>Strip Markdown fences before parsing code</strong> — or valid code fails the syntax gate',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'What is sequential prompting?',
+        options: ['Breaking a complex task into sub-tasks, each handled by its own prompt', 'Sending the same prompt several times', 'Writing one very long, detailed prompt', 'Asking several models in parallel'],
+        answer:  0,
+        explain: 'One prompt per sub-task, run in order — a fundamental building block of agentic workflows.',
+      },
+      {
+        q:       'In a chatbot, the summary step can see the research step’s answer. In code, what makes that happen?',
+        options: ['You insert the previous output into the next prompt yourself', 'The API remembers previous calls', 'The model caches its answers', 'Setting a higher temperature'],
+        answer:  0,
+        explain: 'API calls are stateless; the chat history (or your code) carries each output forward.',
+      },
+      {
+        q:       'Which is NOT a benefit of chaining prompts?',
+        options: ['It removes the need to check the model’s output', 'Each step focuses on one goal', 'You can improve each prompt individually', 'It is easier to see which step failed'],
+        answer:  0,
+        explain: 'Chaining makes checking possible between steps — that’s what gate checks are for — but it doesn’t remove the need.',
+      },
+      {
+        q:       'In the hard-coded dental-appointment workflow, who decides to call get_calendar()?',
+        options: ['The code, based on the LLM’s Yes/No answer to a classifier prompt', 'The LLM, by writing an ACTION', 'The user', 'The calendar API'],
+        answer:  0,
+        explain: 'The LLM only answers the question; the code branches on it. In the ReAct version, the LLM itself chooses the action.',
+      },
+      {
+        q:       'What is the “domino effect” in a prompt chain?',
+        options: ['An error in an early step derails every step after it', 'Calls run in parallel and collide', 'The chain gets slower with each step', 'Each step repeats the previous prompt'],
+        answer:  0,
+        explain: 'Each step trusts its input, so a hallucination or bad format early on propagates — hence intermediate validation.',
+      },
+      {
+        q:       'Checking that every quote in a research summary appears in the source documents is which type of gate check?',
+        options: ['Content check', 'Format check', 'Logic check', 'Syntax check'],
+        answer:  0,
+        explain: 'It checks the substance of the output against the sources — catching invented quotes.',
+      },
+      {
+        q:       'Gate 2 in the script chain fails. What does the refine step put in its prompt?',
+        options: ['The generated code plus the error messages from the gate check', 'Only the original task', 'The outline from step 1 only', 'A request to try a different language'],
+        answer:  0,
+        explain: 'Retrying with the failure reason makes the same mistake less likely — a feedback loop.',
+      },
+      {
+        q:       'Why check generated code with ast.parse instead of running it?',
+        options: ['It finds syntax errors without executing untrusted code', 'It is the only way to find bugs', 'Running code is slower', 'ast.parse also verifies the output is correct'],
+        answer:  0,
+        explain: 'Parsing is safe and instant; it proves the code is valid Python, not that it is correct.',
+      },
+      {
+        q:       'The model returns correct Python wrapped in a Markdown code fence. What does check_python_syntax report?',
+        options: ['A syntax error — the fence characters are not valid Python', 'No syntax errors', 'A runtime error', 'It runs the code'],
+        answer:  0,
+        explain: 'ast.parse sees the backtick fence as part of the code; strip the fence before checking.',
+      },
+      {
+        q:       'A decision model like Jev always returns one of your predefined options. What does that guarantee?',
+        options: ['The answer has a valid shape — not that it is correct or that repeated calls agree', 'The answer is always correct', 'Identical inputs always give identical outputs', 'Its probabilities are perfectly calibrated'],
+        answer:  0,
+        explain: 'It removes the format check, but independent tests found overconfidence; determinism is not documented.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="udacity — Chaining Prompts for Agentic Reasoning; Thinking Machines (2025) on nondeterminism; TypeSafe AI Jev launch coverage (Sept 2026)"
+    tensions={[
+      { a: 'More, smaller steps', b: 'More calls, latency, and cost' },
+      { a: 'Fixed chain decided by you', b: 'Agent deciding its own next step' },
+      { a: 'Speed of an unchecked chain', b: 'Reliability of validating every step' },
+      { a: 'Deterministic code checks', b: 'Flexible but fallible LLM checks' },
+    ]}
+    questions={[
+      {
+        q:      'Do you have to choose between a hard-coded workflow and an agent?',
+        hint:   'Could one be a step inside the other?',
+        answer: '<p>No — they combine. A fixed workflow can have one step that is an agent (e.g. “research this topic” runs a ReAct loop with a search tool, then the fixed chain summarizes and drafts). Or an LLM classifier at the front can route each request to a fixed workflow when the path is known, and to an agent when it isn’t. Use fixed steps wherever you can, and autonomy only where the task needs it.</p>',
+      },
+      {
+        q:      'If one step in a chain produces a bad output, what happens to the rest?',
+        hint:   'Each step trusts its input.',
+        answer: '<p>The error propagates: later steps build on the bad output as if it were correct. That’s why the course introduces gate checks next — validate each step’s output before passing it on, and retry or stop if it fails.</p>',
+      },
+      {
+        q:      'If an LLM can make mistakes, why is it acceptable to use an LLM as a gate check?',
+        hint:   'Compare what each check is good at, and what happens when the checker is wrong.',
+        answer: '<p>Because some checks, like “is this text harmful or biased?”, can’t be written as code. An LLM checker is fallible, so treat it as one layer: use code checks for everything they can verify, keep the LLM check’s question narrow (one yes/no criterion), and decide what a false alarm costs — a needless retry is usually cheap; letting harmful text through is not.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Assuming an API remembers the previous step — you must pass the output into the next prompt.',
+      'Assuming temperature 0 makes an LLM check deterministic — server-side batching can still change the answer.',
+      'Trusting a decision model’s stated probability as-is — calibrate thresholds on your own labeled data.',
+      'Passing a syntax check and calling the code correct — it parses, but may still compute the wrong thing.',
+      'Retrying forever — cap the feedback loop and fail loudly when the cap is hit.',
+      'Branching code on free-text LLM output — “Yes, I think so…” breaks an exact match; ask for a fixed label and normalize it.',
+      'Chaining without checking — a bad intermediate result silently ruins every later step.',
+      'Asking a plain LLM to “research” current information — without a tool it can only recall training data.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

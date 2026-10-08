@@ -1,18 +1,38 @@
 ---
 import LessonLayout  from '@/layouts/LessonLayout.astro';
 import LessonHeader  from '@/components/LessonHeader.astro';
+import SourceBadge   from '@/components/SourceBadge.astro';
 import LessonCallout from '@/components/LessonCallout.astro';
 import DeepDive      from '@/components/DeepDive.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
 
 // Public assets (public/tools/...) aren't touched by Astro's base rewriting —
 // prefix by hand so the embed resolves under a subpath deploy too.
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+const mindMap = `
+# Branching Paths: Beam Search
+## Greedy decoding
+### One path, top token each pass
+## Beam search
+### Keep top-K paths (beam width)
+### Each path generated independently
+### Cumulative score = product of probabilities
+### Prune weak paths
+## Lives in the decoding harness
+### Not inside the model
+## Caveat
+### Scores fluency, not correctness
+### No fact or arithmetic checks
+`.trim();
 ---
 
-<LessonLayout title="2.5 — Branching Paths: Beam Search">
+<LessonLayout title="4 — Branching Paths: Beam Search">
 
   <LessonHeader
-    num="2.5"
+    num="4"
     title="Branching Paths: Beam Search"
     subtitle="What happens when generation doesn't commit to one path — it explores several and prunes."
   />
@@ -20,7 +40,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   <div class="lesson-content">
 
     <p>
-      Every trace we've stepped through so far (lessons 2.1, 2.2) followed <strong>one</strong>
+      Every trace we've stepped through so far (the Udacity CoT lesson, lesson 1) followed <strong>one</strong>
       path — at each pass, the model picks its single highest-probability token and moves on.
       That's not the only way to decode. <strong>Beam search</strong> keeps several candidate
       continuations alive in parallel, scores each by its running probability, and prunes the
@@ -28,7 +48,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       the model itself, in the decoding harness.
     </p>
 
-    <h2 class="lesson-heading">The Mechanics</h2>
+    <h2 class="lesson-heading">The Mechanics <SourceBadge source="book" /></h2>
 
     <p>
       At a decision point where several continuations are plausible, instead of picking one
@@ -49,7 +69,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       </p>
     </LessonCallout>
 
-    <h2 class="lesson-heading">Try It: Same 17 × 24, Three Competing Decompositions</h2>
+    <h2 class="lesson-heading">Try It: Same 17 × 24, Three Competing Decompositions <SourceBadge source="book" /></h2>
 
     <p>
       Step or play through it: three plausible ways to decompose <code>17 × 24</code> branch
@@ -68,6 +88,43 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <p class="l0007-embed-link">
       <a href={base + '/tools/branching-paths.html'} target="_blank" rel="noopener">Open the tool in its own tab →</a>
     </p>
+
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="book" /></h2>
+
+    <LessonChecklist
+      title="You can explain:"
+      items={[
+        'How <strong>greedy decoding</strong> differs from <strong>beam search</strong>',
+        'What the <strong>beam width</strong> controls',
+        'How a path’s <strong>cumulative score</strong> is computed and used for pruning',
+        'Why beam search lives in the <strong>decoding harness</strong>, not the model',
+        'Why a high beam score is <strong>not</strong> evidence the answer is correct',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="book" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'How does beam search decide which paths to keep?',
+        options: ['By cumulative probability — the product of each token’s probability along the path', 'By checking which answer is correct', 'By path length', 'At random'],
+        answer:  0,
+        explain: 'It compares text likelihood, keeping the top-K paths.',
+      },
+      {
+        q:       'Where does beam search run?',
+        options: ['In the decoding harness, outside the model', 'Inside a special attention head', 'In the tokenizer', 'In your agent loop'],
+        answer:  0,
+        explain: 'The model just scores tokens; the harness decides which paths to continue.',
+      },
+      {
+        q:       'In the 17 × 24 simulator, why can a branch with a correct-looking answer still lose?',
+        options: ['Beam search prunes by fluency (likelihood), not by checking arithmetic', 'Correct answers are penalized', 'The beam width was 1', 'The model ran out of tokens'],
+        answer:  0,
+        explain: 'Nothing in beam search verifies facts or math.',
+      },
+    ]} />
 
   </div>
 
@@ -95,6 +152,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       'Conflating beam search (prune early, based on partial scores) with self-consistency (let every path finish, then vote) — they trade compute for reliability in different ways.',
     ]}
   />
+
+  <LessonMindMap content={mindMap} />
 
 </LessonLayout>
 

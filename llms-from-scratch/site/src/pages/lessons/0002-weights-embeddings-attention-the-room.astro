@@ -1,21 +1,51 @@
 ---
 import LessonLayout   from '@/layouts/LessonLayout.astro';
 import LessonHeader   from '@/components/LessonHeader.astro';
+import SourceBadge   from '@/components/SourceBadge.astro';
 import LessonCallout  from '@/components/LessonCallout.astro';
 import LessonDiagram  from '@/components/LessonDiagram.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const mindMap = `
+# Vectors, Embeddings & Attention
+## Vector = position
+### 1 number → line, 2 → map, many → space
+## Embeddings
+### Token → ID → vector
+### ID is just an address
+### Similar words, nearby positions
+## Training
+### Random start
+### Nudged to reduce prediction error
+### Builds a geometry, not a dictionary
+## Attention
+### Same start for “bank” in every sentence
+### Query, key, value
+### Dot product → softmax → blend
+## Matrix
+### Each row = one output recipe
+## Feedforward
+### Expand, cut, compress
+## Layers
+### Repeat attention + feedforward
+### Weights fixed, context changes
+`.trim();
 ---
 
-<LessonLayout title="2.3 — Vectors, Embeddings & Attention">
+<LessonLayout title="2 — Vectors, Embeddings & Attention">
 
   <LessonHeader
-    num="2.3"
+    num="2"
     title="Vectors, Embeddings & Attention"
     subtitle="What a vector is, what an embedding is, and how a word's position shifts with context."
   />
 
   <div class="lesson-content">
 
-    <h2 class="lesson-heading">A Vector Is Just a Position</h2>
+    <h2 class="lesson-heading">A Vector Is Just a Position <SourceBadge source="book" /></h2>
 
     <p>
       One number places something on a line. Say the number is 5 — now you know exactly where
@@ -34,7 +64,7 @@ import LessonDiagram  from '@/components/LessonDiagram.astro';
       possible to visualize, but the idea never changes: a vector is a position, nothing more.
     </p>
 
-    <h2 class="lesson-heading">A Word Doesn't Get One Number — It Gets a Position</h2>
+    <h2 class="lesson-heading">A Word Doesn't Get One Number — It Gets a Position <SourceBadge source="book" /></h2>
 
     <p>
       A word like <code>cat</code> doesn't get a single number. It gets a position — a vector —
@@ -58,7 +88,7 @@ import LessonDiagram  from '@/components/LessonDiagram.astro';
       getting better at predicting text, not something anyone designed directly.
     </p>
 
-    <h2 class="lesson-heading">The Chain: Token → ID → Vector</h2>
+    <h2 class="lesson-heading">The Chain: Token → ID → Vector <SourceBadge source="book" /></h2>
 
     <p>
       Three words, precisely defined, because they get confused for each other constantly:
@@ -80,7 +110,7 @@ import LessonDiagram  from '@/components/LessonDiagram.astro';
         number points to.</p>
     </div>
 
-    <h2 class="lesson-heading">Training: Building a Geometry, Not Memorizing a Dictionary</h2>
+    <h2 class="lesson-heading">Training: Building a Geometry, Not Memorizing a Dictionary <SourceBadge source="book" /></h2>
 
     <p>
       Before training, every row of that table is a random vector — the map means nothing yet.
@@ -108,7 +138,7 @@ import LessonDiagram  from '@/components/LessonDiagram.astro';
       makes every later step in this lesson possible at all.
     </p>
 
-    <h2 class="lesson-heading">One Embedding, Many Contexts</h2>
+    <h2 class="lesson-heading">One Embedding, Many Contexts <SourceBadge source="book" /></h2>
 
     <p>
       Here's the limit of everything so far: the embedding table gives <code>bank</code> exactly
@@ -132,7 +162,7 @@ import LessonDiagram  from '@/components/LessonDiagram.astro';
     </div>
     <p class="l0008-caption">Same starting position. "…bank of a river" pulls it toward river/water. "…bank to deposit money" pulls it toward deposit/account. Attention is what moves it, and which direction it moves depends entirely on the words actually present.</p>
 
-    <h2 class="lesson-heading">Attention — Query, Key, Value</h2>
+    <h2 class="lesson-heading">Attention — Query, Key, Value <SourceBadge source="book" /></h2>
 
     <p>
       To decide which direction to move, the model computes three things for every word:
@@ -181,7 +211,7 @@ flowchart LR
         though that wouldn't have meant anything on the raw embeddings.</p>
     </div>
 
-    <h2 class="lesson-heading">What a Matrix Actually Is</h2>
+    <h2 class="lesson-heading">What a Matrix Actually Is <SourceBadge source="book" /></h2>
 
     <p>
       A matrix is a grid of numbers — rows across, columns down. "Multiply by a matrix" means:
@@ -214,7 +244,7 @@ flowchart LR
       training changes them, never the shape of the operation itself.
     </p>
 
-    <h2 class="lesson-heading">Feedforward — A Second, Private Pass</h2>
+    <h2 class="lesson-heading">Feedforward — A Second, Private Pass <SourceBadge source="book" /></h2>
 
     <p>
       Attention only ever produces a <em>blend</em> of existing information — a weighted average.
@@ -236,7 +266,7 @@ flowchart LR
       </p>
     </LessonCallout>
 
-    <h2 class="lesson-heading">Layers — Repeating the Whole Cycle</h2>
+    <h2 class="lesson-heading">Layers — Repeating the Whole Cycle <SourceBadge source="book" /></h2>
 
     <p>
       Stack that whole cycle — attention, then feedforward — many times, each with its own,
@@ -272,19 +302,19 @@ flowchart LR
       </p>
     </LessonCallout>
 
-    <h2 class="lesson-heading">Beam — Not Committing Too Early</h2>
+    <h2 class="lesson-heading">Beam — Not Committing Too Early <SourceBadge source="book" /></h2>
 
     <p>
       If the surrounding words are genuinely ambiguous — a sentence that could plausibly continue
       toward either meaning — instead of committing to one direction immediately, the model can
       keep several candidate continuations alive and let more information settle which one
-      actually pans out. Lesson 2.5 walks through this live, on a worked example.
+      actually pans out. Lesson 4 walks through this live, on a worked example.
     </p>
 
   </div>
 
   <div class="lesson-content">
-    <h2 class="lesson-heading">Go Further</h2>
+    <h2 class="lesson-heading">Go Further <SourceBadge source="book" /></h2>
     <p>
       For real, interactive versions of these ideas running against actual trained models — not
       this lesson's illustrative numbers — see the collection at
@@ -292,7 +322,78 @@ flowchart LR
       in particular a live GPT-2 walkthrough with real attention visualization and a step-by-step
       breakdown of real text generation.
     </p>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="book" /></h2>
+
+    <LessonChecklist
+      title="You can explain:"
+      items={[
+        'Why a <strong>vector is a position</strong>, and why meaning needs many dimensions',
+        'The chain <strong>token → token ID → embedding</strong>, and which of them carries meaning',
+        'How training turns random rows into a <strong>geometry</strong> of related words',
+        'Why one embedding per word isn’t enough, and how <strong>attention</strong> moves it by context',
+        'What <strong>query, key and value</strong> do, and what multiplying by a matrix means',
+        'Why attention needs a <strong>feedforward</strong> step after it',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="book" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Where does a token’s meaning actually live?',
+        options: ['In its embedding — the learned vector at its row', 'In its token ID', 'In the tokenizer', 'In the output layer only'],
+        answer:  0,
+        explain: 'The ID is just an address; the vector it points to is what training shaped.',
+      },
+      {
+        q:       'Why does “bank” need attention after its embedding?',
+        options: ['The embedding gives every “bank” the same starting position, regardless of sentence', 'Embeddings are random', 'The embedding is too short', 'Attention picks the next token'],
+        answer:  0,
+        explain: 'Attention moves the position toward river or money depending on the surrounding words.',
+      },
+      {
+        q:       'What can feedforward do that attention alone cannot?',
+        options: ['Create new combinations, not just weighted blends of existing values', 'Read earlier tokens', 'Change the weights at runtime', 'Choose the next token'],
+        answer:  0,
+        explain: 'Attention is a weighted average; expand → cut → compress lets the network represent more.',
+      },
+      {
+        q:       'How can a model use a fact it was never trained on?',
+        options: ['Put the fact in the context; the fixed weights apply to whatever is in front of them', 'It cannot', 'Raise the temperature', 'Add more layers'],
+        answer:  0,
+        explain: 'Weights are fixed after training, but context is free to change — the idea behind RAG.',
+      },
+    ]} />
+
   </div>
+
+  <DeepDive
+    sources="raschka-llms-from-scratch (ch. 2–3), dentro.de visualizations"
+    tensions={[
+      { a: 'One fixed embedding per token', b: 'Meaning that depends on context' },
+      { a: 'Weights fixed after training', b: 'New facts arriving through context' },
+    ]}
+    questions={[
+      {
+        q:      'Why are query and key computed with separate matrices instead of comparing raw embeddings directly?',
+        hint:   'What does “close” mean in the raw embedding space?',
+        answer: '<p>Raw embeddings are close when words are similar in meaning, but relevance is a different relationship: “bank” needs “river”, not a synonym of “bank”. The learned query and key matrices move vectors into a space where a high dot product means “useful to look at”, which is a different question from “means the same thing”.</p>',
+      },
+      {
+        q:      'If two sentences diverge at layer 1, can later layers bring them back together?',
+        hint:   'Each layer builds on what the previous one produced.',
+        answer: '<p>They could in principle, but in the bank example the path bends at the first attention step and later layers refine that direction. Later layers work on what earlier layers produced, so an early contextual decision tends to carry through.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Treating a token ID as meaningful — it is only a row number.',
+      'Thinking attention changes the weights — it changes the vectors for this input; weights stay fixed.',
+      'Assuming attention alone is enough — without feedforward, every output would be a blend of existing values.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
 
 </LessonLayout>
 

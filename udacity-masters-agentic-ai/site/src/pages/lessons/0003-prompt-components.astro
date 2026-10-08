@@ -2,6 +2,30 @@
 import LessonLayout  from '@/layouts/LessonLayout.astro';
 import LessonHeader  from '@/components/LessonHeader.astro';
 import LessonCallout from '@/components/LessonCallout.astro';
+import LessonDiagram from '@/components/LessonDiagram.astro';
+import SourceBadge   from '@/components/SourceBadge.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const mindMap = `
+# Prompt Components
+## Building blocks, in order
+### Role → Task → Output Format → Examples → Context
+### Each one adjustable (see 3.1)
+## Role
+### Persona / lens
+## Task
+### The instruction
+## Output Format
+### How to structure the answer
+## Examples
+### Input/output pairs
+### Anchor style + correctness
+## Context
+### Background the model can’t infer
+`.trim();
 ---
 
 <LessonLayout title="1.3 — Prompt Components">
@@ -14,12 +38,34 @@ import LessonCallout from '@/components/LessonCallout.astro';
 
   <div class="lesson-content">
 
+    <h2 class="lesson-heading">Building Blocks of an Effective Prompt <SourceBadge source="course" /></h2>
+
     <p>
       A well-formed prompt is five components stacked in sequence: <strong>Role</strong>
       sets the lens, <strong>Task</strong> says what to do, <strong>Output Format</strong>
       says how to say it, <strong>Examples</strong> show what "correct" looks like, and
       <strong>Context</strong> fills in what the model can't infer on its own.
     </p>
+
+    <LessonDiagram definition={`
+flowchart TB
+  R["🎭 Role<br/>who the model should be"]:::role
+  T["🎯 Task<br/>what to do"]:::task
+  O["📐 Output Format<br/>how to structure the answer"]:::format
+  E["🧪 Examples<br/>what correct looks like"]:::examples
+  C["📚 Context<br/>facts it can’t infer on its own"]:::context
+  P["✅ Effective prompt"]:::done
+  R --> T --> O --> E --> C --> P
+
+  classDef role     fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef task     fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef format   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef examples fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+  classDef context  fill:#ccfbf1,color:#134e4a,stroke:#0d9488,stroke-width:2px
+  classDef done     fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <h2 class="lesson-heading">What Each Component Does <SourceBadge source="course" /></h2>
 
     <div class="lesson-table">
       <table>
@@ -36,6 +82,13 @@ import LessonCallout from '@/components/LessonCallout.astro';
       </table>
     </div>
 
+    <LessonCallout variant="info" title="Up next: each component in depth">
+      <p>
+        Lesson 3.1 (Prompt Instruction Refinement) comes back to these five building blocks and
+        looks at each one in turn: how modifying it changes what the LLM produces.
+      </p>
+    </LessonCallout>
+
     <LessonCallout variant="key" title="Remember">
       <p>
         Role sets the lens, Task says what to do, Output Format says how to say it, Examples
@@ -44,6 +97,58 @@ import LessonCallout from '@/components/LessonCallout.astro';
       </p>
     </LessonCallout>
 
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
+
+    <LessonChecklist
+      title="Does the prompt have all five components?"
+      items={[
+        '<strong>Role</strong> — who the model should be',
+        '<strong>Task</strong> — the actual instruction or question',
+        '<strong>Output Format</strong> — how the answer should be structured',
+        '<strong>Examples</strong> — sample input/output pairs, if style or correctness needs anchoring',
+        '<strong>Context</strong> — facts and background the model can’t infer on its own',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Which component supplies facts the model can’t infer on its own?',
+        options: ['Context', 'Role', 'Output Format', 'Task'],
+        answer:  0,
+        explain: 'Context fills in domain facts, prior conversation, and constraints.',
+      },
+      {
+        q:       'What are Examples for?',
+        options: ['Anchoring style and correctness with sample input/output pairs', 'Setting the persona', 'Limiting response length', 'Choosing the model'],
+        answer:  0,
+        explain: 'Examples show what a correct answer looks like.',
+      },
+    ]} />
+
   </div>
+
+  <DeepDive
+    sources="udacity-1.3"
+    tensions={[
+      { a: 'Examples that anchor the pattern', b: 'Examples the model over-copies' },
+      { a: 'More context', b: 'Longer, less focused prompt' },
+    ]}
+    questions={[
+      {
+        q:      'If a model gets the format right but the facts wrong, which component do you change?',
+        hint:   'Separate how it answers from what it knows.',
+        answer: '<p>Usually Context: the format components are working, but the model lacks the facts. Changing Role or Output Format won’t supply missing information.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Leaving out Context and blaming the model for not knowing something it was never given.',
+      'Giving a single example that the model then copies too literally for unrelated inputs.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
 
 </LessonLayout>

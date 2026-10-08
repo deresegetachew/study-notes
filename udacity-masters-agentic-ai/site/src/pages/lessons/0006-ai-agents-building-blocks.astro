@@ -1,0 +1,198 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+import SourceBadge     from '@/components/SourceBadge.astro';
+
+const mindMap = `
+# AI Agents: The Building Blocks
+## Why agents
+### LLMs struggle with multi-stage tasks
+### No data beyond training (e.g. tomorrow’s weather)
+### Agent = LLM as brain + reason, plan, act
+## Five components
+### LLM — the brain, but only generates text
+### Tools — functions/APIs to act on the world
+### Instructions — system prompt
+### Memory — short-term chat, long-term synthesized
+### Runtime / orchestration — code that runs it all
+## In the ReAct exercise (2.1)
+### gpt-4.1-nano, 4 tools, system prompt
+### messages list = short-term memory
+### while loop + parser = orchestration
+## Next
+### Break tasks into steps → prompt chaining (4.2)
+`.trim();
+---
+
+<LessonLayout title="4.1 — AI Agents: The Building Blocks">
+
+  <LessonHeader
+    num="4.1"
+    title="AI Agents: The Building Blocks"
+    subtitle="Why an LLM alone isn't enough, and the five components engineers combine to build an agent."
+  />
+
+  <div class="lesson-content">
+
+    <h2 class="lesson-heading">Why Agents? <SourceBadge source="course" /></h2>
+
+    <p>LLMs are popular for many tasks, but their limits show up when a task:</p>
+
+    <ul>
+      <li><strong>has several stages</strong> that depend on each other, or</li>
+      <li><strong>needs data that wasn't in the training set</strong>, such as tomorrow's weather forecast.</li>
+    </ul>
+
+    <p>
+      An <strong>AI agent</strong> is an AI-driven application that uses an LLM as its
+      <strong>brain</strong> to reason, plan, and <strong>autonomously take actions</strong> in an
+      environment, often using external tools. There's no fixed formula or single framework for
+      building one, but engineers combine the same handful of components.
+    </p>
+
+    <h2 class="lesson-heading">The Five Components <SourceBadge source="course" /></h2>
+
+    <LessonDiagram definition={`
+flowchart LR
+  I["📜 Instructions<br/>system prompt"]:::instr --> LLM
+  M["🧠 Memory<br/>chat history + long-term"]:::mem <--> O
+  subgraph O["⚙️ Runtime / orchestration layer"]
+    LLM["🤖 LLM<br/>the brain"]:::llm
+  end
+  O <-->|"calls + observations"| T["🛠️ Tools<br/>APIs, search, DBs, code"]:::tool
+  T <--> E["🌍 Environment<br/>real data, real systems"]:::env
+
+  classDef llm   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef instr fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef mem   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef tool  fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+  classDef env   fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Component</th><th>What it is</th><th>Its job</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>🤖 LLM</td><td>The model</td><td>Understanding, reasoning, deciding what to do. It <strong>only generates text</strong>.</td></tr>
+          <tr><td>🛠️ Tools</td><td>External functions, APIs, resources</td><td>Doing things beyond text: search the web, query a database, calculate, control systems.</td></tr>
+          <tr><td>📜 Instructions</td><td>Explicit guidelines, usually the system prompt</td><td>Define how the agent behaves and guide its actions.</td></tr>
+          <tr><td>🧠 Memory</td><td><strong>Short-term:</strong> the chat history. <strong>Long-term:</strong> knowledge synthesized from past interactions.</td><td>Consistency within a task; learning across tasks.</td></tr>
+          <tr><td>⚙️ Runtime / orchestration</td><td>The code that calls the LLM and handles its output</td><td>Runs the execution flow, lets the LLM decide when to use tools, and feeds observations back.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="key" title="The LLM only generates text">
+      <p>
+        On its own, an LLM can't act; it can only write text that describes an action. Tools give it
+        something to act <em>with</em>, and the orchestration layer is what actually runs them and
+        hands the results back. That split is what makes something an agent rather than a chatbot.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Example: You Already Built One <SourceBadge source="course" /></h2>
+
+    <p>The Demand-Spike ReAct agent from lesson 2.1 has all five components:</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Component</th><th>In the 2.1 ReAct exercise</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>LLM</td><td>gpt-4.1-nano, writing THINK / ACT</td></tr>
+          <tr><td>Tools</td><td><code>calculator</code>, <code>get_sales_data</code>, <code>call_weather_api</code>, <code>final_answer</code></td></tr>
+          <tr><td>Instructions</td><td><code>react_system_prompt</code>: role, THINK/ACT format, tool definitions</td></tr>
+          <tr><td>Memory</td><td>Short-term only: the <code>messages</code> list, resent on every call. No long-term memory: each run starts from scratch.</td></tr>
+          <tr><td>Orchestration</td><td>The <code>while</code> loop + <code>get_observation_message()</code>: parse ACT, run the tool, append OBSERVE, stop on <code>final_answer</code> or 10 steps</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Notice the weather tool: that's exactly the "data not in the training set" case. The model
+      couldn't know the weather on 2024-01-12; the tool fetched it.
+    </p>
+
+    <h2 class="lesson-heading">One Prompt Isn't Enough <SourceBadge source="course" /></h2>
+
+    <p>
+      To reach complex goals, an agent can't rely on a single prompt-and-response. It has to break the
+      task down, run it step by step, and check progress along the way. The core technique for that
+      is <strong>prompt chaining</strong>, covered next in 4.2.
+    </p>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
+
+    <LessonChecklist
+      title="When designing an agent, decide:"
+      items={[
+        '<strong>LLM</strong> — which model, given capability, cost, and latency (lesson 1.1)',
+        '<strong>Tools</strong> — what it needs to reach beyond its training data, each with a clear description',
+        '<strong>Instructions</strong> — the system prompt: role, behavior, output format',
+        '<strong>Memory</strong> — is the chat history enough, or does it need long-term memory across sessions?',
+        '<strong>Orchestration</strong> — who parses tool calls, runs them, feeds results back, and when the loop stops',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Why can’t an LLM alone tell you tomorrow’s weather?',
+        options: ['The forecast isn’t in its training data, and it has no way to fetch it without a tool', 'Weather is too complex for language models', 'It needs a longer prompt', 'It is not allowed to predict the future'],
+        answer:  0,
+        explain: 'Data outside the training set has to come in through a tool, run by the orchestration layer.',
+      },
+      {
+        q:       'Which component actually executes a tool call?',
+        options: ['The runtime / orchestration layer', 'The LLM', 'The system prompt', 'Memory'],
+        answer:  0,
+        explain: 'The LLM only generates text describing the call; the orchestration code runs it and returns the observation.',
+      },
+      {
+        q:       'In the 2.1 ReAct exercise, what served as the agent’s memory?',
+        options: ['The messages list, resent on every call (short-term only)', 'A vector database', 'The model’s weights', 'The calculator tool'],
+        answer:  0,
+        explain: 'Chat history is short-term memory; nothing persisted between runs, so there was no long-term memory.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="udacity — Chaining Prompts for Agentic Reasoning (intro)"
+    tensions={[
+      { a: 'Agent autonomy', b: 'Predictable, controllable behavior' },
+      { a: 'Rich long-term memory', b: 'Context size, cost, and stale information' },
+    ]}
+    questions={[
+      {
+        q:      'Where is the line between a chatbot and an agent?',
+        hint:   'Which components does a plain chatbot have?',
+        answer: '<p>A chatbot has an LLM, instructions, and short-term memory (the conversation). What makes an agent is tools plus an orchestration layer that lets the LLM’s decisions trigger real actions and feeds results back, so it can act in an environment, not just talk about it.</p>',
+      },
+      {
+        q:      'Why does the course say there is no single framework for agents?',
+        hint:   'Think about what you wrote in 2.1 by hand.',
+        answer: '<p>Because the components are just patterns: a prompt, some functions, a list of messages, and a loop. You can write them yourself (as in 2.1) or use a framework, and different tasks need different combinations, e.g. some agents need long-term memory and some don’t.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Expecting the LLM to “do” things — without tools and orchestration, it can only describe actions.',
+      'Calling chat history “memory” and assuming it persists — short-term memory ends with the conversation.',
+      'Putting everything into one giant prompt instead of breaking the task into steps.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

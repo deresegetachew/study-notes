@@ -4,6 +4,10 @@ import LessonHeader  from '@/components/LessonHeader.astro';
 import CodeBlock     from '@/components/CodeBlock.astro';
 import LessonCallout from '@/components/LessonCallout.astro';
 import DeepDive      from '@/components/DeepDive.astro';
+import SourceBadge   from '@/components/SourceBadge.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
 
 const roleGoal = `You are a Supply Chain Logistics Coordinator. Your goal is to diagnose shipment delays by gathering information from different systems.`.trim();
 
@@ -43,6 +47,159 @@ ACT: get_shipment_status(tracking_id="XYZ123")
 (System provides OBSERVE: {"status": "Delayed", "location": "Chicago Rail Yard"}
 and the AI continues...)
 `.trim();
+
+const cotSystemPrompts = `
+# With explicit CoT
+You are a meticulous Retail Demand Analyst.
+Your task is to analyze provided sales data and promotion schedules to identify
+and explain significant sales spikes for specific SKUs.
+
+Think step by step.
+
+# Without explicit CoT: identical, minus the last line
+`.trim();
+
+const developedCotPrompt = `
+## INSTRUCTIONS:
+Analyze the data provided below and hypothesize causes for any observed sales spikes.
+- Find all sales spikes for each product
+- For each: date, amount and percentage increase, possible causes
+  (sales data, promotions, weather, competitor pricing)
+- Start with your analysis, then conclude with the single largest spike
+  by percentage increase, with a short explanation
+
+## OUTPUT FORMAT:
+STRUCTURED ANALYSIS:
+[Structured Analysis]
+
+LARGEST SPIKE:
+\`\`\`json
+{
+    "date": "YYYY-MM-DD",
+    "amount_before_increase": "X.XX",
+    "amount_after_increase": "X.XX",
+    "percentage_increase": "X.XX%",
+    "causes": ["Cause 1", "Cause 2", "Cause 3"]
+}
+\`\`\`
+
+## CONTEXT
+Sales Data: ...   Promotions Calendar: ...   Weather Data: ...   Competitor Pricing Data: ...
+`.trim();
+
+const fstringBug = `
+user_prompt = f"""
+...
+\`\`\`json
+{                         # ❌ f-string treats this as a Python expression
+    "date": "YYYY-MM-DD", # → ValueError: Invalid format specifier
+}
+\`\`\`
+Sales Data:
+{sales_data}              # ✅ this one SHOULD be substituted
+"""
+
+# Fix: double the literal braces, keep single braces for real placeholders
+\`\`\`json
+{{
+    "date": "YYYY-MM-DD",
+}}
+\`\`\`
+`.trim();
+
+const formatReminder = `
+...
+Competitor Pricing Data:
+{competitor_pricing_data}
+
+---
+
+Remember: end your response with the LARGEST SPIKE section containing a \`\`\`json
+code block exactly as specified in OUTPUT FORMAT.
+`.trim();
+
+const reactTools = `
+calculator(expression: str)        → arithmetic, e.g. calculator(expression="(10 + 20) / 2.0")
+get_sales_data()                   → the sales rows
+call_weather_api(date: str)        → weather for one date ("call this for the date of each spike")
+final_answer(amount_after_spike: str, causes: list[str], date: str, percentage_spike: str)
+                                   → ends the loop with a structured answer
+`.trim();
+
+const reactResponseFormat = `
+THINK:
+[reasoning that doesn't need a tool]
+[conclusion: which tool to call next, and why]
+ACT:
+[one tool call with arguments]
+`.trim();
+
+const reactParser = String.raw`
+WEATHER_REGEX      = r"ACT:\ncall_weather_api\(date=\"(.*)\"\)"
+CALCULATOR_REGEX   = r"ACT:\ncalculator\(expression=\"(.*)\"\)"
+FINAL_ANSWER_REGEX = r"ACT:\nfinal_answer\(amount_after_spike=\"(.*)\", causes=(.*), date=\"(.*)\", percentage_spike=\"(.*)\"\)"
+
+def get_observation_message(response: str) -> str:
+    if re.search(WEATHER_REGEX, response):
+        date = re.search(WEATHER_REGEX, response).groups()[0]
+        return f"OBSERVE:\n{call_weather_api(date)}"
+    elif re.search(CALCULATOR_REGEX, response):
+        expression = re.search(CALCULATOR_REGEX, response).groups()[0]
+        return f"OBSERVE:\n{calculator(expression)}"
+    # ... get_sales_data, final_answer (causes parsed with ast.literal_eval)
+    else:
+        # Don't crash: tell the model, so it can correct itself next step
+        return "OBSERVE:\nInvalid tool call or tool not supported."
+`.trim();
+
+const reactLoop = String.raw`
+messages = [
+    {"role": "system", "content": react_system_prompt},
+    {"role": "user",   "content": user_prompt_analyze},
+]
+num_react_steps = 0
+
+while True:
+    react_response = get_completion(messages=messages, model=MODEL, client=client)  # THINK + ACT
+    observation_message = get_observation_message(react_response)                    # run the tool
+
+    messages.append({"role": "assistant", "content": react_response})
+    messages.append({"role": "user",      "content": observation_message})          # OBSERVE
+
+    if "ACT:\nfinal_answer" in react_response:   # exit 1: the model says it's done
+        break
+
+    num_react_steps += 1
+    if num_react_steps > 10:                     # exit 2: safety limit
+        print("ERROR: Max number of React steps exceeded. Breaking.")
+        break
+`.trim();
+
+const mindMap = `
+# Chain-of-Thought & ReAct
+## ReAct system prompt
+### Role and goal
+### THINK/ACT format
+### Tool definitions + examples
+### Complete example interaction
+## Model vs. harness
+### CoT — one completion
+### ReAct — needs the agent loop
+### ACT is only text
+## Exercise Part I — CoT
+### Simple: with vs. without the phrase
+### Developed: instructions + output format
+### Format ignored → restate it last
+### f-string braces → double them
+### Valid JSON ≠ correct causes
+## Exercise Part II — ReAct loop
+### Tools described as text
+### Parser — regex on ACT
+### Executor — real function → OBSERVE
+### Loop — final_answer or max steps
+### Errors returned as observations
+### safe_eval, not eval
+`.trim();
 ---
 
 <LessonLayout title="2.1 — Chain-of-Thought & ReAct Prompting">
@@ -50,7 +207,7 @@ and the AI continues...)
   <LessonHeader
     num="2.1"
     title="Chain-of-Thought & ReAct Prompting"
-    subtitle="Structuring a ReAct system prompt: Role, the THINK/ACT cycle, Tools, and a worked example."
+    subtitle="Structuring a ReAct system prompt, then the Demand-Spike Detective exercise: CoT prompting (Part I) and a working ReAct loop (Part II)."
   />
 
   <div class="lesson-content">
@@ -76,7 +233,7 @@ and the AI continues...)
       </table>
     </div>
 
-    <h2 class="lesson-heading">1. Define the Role and Goal</h2>
+    <h2 class="lesson-heading">1. Define the Role and Goal <SourceBadge source="course" /></h2>
 
     <p>Tell the agent its identity and overall mission.</p>
 
@@ -84,7 +241,7 @@ and the AI continues...)
 
     <CodeBlock lang="text" label="role-and-goal" code={roleGoal} />
 
-    <h2 class="lesson-heading">2. The THINK/ACT Cycle</h2>
+    <h2 class="lesson-heading">2. The THINK/ACT Cycle <SourceBadge source="course" /></h2>
 
     <p>
       Give the agent explicit instructions on how to structure its response — the core
@@ -93,7 +250,7 @@ and the AI continues...)
 
     <CodeBlock lang="text" label="think-act-cycle" code={thinkActCycle} />
 
-    <h2 class="lesson-heading">3. Define the Available Tools</h2>
+    <h2 class="lesson-heading">3. Define the Available Tools <SourceBadge source="course" /></h2>
 
     <p>
       List every tool the agent can use. For each: name, parameters, a short
@@ -103,7 +260,7 @@ and the AI continues...)
 
     <CodeBlock lang="text" label="tool-definitions" code={toolDefinitions} />
 
-    <h2 class="lesson-heading">4. A Complete Example Interaction</h2>
+    <h2 class="lesson-heading">4. A Complete Example Interaction <SourceBadge source="course" /></h2>
 
     <p>
       Put it together by showing the agent a full, multi-step example of how to use
@@ -113,7 +270,7 @@ and the AI continues...)
 
     <CodeBlock lang="text" label="worked-example" code={workedExample} />
 
-    <h2 class="lesson-heading">What's Actually Happening: Model vs. Harness</h2>
+    <h2 class="lesson-heading">What's Actually Happening: Model vs. Harness <SourceBadge source="course" /></h2>
 
     <p>
       It's worth separating <strong>Chain-of-Thought</strong> from <strong>ReAct</strong>
@@ -176,6 +333,269 @@ and the AI continues...)
       </p>
     </LessonCallout>
 
+    <h2 class="lesson-heading">Exercise: Demand-Spike Detective (CoT) <SourceBadge source="course" /></h2>
+
+    <p>
+      Guide an LLM to explain an unexpected sales spike using Chain-of-Thought only, with no
+      tools. The model gets four synthetic datasets pasted directly into the prompt:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Dataset</th><th>What's in it</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Sales</td><td>Daily quantity and revenue for 5 products, 2024-01-10 to 2024-01-16</td></tr>
+          <tr><td>Promotions</td><td>Weekend Special (10% off P002, Jan 12–14); Flash Sale (15% off P001/P003/P005, Jan 15–16)</td></tr>
+          <tr><td>Weather</td><td>Daily temperature and conditions; heavy rain and a flood warning on Jan 12</td></tr>
+          <tr><td>Competitor pricing</td><td>Our price vs. three competitors' prices and discounts per product per day</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Looking at the data yourself first, the answer is that <strong>Product 5 spiked on
+      2024-01-12</strong> (342 units vs. roughly 100 on other days). The Weekend Special that started
+      that day was for Product 2, not Product 5. It rained heavily that day, and a competitor
+      dropped its price on Product 5. A good analysis should find the spike and weigh these factors
+      without overclaiming.
+    </p>
+
+    <h3 class="lesson-heading">Part 1: Simple CoT, with vs. without the phrase</h3>
+
+    <p>
+      Send the same data twice. The only difference is whether the system prompt asks the model to
+      think step by step. Compare the two responses.
+    </p>
+
+    <CodeBlock lang="text" label="system-prompts" code={cotSystemPrompts} />
+
+    <LessonCallout variant="info" title="Modern models may not need the phrase">
+      <p>
+        Many current LLMs already reason in steps because that behavior was trained in. Run your
+        prompts with and without the explicit phrase, and run each more than once, since results
+        vary between runs.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Part 2: A more developed CoT prompt</h3>
+
+    <p>
+      Add an <strong>instructions</strong> section listing the steps to follow and an
+      <strong>output format</strong> section. The steps steer the reasoning, and the format
+      constrains the output so code can parse it. Here, the final answer is a JSON block describing
+      the single largest spike.
+    </p>
+
+    <CodeBlock lang="markdown" label="developed-cot-prompt" code={developedCotPrompt} />
+
+    <p>
+      The notebook then splits the response on <code>```json</code>: everything before it is
+      the analysis, and the block is parsed with <code>json.loads</code>.
+    </p>
+
+    <h2 class="lesson-heading">Running the Exercise: What Went Wrong <SourceBadge source="course" /></h2>
+
+    <p>Three separate problems came up, and each teaches something different.</p>
+
+    <h3 class="lesson-heading">1. The model ignored the output format</h3>
+
+    <p>
+      With gpt-4.1-nano, the response went "Step 1" through "Step 7", then a summary, and stopped.
+      There was no <code>LARGEST SPIKE</code> section, no JSON block, and no single largest spike,
+      so the parser raised <code>❌ No LARGEST SPIKE found in response</code>. This was not a JSON
+      parsing error: the block never existed. Likely causes:
+    </p>
+
+    <ul>
+      <li><strong>Smallest model.</strong> Nano is the weakest of the three at following format instructions.</li>
+      <li><strong>Format buried mid-prompt.</strong> The format spec came before thousands of tokens of data, so the data was freshest when the model started writing.</li>
+      <li><strong>"Think in steps" took over.</strong> Once it wrote "Step 1:", each step conditioned the next, and it followed its own structure instead of the requested one.</li>
+      <li><strong>Temperature 0.7.</strong> Outcomes vary from run to run.</li>
+    </ul>
+
+    <p>Fix: repeat the format requirement at the very end of the prompt, after the data.</p>
+
+    <CodeBlock lang="text" label="format-reminder" code={formatReminder} />
+
+    <p>
+      With the reminder (and the brace fix below), three runs in a row on gpt-4.1-nano all produced
+      parseable JSON: <code>2024-01-12</code>, 114 → 342, <code>200.00%</code>. If it still fails,
+      re-run it or switch to gpt-4.1-mini.
+    </p>
+
+    <h3 class="lesson-heading">2. A Python bug: braces in an f-string</h3>
+
+    <p>
+      The prompt is an f-string so the datasets can be substituted in. Inside an f-string,
+      <code>&#123; ... &#125;</code> means "evaluate this as Python", so the JSON template's braces
+      crash the cell before the model is ever called:
+    </p>
+
+    <CodeBlock lang="python" label="fstring-braces.py" code={fstringBug} />
+
+    <h3 class="lesson-heading">3. Correct format, wrong reasoning</h3>
+
+    <p>
+      Once the JSON parsed, the <code>causes</code> still contained errors. Two of three runs blamed
+      the "Weekend Special" promotion, which only applied to Product 2. One run described the
+      weather as "stable" on a day with heavy rain and a flood warning. The model found the right
+      spike and reported it in the right format, but the explanation was partly made up.
+    </p>
+
+    <LessonCallout variant="key" title="Takeaways">
+      <p>
+        <strong>Format compliance and correctness are separate checks.</strong> Valid JSON tells
+        you nothing about whether the causes are true. Put format requirements last, after any
+        large data, so they're the freshest instruction. Validate the output in code, since the
+        model won't always comply. And when a "parsing error" appears, check whether the
+        expected block exists at all before debugging the parser.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Exercise Part II: Building the ReAct Loop <SourceBadge source="course" /></h2>
+
+    <p>
+      Same task, finding and explaining the sales spike, but now the data isn't pasted into
+      the prompt. The model asks for what it needs through tools, and your code runs them. This
+      matters when the full dataset is too big or complex for one prompt.
+    </p>
+
+    <p>A ReAct agent needs four parts:</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Part</th><th>What it does</th><th>In the notebook</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Tools described as text</td><td>The system prompt tells the model what it can call and how</td><td>Name, arguments, and an example <code>ACT</code>/<code>OBSERVE</code> per tool</td></tr>
+          <tr><td>Parser</td><td>Turns the model's <code>ACT:</code> text into a function call</td><td><code>get_observation_message()</code>, using regex</td></tr>
+          <tr><td>Executor</td><td>Runs the real function and wraps the result as <code>OBSERVE:</code></td><td>Same function; calls <code>calculator</code>, <code>call_weather_api</code>, …</td></tr>
+          <tr><td>Loop with break conditions</td><td>Repeats think → act → observe until done</td><td><code>while True</code>, exits on <code>final_answer</code> or after 10 steps</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="lesson-heading">1. Tools and response format in the system prompt</h3>
+
+    <CodeBlock lang="text" label="available-tools" code={reactTools} />
+
+    <p>
+      The model must reply with exactly one THINK/ACT pair per turn, and it's told "ALWAYS provide
+      a tool call after ACT:, else you will fail." The final answer is itself a tool call:
+      <code>final_answer(...)</code>. That gives the loop a clear stop signal and returns the result
+      in a structured, parseable form.
+    </p>
+
+    <CodeBlock lang="text" label="response-format" code={reactResponseFormat} />
+
+    <h3 class="lesson-heading">2. Parse the ACT line and run the tool</h3>
+
+    <CodeBlock lang="python" label="get_observation_message.py" code={reactParser} />
+
+    <p>
+      The calculator uses <code>safe_eval</code>, which parses the expression with
+      <code>ast</code> and allows only <code>+ - * /</code> and negation, never <code>eval()</code>. The
+      model writes the arguments, so treat them as untrusted input.
+    </p>
+
+    <h3 class="lesson-heading">3. The loop</h3>
+
+    <CodeBlock lang="python" label="react-loop.py" code={reactLoop} />
+
+    <p>Things that are easy to miss:</p>
+
+    <ul>
+      <li><strong>The message list is the agent's memory.</strong> The model keeps nothing between calls. Each turn appends its THINK/ACT as <code>assistant</code> and the tool result as <code>user</code>, and the whole list is sent again on every call.</li>
+      <li><strong>Both break conditions are needed.</strong> <code>final_answer</code> is the normal exit. The step limit protects against an agent that never finishes, which would otherwise keep calling the API and spending money.</li>
+      <li><strong>Errors become observations.</strong> An unparseable or unknown tool call returns <code>"Invalid tool call…"</code> instead of raising, so the model sees the mistake and can retry.</li>
+      <li><strong>The model only writes text.</strong> <code>ACT: call_weather_api(...)</code> is a request. Real data enters only because your code runs the function and inserts the result.</li>
+    </ul>
+
+    <p>
+      The run is checked with <code>assert "date: 2024-01-12"</code> and
+      <code>"percentage_spike: 200"</code> in the final observation: the same spike Part I found,
+      reached through tool calls and the calculator instead of mental math over pasted data.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Part I: CoT</th><th>Part II: ReAct</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Data</td><td>All of it pasted into the prompt</td><td>Fetched on demand through tools</td></tr>
+          <tr><td>Math</td><td>Done by the model, unreliable</td><td><code>calculator</code> tool, exact</td></tr>
+          <tr><td>LLM calls</td><td>One</td><td>One per step</td></tr>
+          <tr><td>Code needed</td><td>Parse the final output</td><td>Parser, executor, loop, stop conditions</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonCallout variant="warn" title="Regex parsing is fragile">
+      <p>
+        The regexes expect exactly <code>ACT:</code> followed by a newline, then the call. An extra
+        space, or the call on the same line, and the parse fails. Production agents usually use the
+        API's built-in tool calling: tools are passed as JSON Schema and the model returns
+        structured tool calls, not free text. It's the same loop without the hand-written parser.
+      </p>
+    </LessonCallout>
+
+    <LessonCallout variant="key" title="Remember">
+      <p>
+        ReAct = a loop of THINK → ACT → OBSERVE. The prompt defines the tools and the format; your
+        code parses <code>ACT</code>, runs the real tool, appends <code>OBSERVE</code> to the message
+        history, and stops on <code>final_answer</code> or a step limit.
+      </p>
+    </LessonCallout>
+
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
+
+    <LessonChecklist
+      title="Building a ReAct agent:"
+      items={[
+        '<strong>System prompt</strong> — role/goal, THINK/ACT format, tool definitions with examples, a complete example',
+        '<strong>One tool call per turn</strong> — and the final answer is itself a tool (<code>final_answer</code>)',
+        '<strong>Parser</strong> — extracts the tool and arguments from <code>ACT:</code>; unknown calls return an error observation',
+        '<strong>Executor</strong> — your code runs the real function; arguments are untrusted (no <code>eval()</code>)',
+        '<strong>History</strong> — append THINK/ACT as assistant and OBSERVE as user, resend every turn',
+        '<strong>Two exits</strong> — <code>final_answer</code> and a max-steps limit',
+        '<strong>For single-call CoT</strong> — put output-format requirements after large data, and validate the result in code',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'In a ReAct loop, who actually executes the tool named in ACT?',
+        options: ['Your code (the harness), which then appends the result as OBSERVE', 'The model, during generation', 'The API provider automatically', 'Nobody — the model predicts the result'],
+        answer:  0,
+        explain: 'ACT is just text. Real data enters only because your code runs the function and inserts the result.',
+      },
+      {
+        q:       'Why does the loop need a max-steps limit in addition to final_answer?',
+        options: ['An agent that never calls final_answer would otherwise loop forever and keep spending money', 'The API rejects long conversations', 'final_answer is optional', 'To make responses shorter'],
+        answer:  0,
+        explain: 'final_answer is the normal exit; the step limit is the safety net.',
+      },
+      {
+        q:       'In Part I, the CoT response had no JSON block. What was the most effective prompt fix?',
+        options: ['Restate the output format at the end of the prompt, after the data', 'Raise the temperature', 'Remove the data', 'Ask for the JSON first, before any analysis'],
+        answer:  0,
+        explain: 'The format spec was buried before thousands of tokens of data; repeating it last made all three test runs comply.',
+      },
+      {
+        q:       'What should get_observation_message return for an unrecognized tool call?',
+        options: ['An OBSERVE message saying the call is invalid, so the model can retry', 'Raise an exception and stop', 'An empty string', 'The previous observation again'],
+        answer:  0,
+        explain: 'Returning the error as an observation lets the model see and correct its mistake.',
+      },
+    ]} />
+
   </div>
 
   <DeepDive
@@ -195,12 +615,29 @@ and the AI continues...)
         hint:   'Think about what class of information the model can never have access to on its own.',
         answer: '<p>No — model capability only affects how well it reasons about <em>what</em> to do and how it writes the ACT call. It never grants access to live external state (a real database row, a real API response). The harness is not a workaround for a weak model; it is the only channel through which real-world facts can enter the loop at all.</p>',
       },
+      {
+        q:      'When is a single CoT call better than a ReAct loop, and vice versa?',
+        hint:   'Think about data size, exactness, cost, and latency.',
+        answer: '<p>Single CoT wins when all the data fits comfortably in the prompt and approximate reasoning is acceptable: one call, cheaper, faster, no orchestration code. ReAct wins when the data is too large to paste, must be fetched live, or when steps need exact results (math, lookups) that tools provide. The cost is several LLM calls, more latency, and parsing and loop code that can fail.</p>',
+      },
+      {
+        q:      'How would you test whether the agent actually needs the calculator?',
+        hint:   'Change one thing and compare.',
+        answer: '<p>Remove <code>calculator</code> from the tool list in the system prompt (and from the parser), re-run the loop several times, and compare how often the asserted <code>percentage_spike: 200</code> comes out right. Run it multiple times because results vary between runs.</p>',
+      },
     ]}
     pitfalls={[
       'Treating CoT output as evidence the model "checked" something — it only checked its own generated text, not the real world.',
       'Assuming a longer, more detailed ACT description makes the model more likely to get a correct real-world result — the harness still has to execute it faithfully; a well-written ACT call is necessary but not sufficient.',
       'Forgetting that OBSERVE must come from the harness executing the real tool, not from the model continuing its own completion — letting the model write its own OBSERVE defeats the entire point of ReAct.',
+      'Treating valid JSON as a correct answer — the Demand-Spike run produced a well-formed block whose causes cited a promotion for the wrong product.',
+      'Putting the output format before a large data dump — the model may never get back to it; restate it at the end.',
+      'A ReAct loop with only a final_answer exit — without a max-steps limit, an agent that never finishes keeps calling the API.',
+      'Raising an exception on a bad tool call — return it as an OBSERVE message instead, so the model can correct itself.',
+      'Running model-written arguments through eval() — the model controls that string; use a restricted evaluator like safe_eval.',
     ]}
   />
+
+  <LessonMindMap content={mindMap} />
 
 </LessonLayout>

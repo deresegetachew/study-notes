@@ -9,6 +9,7 @@
     "new": "node scripts/new-module.mjs",
     "dev": "node scripts/run-module.mjs",
     "build": "node scripts/run-module.mjs",
-    "preview": "node scripts/run-module.mjs"
+    "preview": "node scripts/run-module.mjs",
+    "sync-components": "node scripts/sync-components.mjs"
   }
 }

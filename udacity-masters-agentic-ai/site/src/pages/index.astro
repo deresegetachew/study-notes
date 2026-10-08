@@ -1,11 +1,28 @@
 ---
 import ThemeHead   from '@/components/ThemeHead.astro';
 import ThemeToggle from '@/components/ThemeToggle.astro';
-import { LESSONS } from '@/data/lessons';
+import SourceBadge from '@/components/SourceBadge.astro';
+import { COURSES, LESSONS, DEEP_DIVES, DEEP_DIVES_MODULE } from '@/data/lessons';
 
 // lessons.ts stores routes without the deploy subpath — prefix with the
 // configured base so links work under a subpath deploy (e.g. GitHub Pages).
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+// Badges per lesson, read from the pages themselves so the contents never drift
+// from what the lesson actually contains.
+type Source = 'course' | 'mine' | 'book';
+const ORDER: Source[] = ['course', 'mine', 'book'];
+const pages = import.meta.glob('./lessons/*.astro', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+function sourcesFor(href: string): Source[] {
+  const raw = pages[`.${href}.astro`] ?? '';
+  const found = new Set([...raw.matchAll(/<SourceBadge source="(course|mine|book)"/g)].map(m => m[1] as Source));
+  return ORDER.filter(s => found.has(s));
+}
+
+// Deep dives are a sibling module. Deployed, it sits next to this one under the
+// same repo base; in dev, it runs on its own server (npm run dev -- llms-from-scratch).
+const deepDivesBase = import.meta.env.PUBLIC_DEEP_DIVES_URL
+  ?? (import.meta.env.DEV ? 'http://localhost:4322' : `${base.replace(/\/[^/]*$/, '')}/${DEEP_DIVES_MODULE}`);
 ---
 <!doctype html>
 <html lang="en">
@@ -13,17 +30,48 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <ThemeHead />
-  <title>Udacity Master's — Agentic AI</title>
+  <title>Udacity Master's in AI</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" />
 </head>
 <body>
   <article class="lesson-article">
-    <h1>Udacity Master's — Agentic AI</h1>
-    {LESSONS.length === 0 && <p>No lessons yet.</p>}
-    <ul>
-      {LESSONS.map(l => <li><a href={base + l.href}>{l.num} — {l.title}</a></li>)}
-    </ul>
+    <h1>Udacity Master's in AI</h1>
+
+    {COURSES.map(c => {
+      const lessons = LESSONS.filter(l => l.course === c.id);
+      return (
+        <section class="toc-course">
+          <h2 class="lesson-heading">Course {c.id}: {c.title}</h2>
+          {lessons.length === 0
+            ? <p>No lessons yet.</p>
+            : <ul class="toc-list">
+                {lessons.map(l => (
+                  <li>
+                    <a href={base + l.href}>{l.num} — {l.title}</a>
+                    {sourcesFor(l.href).map(s => <SourceBadge source={s} />)}
+                  </li>
+                ))}
+              </ul>}
+        </section>
+      );
+    })}
+
+    <section class="toc-course">
+      <h2 class="lesson-heading">Deep dives</h2>
+      <p class="toc-note">
+        How LLMs work under the hood, following <em>Build a Large Language Model (From Scratch)</em>.
+        These live in the separate LLMs from Scratch notes{import.meta.env.DEV && <> (run <code>npm run dev -- llms-from-scratch</code> to open them locally)</>}.
+      </p>
+      <ul class="toc-list">
+        {DEEP_DIVES.map(d => (
+          <li>
+            <a href={deepDivesBase + d.href}>{d.num} — {d.title}</a>
+            <SourceBadge source="book" />
+          </li>
+        ))}
+      </ul>
+    </section>
   </article>
   <ThemeToggle />
 </body>

@@ -13,3 +13,6 @@ venv/
 env/
 __pycache__/
 *.pyc
+
+# Course exercise notebooks — contain an API key; never commit
+udacity-masters-agentic-ai/excercises/

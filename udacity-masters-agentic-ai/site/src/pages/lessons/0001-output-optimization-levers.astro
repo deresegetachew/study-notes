@@ -2,6 +2,33 @@
 import LessonLayout  from '@/layouts/LessonLayout.astro';
 import LessonHeader  from '@/components/LessonHeader.astro';
 import LessonCallout from '@/components/LessonCallout.astro';
+import SourceBadge   from '@/components/SourceBadge.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+
+const mindMap = `
+# Output Optimization Levers
+## Two levers
+### Prompt strategy
+### Model selection
+## Prompt building blocks
+### System prompt — global rules, tone
+### Role — steers reasoning depth
+### Constraints — limits, format, boundaries
+### Reasoning / Planning — e.g. CoT
+### User prompt — runtime task + context
+## Engineering Trilemma
+### Capability
+### Cost
+### Latency
+### Can’t max all three
+## Cheaper model strategy
+### Decompose the task yourself
+### CoT, Prompt Chaining
+### Upfront effort → runtime savings
+`.trim();
 ---
 
 <LessonLayout title="1.1 — Output Optimization Levers">
@@ -20,7 +47,7 @@ import LessonCallout from '@/components/LessonCallout.astro';
       capability, cost, and latency).
     </p>
 
-    <h2 class="lesson-heading">Building Blocks of a Well-Structured Prompt</h2>
+    <h2 class="lesson-heading">Building Blocks of a Well-Structured Prompt <SourceBadge source="course" /></h2>
 
     <div class="lesson-table">
       <table>
@@ -42,7 +69,7 @@ import LessonCallout from '@/components/LessonCallout.astro';
       by equipment and goals (<em>Constraints</em>).
     </p>
 
-    <h2 class="lesson-heading">The Engineering Trilemma</h2>
+    <h2 class="lesson-heading">The Engineering Trilemma <SourceBadge source="course" /></h2>
 
     <p>
       Capability, cost, and latency compete in model selection — you can't max out all
@@ -50,7 +77,7 @@ import LessonCallout from '@/components/LessonCallout.astro';
       are cheap and fast but need more explicit, rigid prompting to hit comparable accuracy.
     </p>
 
-    <h2 class="lesson-heading">Getting Away with a Cheaper Model</h2>
+    <h2 class="lesson-heading">Getting Away with a Cheaper Model <SourceBadge source="course" /></h2>
 
     <p>
       Instead of relying on a large model to infer all steps from a vague prompt, decompose
@@ -66,6 +93,68 @@ import LessonCallout from '@/components/LessonCallout.astro';
       </p>
     </LessonCallout>
 
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
+
+    <LessonChecklist
+      title="Before settling on a model and prompt:"
+      items={[
+        '<strong>Name the trilemma trade-off</strong> — which of capability, cost, latency matters least for this task?',
+        '<strong>Cover the building blocks</strong> — system prompt, role, constraints, reasoning/planning, user prompt',
+        '<strong>Try the cheaper model with decomposition</strong> — break the task into explicit steps (CoT, prompt chaining)',
+        '<strong>Compare on the same inputs</strong> — small model + structured prompt vs. large model + vague prompt',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'What are the two main levers for optimizing an AI system’s output?',
+        options: ['Prompt strategy and model selection', 'Temperature and max tokens', 'Fine-tuning and RAG', 'GPU count and batch size'],
+        answer:  0,
+        explain: 'How you structure instructions, and which model you pick (balancing capability, cost, latency).',
+      },
+      {
+        q:       'In the Engineering Trilemma, what do smaller models typically need to match larger ones?',
+        options: ['More explicit, rigid prompting', 'A higher temperature', 'Longer context windows', 'Nothing — they are equivalent'],
+        answer:  0,
+        explain: 'Small models are cheap and fast but need the steps spelled out to reach comparable accuracy.',
+      },
+      {
+        q:       'What are you trading when you decompose a task so a cheaper model can handle it?',
+        options: ['Your upfront engineering effort for runtime speed and cost savings', 'Accuracy for speed', 'Security for convenience', 'Context length for output length'],
+        answer:  0,
+        explain: 'You do the design work once; production runs cheaper and faster with the same or better outcome.',
+      },
+    ]} />
+
   </div>
+
+  <DeepDive
+    sources="udacity-1.1"
+    tensions={[
+      { a: 'Model capability', b: 'Cost and latency' },
+      { a: 'Upfront engineering effort', b: 'Runtime savings' },
+    ]}
+    questions={[
+      {
+        q:      'When is it better to pay for a bigger model than to decompose the task for a small one?',
+        hint:   'Think about volume, how predictable the steps are, and engineering time.',
+        answer: '<p>When the task can’t be broken into predictable steps (open-ended reasoning), when request volume is low so API savings never repay the engineering time, or when you need to ship fast. Decomposition pays off for high-volume, well-understood tasks.</p>',
+      },
+      {
+        q:      'Does decomposing a task always make it cheaper?',
+        hint:   'Count the calls and tokens.',
+        answer: '<p>Not always. Prompt chaining means several calls, each resending context, so total tokens and latency can rise. It’s cheaper when the small model’s lower price per token outweighs the extra calls.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Defaulting to the biggest model without checking whether a structured prompt on a smaller one is good enough.',
+      'Optimizing one corner of the trilemma (e.g. cost) without measuring what happened to accuracy.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
 
 </LessonLayout>

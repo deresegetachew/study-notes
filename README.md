@@ -7,6 +7,10 @@ module's site by name).
 
 ## Modules
 
+- **llms-from-scratch/** — How LLMs work under the hood (tokens, embeddings,
+  attention, layers, generation), following Sebastian Raschka's *Build a Large
+  Language Model (From Scratch)*. Astro site under `site/`.
+
 - **oreilly-ai-agents/** — O'Reilly AI Agents course. Astro site under `site/`
   (components/theme/AI-tutor sidebar via the `study-notes` skill), plus curriculum
   docs, learning records, and reference material.
@@ -46,6 +50,21 @@ Scaffolds `<module-slug>/` at the repo root using the `study-notes` skill's
 templates. For a `--site` module, run `npm install` again afterward (root-level —
 the new workspace member gets picked up automatically), then `npm run dev --
 <module-slug>`.
+
+## Shared components
+
+Each module's site keeps its **own copy** of the lesson components; the
+`study-notes` skill's `assets/components/` is the source of truth they were copied
+from. After adding or changing a component in the skill, push it into every module:
+
+```bash
+npm run sync-components                      # add missing components; report ones that differ
+npm run sync-components -- LessonToc.astro   # just these files
+npm run sync-components -- --force          # also overwrite differing files (check the report first)
+```
+
+Some differences are intentional (e.g. `SourceBadge` labels per module), so the
+script never overwrites without `--force`.
 
 ## Skill
 

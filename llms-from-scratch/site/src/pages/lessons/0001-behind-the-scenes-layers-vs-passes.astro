@@ -1,9 +1,13 @@
 ---
 import LessonLayout  from '@/layouts/LessonLayout.astro';
 import LessonHeader  from '@/components/LessonHeader.astro';
+import SourceBadge   from '@/components/SourceBadge.astro';
 import CodeBlock     from '@/components/CodeBlock.astro';
 import LessonCallout from '@/components/LessonCallout.astro';
 import DeepDive      from '@/components/DeepDive.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
 
 // Public assets (public/tools/...) aren't touched by Astro's base rewriting —
 // prefix by hand so the embed resolves under a subpath deploy too.
@@ -26,12 +30,32 @@ while (true) {
   // loop back — call the LLM again with a longer messages array
 }
 `.trim();
+
+const mindMap = `
+# Layers vs. Passes
+## Layer
+### Self-attention + feedforward
+### Fixed stack, fixed weights
+### Never changed by the prompt
+## Pass
+### One trip through every layer
+### One pass per output token
+### KV cache — only the new token computed
+## Stop condition
+### EOS is just another token
+### Bare answer → EOS likely
+### Mid-derivation → EOS unlikely
+## Two loops
+### Token decoding loop — provider
+### One API call — full response
+### Agent loop — your code
+`.trim();
 ---
 
-<LessonLayout title="2.2 — Behind the Scenes: Layers vs. Passes">
+<LessonLayout title="1 — Behind the Scenes: Layers vs. Passes">
 
   <LessonHeader
-    num="2.2"
+    num="1"
     title="Behind the Scenes: Layers vs. Passes"
     subtitle="What a layer is, what a pass is, and who actually runs the concatenate-and-rerun loop."
   />
@@ -39,13 +63,13 @@ while (true) {
   <div class="lesson-content">
 
     <p>
-      Lesson 2.1 covered <em>why</em> chain-of-thought prompting improves accuracy. This
+      The Udacity CoT &amp; ReAct lesson covered <em>why</em> chain-of-thought prompting improves accuracy. This
       one goes one level deeper — the actual mechanics of what changes between a direct
       answer and a step-by-step one, and which parts of that are the model versus
       surrounding code.
     </p>
 
-    <h2 class="lesson-heading">A Layer, and a Pass</h2>
+    <h2 class="lesson-heading">A Layer, and a Pass <SourceBadge source="book" /></h2>
 
     <p>
       A transformer isn't one big transformation — it's a fixed stack of <strong>layers</strong>
@@ -62,7 +86,7 @@ while (true) {
       attention from scratch over the whole sequence, though: real implementations keep a
       <strong>KV cache</strong> — the key/value vectors for every past token, computed once and
       reused — so a new pass only has to compute attention for the <em>one new token</em>
-      against that growing cache, not reprocess everything. Lessons 2.3 and 2.4 cover what a key
+      against that growing cache, not reprocess everything. Lessons 2 and 3 cover what a key
       and value actually are and why this matters.
     </p>
 
@@ -74,7 +98,7 @@ while (true) {
       </p>
     </LessonCallout>
 
-    <h2 class="lesson-heading">Why More Passes Happen: the Stop Condition</h2>
+    <h2 class="lesson-heading">Why More Passes Happen: the Stop Condition <SourceBadge source="book" /></h2>
 
     <p>
       Generation stops when the decoding loop predicts a specific vocabulary entry — the
@@ -93,7 +117,7 @@ while (true) {
       all the way until the reasoning-plus-answer shape is actually complete.
     </p>
 
-    <h2 class="lesson-heading">Who Runs the Concatenate-and-Rerun Loop: Agent vs. Harness</h2>
+    <h2 class="lesson-heading">Who Runs the Concatenate-and-Rerun Loop: Agent vs. Harness <SourceBadge source="book" /></h2>
 
     <p>
       There are two different loops here that happen to look similar, and it's easy to
@@ -119,7 +143,7 @@ while (true) {
       <code>messages.create()</code> call, before your code gets control back. You never
       write it, see it, or intervene mid-way; you only shape it indirectly via parameters
       like <code>max_tokens</code> or <code>stop_sequences</code>. Your own agent code — the
-      loop from lesson 1.1 — operates one level up, on whole finished responses:
+      agent loop from the Udacity course — operates one level up, on whole finished responses:
     </p>
 
     <CodeBlock lang="typescript" label="agent-loop.ts" code={agentLoop} />
@@ -134,7 +158,7 @@ while (true) {
       </p>
     </LessonCallout>
 
-    <h2 class="lesson-heading">Try It: Same Layers, More Passes</h2>
+    <h2 class="lesson-heading">Try It: Same Layers, More Passes <SourceBadge source="book" /></h2>
 
     <p>
       An interactive walkthrough of the exact <code>17 × 24</code> example above — step or
@@ -153,6 +177,43 @@ while (true) {
     <p class="l0005-embed-link">
       <a href={base + '/tools/layers-vs-passes.html'} target="_blank" rel="noopener">Open the tool in its own tab →</a>
     </p>
+
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="book" /></h2>
+
+    <LessonChecklist
+      title="You can explain:"
+      items={[
+        'The difference between a <strong>layer</strong> (fixed part of the model) and a <strong>pass</strong> (one run through all layers, per token)',
+        'Why chain-of-thought adds <strong>passes</strong>, not deeper passes',
+        'How generation stops: the model predicts the <strong>EOS</strong> token, and the decoding loop checks for it',
+        'What the <strong>KV cache</strong> saves on each new pass',
+        'Which loop is the provider’s (token decoding) and which is yours (agent loop)',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="book" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'What does chain-of-thought change about how the model runs?',
+        options: ['The number of passes — each pass is the same depth as before', 'The number of layers used per pass', 'The model’s weights during the response', 'Which layers are skipped'],
+        answer:  0,
+        explain: 'Every pass goes through the same N layers with the same weights; CoT only adds more passes.',
+      },
+      {
+        q:       'Why does a step-by-step answer keep generating instead of stopping early?',
+        options: ['Mid-derivation, the EOS token looks unlikely, so the model keeps predicting ordinary tokens', 'The API forces a minimum length', 'A special reasoning token blocks EOS', 'The prompt sets max_tokens higher'],
+        answer:  0,
+        explain: 'EOS is predicted like any other token; a half-finished derivation followed by EOS is rare in training data.',
+      },
+      {
+        q:       'Who runs the token-by-token append-and-rerun loop?',
+        options: ['The model provider’s serving infrastructure, inside one API call', 'Your agent code', 'The tokenizer', 'The user’s browser'],
+        answer:  0,
+        explain: 'Your code only sees finished responses; you shape the inner loop indirectly via max_tokens or stop_sequences.',
+      },
+    ]} />
 
   </div>
 
@@ -180,6 +241,8 @@ while (true) {
       'Treating EOS timing as a deliberate decision the model makes about being "done" — it is the same undifferentiated next-token prediction as every other token, just one whose meaning happens to be "stop."',
     ]}
   />
+
+  <LessonMindMap content={mindMap} />
 
 </LessonLayout>
 
