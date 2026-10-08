@@ -24,6 +24,7 @@ export const LESSONS: LessonEntry[] = [
   { href: '/lessons/0005-prompt-instruction-refinement',        num: '3.1', title: 'Prompt Instruction Refinement',      course: 1 },
   { href: '/lessons/0006-ai-agents-building-blocks',            num: '4.1', title: 'AI Agents: The Building Blocks',     course: 1 },
   { href: '/lessons/0007-prompt-chaining',                      num: '4.2', title: 'Prompt Chaining',                    course: 1 },
+  { href: '/lessons/0008-pydantic-structured-data',             num: '4.3', title: 'Pydantic: Structured Data for Agents', course: 1 },
 ];
 
 // Deep dives live in the separate llms-from-scratch module; listed on the

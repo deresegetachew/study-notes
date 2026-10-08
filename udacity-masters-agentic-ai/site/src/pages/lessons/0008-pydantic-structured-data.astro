@@ -1,0 +1,535 @@
+---
+import LessonLayout      from '@/layouts/LessonLayout.astro';
+import LessonHeader      from '@/components/LessonHeader.astro';
+import LessonCallout     from '@/components/LessonCallout.astro';
+import LessonDiagram     from '@/components/LessonDiagram.astro';
+import CodeBlock         from '@/components/CodeBlock.astro';
+import LessonChecklist   from '@/components/LessonChecklist.astro';
+import LessonQuiz        from '@/components/LessonQuiz.astro';
+import DeepDive          from '@/components/DeepDive.astro';
+import LessonMindMap     from '@/components/LessonMindMap.astro';
+import LessonCollapsible from '@/components/LessonCollapsible.astro';
+import LessonToc         from '@/components/LessonToc.astro';
+import SourceBadge       from '@/components/SourceBadge.astro';
+
+const inconsistent = `
+"The user is Alex and their order is #8675309."
+"Alex's order number is 8675309."
+"Order: 8675309, Name: Alex"
+`.trim();
+
+const userProfile = String.raw`
+from pydantic import BaseModel, Field
+from typing import Optional
+
+class UserProfile(BaseModel):
+    """A model to hold structured information about a user."""
+
+    # Required (the ... means "no default"), type int, with a description
+    user_id: int = Field(..., description="The unique identifier for the user.")
+
+    # Required string
+    username: str = Field(..., description="The user's public username.")
+
+    # Required boolean
+    is_active: bool = Field(..., description="Whether the user's account is currently active.")
+
+    # Optional: if missing, its value is None
+    email: Optional[str] = Field(None, description="The user's email address, if available.")
+`.trim();
+
+const parseDemo = String.raw`
+profile = UserProfile.model_validate_json(
+    '{"user_id": 42, "username": "alex", "is_active": true}'
+)
+profile.username    # 'alex'   ← dot notation, not profile["username"]
+profile.email       # None     ← optional field, not in the JSON
+`.trim();
+
+const errorDemo = String.raw`
+UserProfile.model_validate_json('{"user_id": "abc", "username": "alex"}')
+
+# pydantic_core.ValidationError: 2 validation errors for UserProfile
+# user_id
+#   Input should be a valid integer, unable to parse string as an integer
+#   [type=int_parsing, input_value='abc', input_type=str]
+# is_active
+#   Field required [type=missing, ...]
+`.trim();
+
+const schemaOut = String.raw`
+{
+  "title": "UserProfile",
+  "description": "A model to hold structured information about a user.",
+  "type": "object",
+  "properties": {
+    "user_id":   { "type": "integer", "description": "The unique identifier for the user." },
+    "username":  { "type": "string",  "description": "The user's public username." },
+    "is_active": { "type": "boolean", "description": "Whether the user's account is currently active." },
+    "email":     { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null,
+                   "description": "The user's email address, if available." }
+  },
+  "required": ["user_id", "username", "is_active"]
+}
+`.trim();
+
+const promptAndGate = String.raw`
+import json
+from pydantic import ValidationError
+
+# 1. In the prompt: the schema tells the LLM exactly what JSON to produce
+schema = json.dumps(UserProfile.model_json_schema(), indent=2)
+prompt = f"""Extract the user profile from the text below.
+Respond with only a JSON object matching this schema:
+{schema}
+
+Text:
+{text}"""
+
+raw = get_completion(prompt)
+
+# 2. In the gate check: the same model validates the answer
+try:
+    profile = UserProfile.model_validate_json(raw)
+    next_step(profile)                          # ✅ pass a typed object on
+except ValidationError as e:
+    retry_with_feedback(prompt, str(e))         # ❌ the error text is the feedback
+`.trim();
+
+const strictDemo = String.raw`
+from pydantic import BaseModel, ConfigDict
+
+class UserProfile(BaseModel):
+    model_config = ConfigDict(strict=True)   # no type conversion
+    user_id: int
+    is_active: bool
+
+# Default (lax) mode accepts "42" → 42 and "yes" → True.
+# Strict mode rejects both: "Input should be a valid integer", ...
+`.trim();
+
+const exerciseSolution = String.raw`
+from typing import List, Optional
+from pydantic import BaseModel, Field
+
+class OrderItem(BaseModel):
+    sku: str                          # required
+    quantity: int                     # required
+    item_name: Optional[str] = None   # optional
+
+class Order(BaseModel):
+    order_id: int                                         # required
+    customer_email: Optional[str] = None                  # optional
+    items: List[OrderItem] = Field(..., min_length=1)     # required, at least one item
+    total_amount: float                                   # required
+`.trim();
+
+const exerciseErrors = String.raw`
+Order.model_validate({"order_id": 1001,
+                      "items": [{"sku": "MUG-01", "quantity": "two"}],
+                      "total_amount": 24.5})
+# 1 validation error for Order
+# items.0.quantity
+#   Input should be a valid integer, unable to parse string as an integer
+
+Order.model_validate({"order_id": 1001, "items": [], "total_amount": 0})
+# 1 validation error for Order
+# items
+#   List should have at least 1 item after validation, not 0
+`.trim();
+
+const instructorDemo = String.raw`
+import instructor
+from pydantic import BaseModel
+
+class User(BaseModel):
+    name: str
+    age: int
+
+client = instructor.from_provider("openai/gpt-5.4-mini")
+user = client.create(
+    response_model=User,          # the Pydantic model: sent as the schema, used to validate
+    messages=[{"role": "user", "content": "John is 25 years old"}],
+)
+print(user)   # User(name='John', age=25)  ← already a validated object
+`.trim();
+
+const mindMap = `
+# Pydantic: Structured Data for Agents
+## Problem
+### LLM output is free text
+### Correct but inconsistent → breaks parsers
+## Pydantic model
+### Class inheriting BaseModel
+### Fields: name, type, required/optional
+### Field(..., description=...)
+## Two jobs
+### Validation → ValidationError (gate check)
+### Parsing → typed object, dot notation
+## Two uses in agents
+### Schema in the prompt (model_json_schema)
+### Same model in the gate (model_validate_json)
+## Watch out
+### Lax mode converts "42" → 42
+### strict=True to forbid
+### Shape ≠ correct content
+## Exercise
+### Order + nested OrderItem
+### Error paths like items.0.quantity
+## Beyond the course
+### Instructor = Pydantic + LLM call + retries
+### Provider-native structured outputs
+`.trim();
+---
+
+<LessonLayout title="4.3 — Pydantic: Structured Data for Agents">
+
+  <LessonHeader
+    num="4.3"
+    title="Pydantic: Structured Data for Agents"
+    subtitle="Turning an LLM's free-text answers into validated, typed data that the next step can rely on."
+  />
+
+  <div class="lesson-content">
+
+    <LessonToc />
+
+    <h2 class="lesson-heading">The Problem: Text Is Not Data <SourceBadge source="course" /></h2>
+
+    <p>
+      An LLM's natural output is a string. That's fine for conversation, but not for building
+      applications. Ask it to extract a user's name and order number from an email, and you might get
+      any of these:
+    </p>
+
+    <CodeBlock lang="text" label="three correct answers" code={inconsistent} />
+
+    <p>
+      All correct, all differently shaped. A downstream program expecting one format breaks on the
+      others. Agents need <strong>controlled, standardized output</strong>, and the common way to get it
+      is to ask for JSON and check it with <strong>Pydantic</strong>.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  subgraph A["Without a schema"]
+    direction TB
+    L1["🤖 LLM"]:::llm --> T1["Alex's order is 8675309"]:::warn
+    L1 --> T2["Order: 8675309, Name: Alex"]:::warn
+    T1 --> X["💥 downstream code<br/>can't rely on the shape"]:::warn
+    T2 --> X
+  end
+  subgraph B["With a Pydantic model"]
+    direction TB
+    L2["🤖 LLM + schema<br/>in the prompt"]:::llm --> J["JSON"]:::out --> P{"🚦 Pydantic<br/>validate"}:::gate
+    P -->|"valid"| O["✅ Order object<br/>.name, .order_id"]:::done
+    P -->|"invalid"| R["🔁 retry with<br/>the error"]:::retry
+  end
+
+  classDef llm   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef out   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef gate  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn  fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+  classDef retry fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+    `} />
+
+    <h2 class="lesson-heading">What a Pydantic Model Is <SourceBadge source="course" /></h2>
+
+    <p>
+      A <strong>blueprint (schema) for your data</strong>: a Python class that inherits from
+      <code>BaseModel</code> and lists each field you expect, its type (<code>str</code>,
+      <code>int</code>, <code>bool</code>, …), and whether it's required or optional.
+    </p>
+
+    <CodeBlock lang="python" label="user_profile.py" code={userProfile} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>You write</th><th>Meaning</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>user_id: int</code></td><td>The field's name and type</td></tr>
+          <tr><td><code>Field(..., description=…)</code></td><td><strong>Required</strong>: the <code>...</code> (Python's Ellipsis) means "no default value"</td></tr>
+          <tr><td><code>Optional[str] = Field(None, …)</code></td><td><strong>Optional</strong>: may be missing or null; defaults to <code>None</code></td></tr>
+          <tr><td><code>description="…"</code></td><td>Documentation that ends up in the schema, so the LLM reads it too</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">What Pydantic Does For You <SourceBadge source="course" /></h2>
+
+    <h3 class="lesson-heading">1. Validation</h3>
+
+    <p>
+      Incoming data (like the LLM's JSON) is checked against the model. Wrong types, missing required
+      fields, or malformed JSON raise a <strong>clear error</strong>, which is exactly what a gate check
+      needs.
+    </p>
+
+    <CodeBlock lang="python" label="validation-error" code={errorDemo} />
+
+    <p>
+      The error names <em>every</em> problem and its field, readable by you and by the LLM, which is why
+      it makes good retry feedback.
+    </p>
+
+    <h3 class="lesson-heading">2. Parsing</h3>
+
+    <p>Valid data becomes a clean Python object you access with dot notation:</p>
+
+    <CodeBlock lang="python" label="parsing" code={parseDemo} />
+
+    <LessonCallout variant="warn" title="Lax by default: Pydantic converts types">
+      <p>
+        By default Pydantic <em>coerces</em> where it reasonably can: <code>"42"</code> becomes
+        <code>42</code>, and <code>"yes"</code> becomes <code>True</code>. Usually helpful with LLM
+        output, but if a string where a number belongs should count as a failure, turn on strict mode:
+      </p>
+    </LessonCallout>
+
+    <CodeBlock lang="python" label="strict_mode.py" code={strictDemo} />
+
+    <h2 class="lesson-heading">Two Uses in an Agent Workflow <SourceBadge source="course" /></h2>
+
+    <p>One model, used twice: it <strong>describes</strong> what you want, then <strong>checks</strong> what you got.</p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  M["📐 UserProfile<br/>Pydantic model"]:::model
+  M -->|"model_json_schema()"| PR["📝 Prompt<br/>respond with JSON<br/>matching this schema"]:::step
+  PR --> L["🤖 LLM"]:::llm --> RAW(["raw JSON text"]):::out
+  RAW --> G{"🚦 model_validate_json()<br/>gate check"}:::gate
+  M -.->|"same model"| G
+  G -->|"✅ valid"| N["➡️ next step gets<br/>a typed object"]:::done
+  G -->|"❌ ValidationError"| F["🔁 retry, error text<br/>as feedback"]:::retry
+
+  classDef model fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef step  fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef out   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef gate  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef retry fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+    `} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Use</th><th>What it does</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>In the prompt</td><td>The schema (field names, types, descriptions) goes in as context, telling the LLM the exact JSON structure to produce</td></tr>
+          <tr><td>In the gate check</td><td>The same model parses and validates the response before it moves to the next step</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="python" label="prompt_and_gate.py" code={promptAndGate} />
+
+    <LessonCollapsible title="What does model_json_schema() produce?" label="Output">
+      <p>The model, converted to JSON Schema: this is what the LLM sees in the prompt (abridged):</p>
+      <CodeBlock lang="json" label="UserProfile.model_json_schema()" code={schemaOut} />
+      <p>
+        Your <code>description</code> strings and the <code>required</code> list come straight from the
+        class, so writing good descriptions is prompt engineering (3.1) and documentation at once.
+      </p>
+    </LessonCollapsible>
+
+    <LessonCallout variant="info" title="You've used this already">
+      <p>
+        The research gate in 4.2 (<code>Finding(**item)</code>) is this same pattern. Pydantic checks
+        the <strong>shape</strong>; whether the content is true (do the quotes exist in the source?)
+        still needs its own check.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Exercise: An Order Model <SourceBadge source="course" /></h2>
+
+    <p>
+      An agent processes e-commerce orders. To keep agents, databases, and application code consistent,
+      define two models:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Model</th><th>Field</th><th>Type</th><th>Required?</th></tr>
+        </thead>
+        <tbody>
+          <tr><td rowspan="4"><code>Order</code></td><td><code>order_id</code></td><td>int</td><td>Yes</td></tr>
+          <tr><td><code>customer_email</code></td><td>str</td><td>No</td></tr>
+          <tr><td><code>items</code></td><td>List of <code>OrderItem</code> (one or more)</td><td>Yes</td></tr>
+          <tr><td><code>total_amount</code></td><td>float</td><td>Yes</td></tr>
+          <tr><td rowspan="3"><code>OrderItem</code></td><td><code>sku</code></td><td>str</td><td>Yes</td></tr>
+          <tr><td><code>quantity</code></td><td>int</td><td>Yes</td></tr>
+          <tr><td><code>item_name</code></td><td>str</td><td>No</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonDiagram definition={`
+classDiagram
+  class Order {
+    int order_id
+    Optional~str~ customer_email
+    List~OrderItem~ items
+    float total_amount
+  }
+  class OrderItem {
+    str sku
+    int quantity
+    Optional~str~ item_name
+  }
+  Order "1" --> "1..*" OrderItem : items
+    `} />
+
+    <LessonCollapsible title="Show solution" label="Solution">
+      <CodeBlock lang="python" label="order_models.py" code={exerciseSolution} />
+      <ul>
+        <li><strong>Define <code>OrderItem</code> first</strong>, since <code>Order</code> refers to it.</li>
+        <li><strong>Nesting is just a type:</strong> <code>List[OrderItem]</code> makes Pydantic validate every item with the <code>OrderItem</code> model.</li>
+        <li><strong>"One or more":</strong> <code>min_length=1</code> enforces it. Without it, <code>items: List[OrderItem]</code> would accept an empty list.</li>
+        <li><strong>Optional fields need a default:</strong> <code>= None</code>. <code>Optional[str]</code> alone means "may be null" but is still required in Pydantic v2.</li>
+      </ul>
+      <p>Errors point to the exact spot, even inside nested lists:</p>
+      <CodeBlock lang="python" label="nested errors" code={exerciseErrors} />
+    </LessonCollapsible>
+
+    <h2 class="lesson-heading">Beyond the Course: Instructor and Structured Outputs <SourceBadge source="mine" /></h2>
+
+    <p>
+      <strong>Instructor</strong> isn't an alternative to Pydantic; it's built on it. Pydantic knows
+      nothing about LLMs: it defines and validates data. Instructor wraps the LLM call around a Pydantic
+      model and automates everything in the diagram above: sending the schema, parsing the reply, and
+      retrying with the validation errors.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart TB
+  subgraph Y["What you write with plain Pydantic (this lesson, 4.2)"]
+    direction LR
+    a1["schema → prompt"]:::you --> a2["call the LLM"]:::you --> a3["model_validate_json"]:::you --> a4["retry loop with<br/>error feedback"]:::you
+  end
+  subgraph I["What Instructor does for you"]
+    direction LR
+    b1["client.create(response_model=User,<br/>max_retries=3)"]:::lib --> b2["✅ validated User object"]:::done
+  end
+  Y -. "same steps, automated" .-> I
+
+  classDef you  fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef lib  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <CodeBlock lang="python" label="instructor_example.py (from the Instructor docs)" code={instructorDemo} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Pydantic + your own code</th><th>Instructor</th><th>Provider structured outputs</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>What it is</td><td>Data validation library</td><td>LLM client wrapper built on Pydantic</td><td>An API feature: the model is constrained to your JSON schema while generating</td></tr>
+          <tr><td>Retries with error feedback</td><td>You write the loop</td><td>Built in</td><td>Rarely needed for shape; still needed for content rules</td></tr>
+          <tr><td>Works across providers</td><td>Yes (you call the API)</td><td>Yes, one interface for OpenAI, Anthropic, Google, …</td><td>Per provider, each with its own API and schema limits</td></tr>
+          <tr><td>Custom content rules (validators)</td><td>Yes, and you handle failures</td><td>Yes, failures are fed back to the model automatically</td><td>No; you validate afterwards</td></tr>
+          <tr><td>Best for</td><td>Learning; full control; unusual flows</td><td>Production extraction with retries, especially across providers</td><td>Guaranteed shape from one provider</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <strong>When to use which:</strong> write it yourself while learning (you'll understand what the
+      libraries automate) or when you need a non-standard flow. Use Instructor once you're doing
+      structured extraction in production and don't want to maintain retry and parsing code. Either way,
+      Pydantic models remain the source of truth, and everything above still applies.
+    </p>
+
+    <LessonCallout variant="key" title="Shape is guaranteed; truth isn't">
+      <p>
+        No matter which tool produces the object, a valid <code>UserProfile</code> only means the JSON
+        had the right shape. Content checks (4.2), like quotes existing in the source or values being
+        plausible, are still your job, though a Pydantic <em>validator</em> can encode many of them so
+        they run on every parse.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
+
+    <LessonChecklist
+      title="Structured output with Pydantic:"
+      items={[
+        '<strong>Define a model per output</strong> — fields, types, required vs. optional',
+        '<strong>Write field descriptions</strong> — they go into the schema the LLM reads',
+        '<strong>Put the schema in the prompt</strong> — <code>model_json_schema()</code>',
+        '<strong>Validate every response</strong> — <code>model_validate_json()</code> as the gate check',
+        '<strong>Feed ValidationError text back on retry</strong> — it names each field that failed',
+        '<strong>Decide lax vs. strict</strong> — should <code>"42"</code> count as a number?',
+        '<strong>Give optional fields a default</strong> — <code>= None</code>, or they are still required',
+        '<strong>Add content checks</strong> — a valid shape is not a correct answer',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'What are the two main things Pydantic does with an LLM’s JSON response?',
+        options: ['Validates it against the model and parses it into a typed Python object', 'Generates it and sends it to the LLM', 'Translates it and summarizes it', 'Encrypts it and stores it'],
+        answer:  0,
+        explain: 'Validation raises clear errors (the gate check); parsing gives you an object with dot-notation access.',
+      },
+      {
+        q:       'In Field(..., description="..."), what does the ... mean?',
+        options: ['The field is required — there is no default value', 'The field is optional', 'The field accepts any type', 'The description continues on the next line'],
+        answer:  0,
+        explain: '... is Python’s Ellipsis; Pydantic reads it as “required”. Field(None, ...) makes it optional with default None.',
+      },
+      {
+        q:       'How is the same Pydantic model used twice in an agent workflow?',
+        options: ['Its schema goes in the prompt, and it validates the LLM’s response in the gate check', 'It trains the model and then evaluates it', 'It is used once per API call', 'It replaces the system prompt'],
+        answer:  0,
+        explain: 'Describe what you want (model_json_schema), then check what you got (model_validate_json).',
+      },
+      {
+        q:       'What is the relationship between Instructor and Pydantic?',
+        options: ['Instructor is built on Pydantic and automates the schema-prompt-validate-retry loop around LLM calls', 'They are competing validation libraries', 'Instructor replaces Pydantic models with prompts', 'Pydantic is a wrapper around Instructor'],
+        answer:  0,
+        explain: 'You still define Pydantic models; Instructor sends them as the schema, validates, and retries with the errors.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="udacity — Chaining Prompts with Python (Pydantic); Instructor docs (python.useinstructor.com)"
+    tensions={[
+      { a: 'Lax coercion that tolerates LLM quirks', b: 'Strict validation that catches them' },
+      { a: 'Writing the retry loop yourself', b: 'Depending on a library like Instructor' },
+      { a: 'Rich, deeply nested schemas', b: 'What a model can reliably fill in' },
+    ]}
+    questions={[
+      {
+        q:      'If the API offers structured outputs that guarantee the JSON matches your schema, do you still need Pydantic validation?',
+        hint:   'What can a JSON schema not express?',
+        answer: '<p>Yes, for two reasons. First, you still want a typed Python object, and Pydantic gives you that from the same model. Second, a JSON schema only checks shape and basic types; rules like “quantity must be positive”, “total equals the sum of the items” or “the email belongs to this customer” need validators or separate content checks. Guaranteed shape just means the format gate rarely fails.</p>',
+      },
+      {
+        q:      'How could a Pydantic validator turn a content check into part of the gate?',
+        hint:   'Think of the Order exercise.',
+        answer: '<p>Add a model-level validator to <code>Order</code> that checks <code>total_amount</code> against the items, or a field validator that rejects non-positive quantities. Failing it raises a <code>ValidationError</code> like any type error, so the same retry-with-feedback loop (or Instructor) sends the reason back to the LLM. Checks that need outside data (does this SKU exist?) can live there too, but keep them fast.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Writing Optional[str] without = None and being surprised the field is still required.',
+      'Relying on lax coercion and missing that the LLM returned "yes" where you expected true.',
+      'Treating a valid model as a correct answer — shape checks don’t catch made-up values.',
+      'Leaving descriptions empty — the LLM reads the schema, so vague fields get vague values.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
