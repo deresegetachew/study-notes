@@ -19,20 +19,14 @@ code/.venv/bin/python code/run_notebooks.py            # execute all, refresh ou
 
 ## LLM access
 
-**In Colab, no key may be needed:** if your plan includes Colab's built-in models
-(`google.colab.ai`), notebooks use them automatically (model `google/gemini-2.5-flash`).
-Otherwise, or to choose a provider, set one of these as an environment variable or in Colab's
-**Secrets** panel (with **Notebook access** on):
+- **In Colab:** nothing to set up. Notebooks use Colab's built-in models (`google.colab.ai`).
+- **If those aren't available** on your account, or **outside Colab**: set `GEMINI_API_KEY`
+  (or `OPENAI_API_KEY`) as an environment variable or a Colab secret with Notebook access on.
+  `LLM_MODEL` picks a specific model.
 
-| Setting | Meaning |
-|---|---|
-| `GEMINI_API_KEY` | Use Gemini via Google AI Studio (e.g. a Google AI plan's API credits) |
-| `OPENAI_API_KEY` | Use OpenAI, or Vocareum with `LLM_PROVIDER=vocareum` |
-| `LLM_PROVIDER` | Force `colab`, `gemini`, `openai`, `vocareum` or `mock` |
-| `LLM_MODEL` | Override the provider's default model |
+**Run the setup cell first.** `check_setup()` prints which LLM will answer, or exactly why none
+can (including Colab's own error message).
 
-With no key, notebooks still run: demo cells use scripted replies (`set_mock_replies`).
-
-**Run the setup cell first.** It calls `check_setup()`, which lists each setting and why it's
-missing, e.g. *"secret exists, but Notebook access is switched off for it"*. Cells that need a
-real model start with `check_setup(require_key=True)` and stop with instructions if no key is set.
+Cells that call a model are tagged `needs-llm`. `run_notebooks.py` skips them when no API key
+is set locally and keeps the outputs they already have, so a run in Colab saved back to GitHub
+(*File → Save a copy in GitHub*) is what the notes show.

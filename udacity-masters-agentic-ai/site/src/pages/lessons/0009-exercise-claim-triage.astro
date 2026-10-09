@@ -382,20 +382,32 @@ flowchart TB
 
     <NotebookView notebook={claimTriageNb} cells={['gates', 'route', 'chain']} path="code/course-1/4.4-claim-triage/claim_triage.ipynb" />
 
-    <h3 class="lesson-heading">Three scenarios, run for real</h3>
+    <h3 class="lesson-heading">The gates in action</h3>
 
     <p>
-      Scripted LLM replies make each scenario reproducible: a fenced answer on the happy path, a cost that
-      fails gate 2 and is fixed by the retry, and an extraction that keeps failing and lands in human review.
+      Gates are plain code, so they can be tested directly with the kinds of bad output an LLM
+      produces: chatty text instead of JSON, missing fields, a label outside the allowed list, a cost
+      that doesn't fit the severity. Each rejection is what triggers a retry with the error as feedback.
     </p>
 
-    <NotebookView notebook={claimTriageNb} cells={['demo']} path="code/course-1/4.4-claim-triage/claim_triage.ipynb" />
+    <NotebookView notebook={claimTriageNb} cells={['gate-demo']} path="code/course-1/4.4-claim-triage/claim_triage.ipynb" />
 
-    <LessonCallout variant="tip" title="Run it yourself">
+    <h3 class="lesson-heading">Run the whole chain</h3>
+
+    <p>
+      The last cell runs the chain on all five of the course's sample claims with a real model. Open
+      the notebook in Colab, run the setup cell, then run it. Compare the queues with the solution run
+      above: does the hail claim (C004) still come out as Moderate?
+    </p>
+
+    <NotebookView notebook={claimTriageNb} cells={['run']} path="code/course-1/4.4-claim-triage/claim_triage.ipynb" />
+
+    <LessonCallout variant="tip" title="Running it in Colab">
       <p>
-        <strong>Open in Colab</strong> runs the whole notebook (phone included). Without an API key the
-        scripted scenarios still work; add <code>GEMINI_API_KEY</code> or <code>OPENAI_API_KEY</code> in
-        Colab's Secrets panel to run the last cell on real claims with a real model.
+        <strong>Run the setup cell first.</strong> In Colab the notebook uses Colab's built-in models,
+        no API key needed. If they aren't available on your account, the setup cell says why; then add
+        <code>GEMINI_API_KEY</code> in Colab's Secrets panel (key icon) with Notebook access on. To show
+        your run's results here, use <em>File → Save a copy in GitHub</em> back to this repo.
       </p>
     </LessonCallout>
 
