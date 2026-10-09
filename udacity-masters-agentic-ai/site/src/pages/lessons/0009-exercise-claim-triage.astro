@@ -374,33 +374,23 @@ flowchart TB
     <h2 class="lesson-heading">An Improved Version <SourceBadge source="mine" /></h2>
 
     <p>
-      Applying the reflections: routing in code, retries with feedback, fence stripping,
-      <code>temperature=0</code>, and a <code>needs_review</code> fallback. The code lives in a
-      notebook in the repo; what you see below is that notebook, with the outputs from actually
-      running it.
+      Applying the reflections: routing in code, retries with feedback, fence stripping, and a
+      <code>needs_review</code> fallback so no claim is dropped. It's all one notebook, shown here whole
+      and in order:
     </p>
 
-    <NotebookView notebook={claimTriageNb} cells={['gates', 'route', 'chain']} path="code/course-1/4.4-claim-triage/claim_triage.ipynb" />
+    <ol>
+      <li><strong>Setup:</strong> Colab's built-in model.</li>
+      <li><strong>Data contracts:</strong> the Pydantic models.</li>
+      <li><strong>Prompts:</strong> from the course exercise.</li>
+      <li><strong>Gate checks:</strong> shape, plus the cost-range logic check.</li>
+      <li><strong>Routing in plain code:</strong> with its four rules checked.</li>
+      <li><strong>The chain:</strong> retries with feedback, then human review.</li>
+      <li><strong>The gates in action:</strong> real output from feeding them typical bad LLM answers.</li>
+      <li><strong>The full chain:</strong> run on the course's five sample claims.</li>
+    </ol>
 
-    <h3 class="lesson-heading">The gates in action</h3>
-
-    <p>
-      Gates are plain code, so they can be tested directly with the kinds of bad output an LLM
-      produces: chatty text instead of JSON, missing fields, a label outside the allowed list, a cost
-      that doesn't fit the severity. Each rejection is what triggers a retry with the error as feedback.
-    </p>
-
-    <NotebookView notebook={claimTriageNb} cells={['gate-demo']} path="code/course-1/4.4-claim-triage/claim_triage.ipynb" />
-
-    <h3 class="lesson-heading">Run the whole chain</h3>
-
-    <p>
-      The last cell runs the chain on all five of the course's sample claims with a real model. Open
-      the notebook in Colab, run the setup cell, then run it. Compare the queues with the solution run
-      above: does the hail claim (C004) still come out as Moderate?
-    </p>
-
-    <NotebookView notebook={claimTriageNb} cells={['run']} path="code/course-1/4.4-claim-triage/claim_triage.ipynb" />
+    <NotebookView notebook={claimTriageNb} path="code/course-1/4.4-claim-triage/claim_triage.ipynb" />
 
     <LessonCallout variant="tip" title="Running it in Colab">
       <p>

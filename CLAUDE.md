@@ -15,7 +15,7 @@ from the `my-skills` repo).
 - New or changed shared components go in the skill first (`.claude/skills/study-notes/assets/components/`),
   then `npm run sync-components` copies them into every module.
 - Long lessons get `<LessonToc />` at the top of `.lesson-content`; `FloatingToc` is already in `LessonLayout`.
-- Runnable examples live as notebooks in `<module>/code/` and are shown with `NotebookView`
+- Runnable examples live as notebooks in `<module>/code/` and are shown **whole, once per lesson** with `NotebookView`
   (+ Open in Colab), not as code strings in pages. After editing a notebook, re-run it:
   `code/.venv/bin/python code/run_notebooks.py`. Short non-runnable snippets stay `CodeBlock`.
 - Use the Node version in `.nvmrc` (`nvm use`); the notebook renderer needs Node ≥ 22.

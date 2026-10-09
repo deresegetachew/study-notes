@@ -11,6 +11,8 @@ import LessonMindMap     from '@/components/LessonMindMap.astro';
 import LessonCollapsible from '@/components/LessonCollapsible.astro';
 import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
+import NotebookView      from '@/components/NotebookView.astro';
+import feedbackLoopNb    from '../../../../code/course-1/5.1-feedback-loops/feedback_loop.ipynb?raw';
 
 const step1Prompt = `
 Write a Python function called sort_numbers that takes a list of integers and
@@ -37,79 +39,6 @@ FAIL
 FAIL input=[3, 1, 2] expected=[1, 2, 3] actual=None
 FAIL input=[] expected=[] actual=None
 FAIL input=[5, -1, 5, 0] expected=[-1, 0, 5, 5] actual=None
-`.trim();
-
-const loopCode = String.raw`
-import json, re, subprocess, sys, tempfile, textwrap
-
-TEST_CASES = [
-    {"input": [3, 1, 2],      "expected": [1, 2, 3]},
-    {"input": [],             "expected": []},
-    {"input": [5, -1, 5, 0],  "expected": [-1, 0, 5, 5]},
-]
-
-HARNESS = textwrap.dedent("""
-    import json, sys
-    ns = {}
-    exec(open(sys.argv[1]).read(), ns)
-    results = []
-    for case in json.loads(sys.argv[2]):
-        try:
-            actual = ns["sort_numbers"](list(case["input"]))
-            results.append({**case, "actual": actual, "passed": actual == case["expected"]})
-        except Exception as e:
-            results.append({**case, "actual": f"{type(e).__name__}: {e}", "passed": False})
-    print(json.dumps(results))
-""")
-
-def strip_fences(text: str) -> str:
-    return re.sub(r"^\s*\x60{3}(?:python)?\s*\n|\n?\x60{3}\s*$", "", text.strip())
-
-def run_tests(code: str) -> list[dict]:
-    """The external tool: run the generated code in a separate process, with a timeout."""
-    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
-        f.write(code)
-    try:
-        out = subprocess.run([sys.executable, "-c", HARNESS, f.name, json.dumps(TEST_CASES)],
-                             capture_output=True, text=True, timeout=5)
-    except subprocess.TimeoutExpired:
-        return [{**c, "actual": "timed out", "passed": False} for c in TEST_CASES]
-    if out.returncode != 0:                     # the code didn't even load (syntax error, crash)
-        error = out.stderr.strip().splitlines()[-1] if out.stderr.strip() else "unknown error"
-        return [{**c, "actual": error, "passed": False} for c in TEST_CASES]
-    return json.loads(out.stdout)
-
-def feedback_text(results: list[dict]) -> str:
-    """Detailed feedback: input, expected, and actual for every failure."""
-    lines = [f"{sum(r['passed'] for r in results)}/{len(results)} tests passed."]
-    for r in results:
-        if not r["passed"]:
-            lines.append(f"FAIL input={r['input']} expected={r['expected']} actual={r['actual']}")
-    return "\n".join(lines)
-
-TASK = ("Write a Python function called sort_numbers that takes a list of integers and "
-        "returns a new list with the numbers sorted in ascending order.")
-
-def refine_until_passing(max_iterations: int = 5) -> tuple[str, list[str]]:
-    code = strip_fences(get_completion(TASK))                       # step 1: first attempt
-    history = []
-    for i in range(1, max_iterations + 1):
-        results = run_tests(code)                                   # step 2: run the tests
-        passed = sum(r["passed"] for r in results)
-        history.append(f"Iteration {i}: {passed}/{len(results)} passed")   # monitoring
-        if passed == len(results):
-            return code, history                                    # ✅ all tests pass
-        code = strip_fences(get_completion(                          # step 3: feed results back
-            f"{TASK}\nRe-write the function using the provided feedback.\n\n"
-            f"FUNCTION:\n{code}\n\nFEEDBACK:\n{feedback_text(results)}"))
-    raise RuntimeError("Tests still failing after the iteration limit:\n" + "\n".join(history))
-`.trim();
-
-const runOutput = `
-Iteration 1: 0/3 passed
-Iteration 2: 1/3 passed
-Iteration 3: 2/3 passed
-Iteration 4: 3/3 passed
 `.trim();
 
 const traceExample = `
@@ -392,32 +321,18 @@ flowchart LR
       deserves the same care as any prompt (3.1).
     </p>
 
-    <h2 class="lesson-heading">A Runnable Version <SourceBadge source="mine" /></h2>
+    <h2 class="lesson-heading">The Notebook: Run It Yourself <SourceBadge source="mine" /></h2>
 
     <p>
-      The whole loop in plain Python, with a small test runner instead of pytest so it's
-      self-contained. Tested with a scripted LLM whose attempts contain realistic bugs:
+      The whole loop in one notebook, read top to bottom: the task and tests, a test runner instead
+      of pytest so it's self-contained, the feedback it produces, the loop, and a run with a real
+      model. Section 2's output is real: the test runner applied to versions of the function with bugs
+      models actually make (<code>.sort()</code> returning <code>None</code>, the wrong order,
+      <code>set()</code> dropping duplicates), plus a syntax error and an infinite loop. That's the
+      course's 0/3 → 1/3 → 2/3 → 3/3 progression, and the exact feedback text the model receives.
     </p>
 
-    <div class="lesson-table">
-      <table>
-        <thead>
-          <tr><th>Attempt</th><th>Code</th><th>Bug</th><th>Result</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>1</td><td><code>return nums.sort()</code></td><td><code>.sort()</code> returns None</td><td>0/3</td></tr>
-          <tr><td>2</td><td><code>return sorted(nums, reverse=True) if nums else []</code></td><td>Wrong order</td><td>1/3 (only the empty list)</td></tr>
-          <tr><td>3</td><td><code>return sorted(set(nums))</code></td><td><code>set()</code> drops the duplicate 5</td><td>2/3</td></tr>
-          <tr><td>4</td><td><code>return sorted(nums)</code></td><td>None</td><td>3/3 ✅</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <CodeBlock lang="text" label="monitoring output" code={runOutput} />
-
-    <p>Exactly the course's progression. The code:</p>
-
-    <CodeBlock lang="python" label="feedback_loop.py" code={loopCode} />
+    <NotebookView notebook={feedbackLoopNb} path="code/course-1/5.1-feedback-loops/feedback_loop.ipynb" />
 
     <LessonCollapsible title="How run_tests turns crashes into feedback">
       <ul>
