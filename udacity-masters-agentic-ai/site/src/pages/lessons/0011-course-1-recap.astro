@@ -1,0 +1,359 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import CodeBlock       from '@/components/CodeBlock.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+import LessonToc       from '@/components/LessonToc.astro';
+import SourceBadge     from '@/components/SourceBadge.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const L = (slug: string) => `${base}/lessons/${slug}`;
+
+const level0 = `
+Categorize this email: {email}
+`.trim();
+
+const level7 = `
+SYSTEM  Role · Task · Context (category definitions) · Output format (JSON schema from Pydantic)
+        → explicit steps (CoT) for the judgment part
+
+CHAIN   1. extract fields     → Gate: Pydantic shape + strict types
+        2. assess urgency     → Gate: rules cross-check (e.g. "outage" ⇒ not Low)
+        3. route              → plain code, no LLM
+        any gate fails        → retry with the error (feedback loop, capped) → human review
+
+TOOLS   look up the customer's account / order when the email references one (ReAct)
+
+LOG     prompt · response · gate results · model version, per step, per email
+`.trim();
+
+const mindMap = `
+# Course 1: Putting It All Together
+## 1 · One good call
+### Levers: prompt vs. model (trilemma)
+### Role · Task · Format · Examples · Context
+## 2 · Make it reason
+### CoT: tokens as working memory
+### ReAct: think → act → observe
+## 3 · Make it precise
+### Refine one component at a time
+### Structured output
+## 4 · Make it multi-step
+### Agent = LLM + tools + instructions + memory + orchestration
+### Prompt chaining, workflow vs. agent
+## 5 · Make it reliable
+### Pydantic contracts
+### Gate checks: format, content, logic
+### Code for rules, fail closed
+## 6 · Make it improve
+### Feedback loops
+### Monitoring + traces
+## Principles
+### The model only writes text
+### Context is everything
+### Validate every boundary
+### Every input ends somewhere
+`.trim();
+---
+
+<LessonLayout title="Course 1 Recap: Putting It All Together">
+
+  <LessonHeader
+    num="★"
+    title="Course 1 Recap: Putting It All Together"
+    subtitle="What the course was building toward, step by step: from one good prompt to a reliable, self-correcting agent."
+  />
+
+  <div class="lesson-content">
+
+    <LessonToc />
+
+    <h2 class="lesson-heading">The One-Sentence Version <SourceBadge source="mine" /></h2>
+
+    <LessonCallout variant="key" title="What Course 1 establishes">
+      <p>
+        An LLM on its own is a <strong>text predictor</strong>: fluent, but unpredictable, unable to act,
+        and unable to check itself. Each lesson adds one layer that fixes one of those gaps, until the
+        model is part of a <strong>system</strong> that is precise, multi-step, validated, and
+        self-correcting: an agent you can rely on.
+      </p>
+    </LessonCallout>
+
+    <LessonDiagram definition={`
+flowchart TB
+  S1["1 · One good call<br/>levers · role · prompt components"]:::a
+  S2["2 · Make it reason<br/>Chain-of-Thought · ReAct"]:::b
+  S3["3 · Make it precise<br/>instruction refinement · structured output"]:::c
+  S4["4 · Make it multi-step<br/>agent building blocks · prompt chaining"]:::d
+  S5["5 · Make it reliable<br/>Pydantic contracts · gate checks · code for rules"]:::e
+  S6["6 · Make it improve<br/>feedback loops · monitoring"]:::f
+  S1 -->|"…but it answers in one jump"| S2
+  S2 -->|"…but output varies and drifts"| S3
+  S3 -->|"…but one prompt can't do a whole job"| S4
+  S4 -->|"…but every step can fail silently"| S5
+  S5 -->|"…but failing isn't fixing"| S6
+  S6 --> P["🎯 Next: implement feedback loops → course project"]:::next
+
+  classDef a    fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef b    fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef c    fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef d    fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef e    fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+  classDef f    fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef next fill:#ccfbf1,color:#134e4a,stroke:#0d9488,stroke-width:2px
+    `} />
+
+    <p>
+      Read the arrows: each step exists because of a specific weakness the previous one left. That's the
+      logic of the whole course.
+    </p>
+
+    <h2 class="lesson-heading">Step by Step <SourceBadge source="course" /></h2>
+
+    <h3 class="lesson-heading">Step 1 · One good call</h3>
+
+    <p>
+      <strong>Problem:</strong> the same request gives vague, inconsistent answers, and a big model is
+      expensive. <strong>Established:</strong> output is controlled by two levers, the
+      <strong>prompt</strong> and the <strong>model</strong> (capability vs. cost vs. latency), and a good
+      prompt has five parts: Role, Task, Output Format, Examples, Context. A clear decomposition lets a
+      cheaper model do the job.
+    </p>
+
+    <p>
+      Lessons: <a href={L('0001-output-optimization-levers')}>1.1 Levers</a> ·
+      <a href={L('0002-persona-role')}>1.2 Persona / Role</a> ·
+      <a href={L('0003-prompt-components')}>1.3 Prompt Components</a>
+    </p>
+
+    <h3 class="lesson-heading">Step 2 · Make it reason</h3>
+
+    <p>
+      <strong>Problem:</strong> the model jumps straight to an answer, and can't use information it
+      doesn't have. <strong>Established:</strong> <strong>Chain-of-Thought</strong> makes it write its
+      reasoning first: more tokens means more computation, and the written steps act as working memory.
+      <strong>ReAct</strong> adds tools: THINK → ACT → OBSERVE, where the <em>model writes the action
+      as text</em> and <em>your code runs it</em> and returns real data.
+    </p>
+
+    <p>
+      Lessons: <a href={L('0004-chain-of-thought-and-react-prompting')}>2.1 CoT &amp; ReAct</a>
+      (Demand-Spike Detective) · deep dive: <em>Why "Think Step by Step" Works</em> (LLMs from Scratch)
+    </p>
+
+    <h3 class="lesson-heading">Step 3 · Make it precise</h3>
+
+    <p>
+      <strong>Problem:</strong> outputs are close, but not what you meant, and not machine-readable.
+      <strong>Established:</strong> refinement is an experiment: change one component at a time, compare
+      on the same inputs. Missing facts → Context; wrong tone → Role; wrong structure → Output Format.
+      "Correct but unparseable" isn't good enough: ask for structure (JSON).
+    </p>
+
+    <p>Lesson: <a href={L('0005-prompt-instruction-refinement')}>3.1 Prompt Instruction Refinement</a></p>
+
+    <h3 class="lesson-heading">Step 4 · Make it multi-step</h3>
+
+    <p>
+      <strong>Problem:</strong> real tasks have several stages, and one huge prompt misses details.
+      <strong>Established:</strong> an <strong>agent</strong> is LLM + tools + instructions + memory +
+      orchestration. <strong>Prompt chaining</strong> splits the task into steps, each output feeding the
+      next. A fixed chain (<em>workflow</em>) when you know the steps; an agent (ReAct) when the steps
+      depend on what's discovered.
+    </p>
+
+    <p>
+      Lessons: <a href={L('0006-ai-agents-building-blocks')}>4.1 Agent Building Blocks</a> ·
+      <a href={L('0007-prompt-chaining')}>4.2 Prompt Chaining</a>
+    </p>
+
+    <h3 class="lesson-heading">Step 5 · Make it reliable</h3>
+
+    <p>
+      <strong>Problem:</strong> every step can hallucinate or break format, and errors cascade (the
+      domino effect). <strong>Established:</strong> put a <strong>contract</strong> on every output (a
+      Pydantic model) and a <strong>gate check</strong> after every step: format, content, logic. Use the
+      LLM for judgment and plain code for rules. Never pass a failure downstream; every input must end
+      up somewhere, even if that's a human.
+    </p>
+
+    <p>
+      Lessons: <a href={L('0007-prompt-chaining')}>4.2 gate checks</a> ·
+      <a href={L('0008-pydantic-structured-data')}>4.3 Pydantic</a> ·
+      <a href={L('0009-exercise-claim-triage')}>4.4 Claim Triage</a>
+    </p>
+
+    <h3 class="lesson-heading">Step 6 · Make it improve</h3>
+
+    <p>
+      <strong>Problem:</strong> a gate can say <em>no</em>, but not make the output better.
+      <strong>Established:</strong> <strong>feedback loops</strong> put the evaluation (test results,
+      validation errors, self-critique, user input) back into the next prompt and iterate until it
+      passes or a limit is hit, with <strong>monitoring</strong> (metrics and a step-by-step trace) to
+      see whether the loop converges.
+    </p>
+
+    <p>Lesson: <a href={L('0010-llm-feedback-loops')}>5.1 LLM Feedback Loops</a></p>
+
+    <h2 class="lesson-heading">One Task Through Every Step <SourceBadge source="mine" /></h2>
+
+    <p>
+      The clearest way to see the progression: take one task, <strong>categorizing customer support
+      emails</strong> (3.1, 4.2), and add one layer per step.
+    </p>
+
+    <CodeBlock lang="text" label="level 0: where we started" code={level0} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Step</th><th>What we add</th><th>What it fixes</th><th>Still missing</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>0</td><td>"Categorize this email"</td><td>—</td><td>Everything: vague, unparseable, unchecked</td></tr>
+          <tr><td>1</td><td>Role, task, category definitions (Context), JSON format</td><td>Consistent categories, parseable output</td><td>Hard cases decided in one jump</td></tr>
+          <tr><td>2</td><td>Reason in steps; a tool to look up the order (ReAct)</td><td>Judgment on tricky emails; real account data</td><td>Wording still drifts on edge cases</td></tr>
+          <tr><td>3</td><td>Refine one component at a time against test emails</td><td>Precise, measured behavior</td><td>One prompt doing extract + judge + route</td></tr>
+          <tr><td>4</td><td>A chain: extract → assess urgency → route</td><td>Each step simple, testable, tunable</td><td>A bad step silently poisons the rest</td></tr>
+          <tr><td>5</td><td>Pydantic model + gate after each step; routing in code; human-review queue</td><td>Failures caught, nothing dropped</td><td>Failures are stopped, not fixed</td></tr>
+          <tr><td>6</td><td>Retry with gate errors as feedback; log every step</td><td>Most failures fix themselves; you can see why the rest didn't</td><td>→ the course project</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="text" label="level 6: the same task, all layers" code={level7} />
+
+    <h2 class="lesson-heading">The Full Picture <SourceBadge source="mine" /></h2>
+
+    <p>Every concept from the course, in one agent:</p>
+
+    <LessonDiagram definition={`
+flowchart TB
+  IN["📥 Input<br/>email · claim · request"]:::io --> PR["📝 Prompt (1.3, 3.1)<br/>role · task · context<br/>format · examples"]:::prompt
+  PR --> LLM["🤖 LLM<br/>model choice (1.1)<br/>CoT reasoning (2.1)"]:::llm
+  LLM <-->|"ACT / OBSERVE (2.1)"| T["🛠️ Tools<br/>run by your code (4.1)"]:::tool
+  LLM --> G{{"🚦 Gate (4.2)<br/>Pydantic contract (4.3)"}}:::gate
+  G -->|"✅ typed object"| NX["➡️ Next step (4.2)<br/>or rules in code (4.4)"]:::step --> RES["📤 Result"]:::io
+  G -->|"❌ errors"| FB["🔁 Feedback into<br/>the prompt (5.1)"]:::fb --> PR
+  FB -.->|"limit reached"| HU["🧑 Human review<br/>(4.4)"]:::warn
+  G -.-> LOG[("📒 Trace (5.1)<br/>prompts · outputs<br/>gate results")]:::log
+
+  classDef io     fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef prompt fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef llm    fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef tool   fill:#ccfbf1,color:#134e4a,stroke:#0d9488,stroke-width:2px
+  classDef out    fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef gate   fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef step   fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef fb     fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+  classDef warn   fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+  classDef log    fill:#f8fafc,color:#0f172a,stroke:#94a3b8,stroke-width:1px
+    `} />
+
+    <h2 class="lesson-heading">Principles That Run Through Everything <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Principle</th><th>Where it showed up</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>The model only writes text.</strong> Your code acts, executes, and decides what's real.</td><td>ReAct's ACT (2.1), tools (4.1), running tests (5.1)</td></tr>
+          <tr><td><strong>The model only knows its context.</strong> Missing facts are a prompt problem, not a model problem.</td><td>Pirate ship's age (3.1), "research" without a tool (4.2)</td></tr>
+          <tr><td><strong>Decompose.</strong> Small, single-purpose steps beat one big prompt, and let cheaper models work.</td><td>Cheaper model (1.1), chaining (4.2), triage stages (4.4)</td></tr>
+          <tr><td><strong>LLM for judgment, code for rules.</strong></td><td>Routing in code (4.4), allowed-imports check (4.2)</td></tr>
+          <tr><td><strong>Validate every boundary.</strong> Shape is not truth: check format, content, and logic.</td><td>Demand-Spike JSON with wrong causes (2.1), hail claim (4.4)</td></tr>
+          <tr><td><strong>Every input ends somewhere.</strong> Cap retries, then a human; never drop or pass None.</td><td>Max steps (2.1), needs_review (4.4), iteration limits (5.1)</td></tr>
+          <tr><td><strong>Measure, don't guess.</strong> Same inputs, several runs, logged traces.</td><td>Refinement (3.1), monitoring (5.1)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">What's Next <SourceBadge source="course" /></h2>
+
+    <ul>
+      <li><strong>Implementing LLM feedback loops:</strong> the hands-on exercise (a code generation and debugging assistant) that builds the 5.1 loop for real.</li>
+      <li><strong>The course project:</strong> where every step above comes together. Expect to combine prompt components, reasoning, tools, chaining, Pydantic gates, and feedback loops in one system; check the project rubric for exactly what's required.</li>
+    </ul>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
+
+    <LessonChecklist
+      title="Before the project, can you…"
+      items={[
+        'Write a prompt with all five components, and say which one to change when the output is wrong?',
+        'Explain why chain-of-thought helps, and when it doesn’t?',
+        'Build a ReAct loop: tool descriptions, parser, executor, history, two exits?',
+        'Name the five agent components and point to each in your own code?',
+        'Split a task into a chain, and decide workflow vs. agent?',
+        'Write a Pydantic model and use it both in the prompt and as a gate?',
+        'Design gates for format, content, and logic, and a fallback when they fail?',
+        'Build a feedback loop with specific feedback, an iteration limit, and a trace?',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Your chain’s outputs are well-formed JSON but sometimes factually wrong. Which layer addresses this?',
+        options: ['Content and logic gate checks, plus feedback loops to fix failures', 'A better Role in the prompt', 'A larger output token limit', 'Removing the Pydantic model'],
+        answer:  0,
+        explain: 'Shape is not truth. Format gates pass; content/logic checks catch wrong values, and feedback loops let the model correct them.',
+      },
+      {
+        q:       'Which statement captures the difference between a prompt-chain workflow and a ReAct agent?',
+        options: ['In a workflow your code fixes the steps; in ReAct the model chooses the next action each turn', 'Workflows cannot use tools', 'ReAct never needs code', 'Workflows always use bigger models'],
+        answer:  0,
+        explain: 'Use a fixed workflow when the steps are known; an agent when they depend on what is discovered.',
+      },
+      {
+        q:       'What is the role of a step-by-step trace?',
+        options: ['To see each prompt, response, and feedback, so you can tell whether a loop converges and why it fails', 'To reduce token cost', 'To replace gate checks', 'To train the model'],
+        answer:  0,
+        explain: 'Monitoring makes the system’s behavior visible: the only way to debug and optimize loops.',
+      },
+      {
+        q:       'A task needs fixed business rules applied after an LLM extracts the data. Best design?',
+        options: ['LLM extracts into a Pydantic model; plain code applies the rules', 'Ask the LLM to apply the rules too, for consistency', 'Put the rules in the Role', 'Use a higher temperature for creativity'],
+        answer:  0,
+        explain: 'LLM for judgment on unstructured input, code for rules — cheaper, faster, always right.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="Course 1 lessons 1.1–5.1; own synthesis"
+    tensions={[
+      { a: 'Autonomy (agents choose steps)', b: 'Predictability (workflows fix steps)' },
+      { a: 'More layers of checking', b: 'Cost, latency, and complexity' },
+      { a: 'Bigger model', b: 'Better decomposition of the task' },
+    ]}
+    questions={[
+      {
+        q:      'If you could only add one layer to a naive LLM integration, which would you choose, and why?',
+        hint:   'Which failure is most expensive in practice?',
+        answer: '<p>Usually structured output with a validating gate (a Pydantic model checked in code). It turns silent, unparseable, or malformed answers into explicit failures your code can handle, and it’s the foundation every later layer (chaining, routing in code, feedback loops) depends on. Without it, nothing downstream can trust the model’s output.</p>',
+      },
+      {
+        q:      'Where does this course’s approach run out, i.e. what does it not solve?',
+        hint:   'Think about what all the gates have in common.',
+        answer: '<p>Every check here is only as good as what it can see. Gates verify shape and the rules you thought to write; feedback loops optimize toward the tests you provided; self-critique shares the model’s blind spots. None of it guarantees the output is <em>true</em> or that the tests are complete. That gap is closed by evaluation sets with real labeled cases, human review of samples, and monitoring production, not by more prompting.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Skipping straight to an agent framework before you can build the loop, the chain, and the gate by hand.',
+      'Treating each technique as standalone — they are layers, and each assumes the ones below it.',
+      'Adding autonomy where a fixed workflow would do.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
