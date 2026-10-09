@@ -112,16 +112,37 @@ Iteration 3: 2/3 passed
 Iteration 4: 3/3 passed
 `.trim();
 
+const traceExample = `
+{
+  "run_id": "sort-numbers-0142",
+  "iteration": 2,
+  "prompt": "Write a Python function called sort_numbers ... Re-write the function using the provided feedback.\n\nFUNCTION:\ndef sort_numbers(nums):\n    return nums.sort()\n\nFEEDBACK:\n0/3 tests passed. ...",
+  "response": "def sort_numbers(nums):\n    return sorted(nums, reverse=True) if nums else []",
+  "feedback": "1/3 tests passed.\nFAIL input=[3, 1, 2] expected=[1, 2, 3] actual=[3, 2, 1]\n...",
+  "metrics": { "tests_passed": 1, "tests_total": 3 },
+  "model": "gpt-4.1-nano",
+  "timestamp": "2026-10-09T16:30:12Z"
+}
+`.trim();
+
 const mindMap = `
 # LLM Feedback Loops
 ## The loop
 ### Output → feedback → next prompt
 ### Repeat until good or limit reached
+## Coffee-chat email
+### Draft → reviewer → "too informal" → redraft
+## Anatomy
+### Prompt chaining pointing back at itself
 ## Feedback sources
-### Self-critique
+### Self-correction (LLM reviews itself)
 ### External tools (tests, linters, APIs)
-### Validation checks
-### User input
+### Validation checks ("missing field")
+### User input (blocking tool call)
+## Monitoring
+### Evaluate · debug · optimize
+### Quality, error rate, goal adherence
+### Step-by-step trace (most important)
 ## Iterative coding example
 ### Generate sort_numbers
 ### Run tests (external tool)
@@ -153,9 +174,34 @@ const mindMap = `
     <h2 class="lesson-heading">What a Feedback Loop Is <SourceBadge source="course" /></h2>
 
     <p>
-      A <strong>feedback loop</strong> lets an LLM-powered system refine its output over several rounds:
-      produce something, get feedback on it, put that feedback into the next prompt, and repeat until
-      the result is good enough or an iteration limit is reached.
+      You write an email asking someone for a coffee chat. The first draft is blunt; you reread it,
+      decide it needs to be politer, and revise it. That's a <strong>manual feedback loop</strong>.
+      Automated, it looks like this:
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  A["🤖 Drafting LLM<br/>writes the email"]:::llm --> E["📧 Draft"]:::out --> R["🔍 Reviewer<br/>same LLM · another LLM · rules"]:::gate
+  R -->|"Too informal."| A
+  R -->|"Looks good"| D["✅ Send"]:::done
+
+  classDef llm  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef out  fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef gate fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <p>
+      The system <strong>observes its own output</strong> and uses that observation to improve it. This is
+      fundamental to adaptive AI, especially for multi-step tasks or ones that need high precision.
+    </p>
+
+    <h3 class="lesson-heading">Anatomy of a feedback loop</h3>
+
+    <p>
+      The core mechanism is <strong>prompt chaining</strong> (4.2): one step's output becomes the next
+      step's input. In a feedback loop, the <em>evaluation</em> of an output is added to a new prompt for
+      the next iteration, steering the model toward a better result, and the chain points back at itself.
     </p>
 
     <LessonDiagram definition={`
@@ -174,21 +220,94 @@ flowchart LR
   classDef warn  fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
     `} />
 
-    <p>Feedback can come from:</p>
+    <h3 class="lesson-heading">Four sources of feedback</h3>
 
     <div class="lesson-table">
       <table>
         <thead>
-          <tr><th>Source</th><th>Example</th></tr>
+          <tr><th>Source</th><th>How it works</th><th>Example feedback</th></tr>
         </thead>
         <tbody>
-          <tr><td>Self-critique</td><td>The LLM reviews its own draft against the requirements</td></tr>
-          <tr><td>External tools</td><td>Running tests, a linter, a compiler, an API call</td></tr>
-          <tr><td>Validation checks</td><td>Gate checks: Pydantic, ranges, rules (4.2–4.4)</td></tr>
-          <tr><td>User input</td><td>A person says what to change</td></tr>
+          <tr><td>🪞 Self-correction</td><td>Prompt the LLM to evaluate its own previous response against your criteria; its suggestions become the feedback</td><td>"The opening is too abrupt; add a greeting."</td></tr>
+          <tr><td>🛠️ External tools</td><td>Run what it produced and report what happened, e.g. execute generated code</td><td>Error messages, test results</td></tr>
+          <tr><td>🚦 Validation checks</td><td>Programmatic checks, e.g. parse extracted JSON and check fields (4.2–4.3)</td><td>"Missing 'email_address' field"</td></tr>
+          <tr><td>🙋 User input</td><td>A person reviews it; a <strong>blocking tool call</strong> can pause the agent until they answer</td><td>"This itinerary doesn't include any outdoor activities."</td></tr>
         </tbody>
       </table>
     </div>
+
+    <LessonCallout variant="tip" title="Choosing a source">
+      <p>
+        Prefer the most objective source available: tests and validation checks give the same verdict
+        every time, while self-correction is an LLM judging an LLM and can miss the same things twice.
+        Use self-correction for qualities code can't measure (tone, clarity), and user input when only a
+        person can say what "right" is.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Monitoring Improvements Across Iterations <SourceBadge source="course" /></h2>
+
+    <p>Building the loop is step one; knowing whether it <em>works</em> is step two. Monitoring lets you:</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Goal</th><th>Question it answers</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Evaluate effectiveness</td><td>Are outputs improving? Converging on the desired result?</td></tr>
+          <tr><td>Debug issues</td><td>Stuck in a loop, or getting worse? Inspect each prompt, intermediate output, and feedback to find out why</td></tr>
+          <tr><td>Optimize the process</td><td>Do outputs stop improving after N iterations? Is the loop longer than it needs to be?</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="lesson-heading">What to monitor</h3>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Metric</th><th>What it means</th><th>Measured by</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Output quality</td><td>Subjective (politeness) or objective (closeness to the target format or content)</td><td>A person or an evaluator LLM during development; code for objective criteria</td></tr>
+          <tr><td>Error rate</td><td>How many checks fail, for tasks with objective criteria</td><td>Tests, validators</td></tr>
+          <tr><td>Goal adherence</td><td>How close the output is to the overall objective; are all original requirements still met?</td><td>A checklist of requirements</td></tr>
+          <tr><td>Step-by-step trace</td><td>For every iteration: the prompt, the LLM's response, the feedback generated</td><td>A log: <strong>the most important one</strong> for understanding and debugging the agent</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Iteration</th><th>Healthy loop (tests passed)</th><th>Stalled loop (tests passed)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>❌❌❌ 0/3</td><td>❌❌❌ 0/3</td></tr>
+          <tr><td>2</td><td>✅❌❌ 1/3</td><td>✅❌❌ 1/3</td></tr>
+          <tr><td>3</td><td>✅✅❌ 2/3</td><td>✅❌❌ 1/3</td></tr>
+          <tr><td>4</td><td>✅✅✅ 3/3: stop, done</td><td>✅❌❌ 1/3</td></tr>
+          <tr><td>5</td><td>—</td><td>✅❌❌ 1/3: no progress for 3 rounds</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The healthy loop converges and stops at iteration 4. The stalled one is stuck at 1/3: more of the
+      same won't help, so stop early and change something (richer feedback, a stronger model, a human).
+      Without per-iteration numbers you can't tell the two apart.
+    </p>
+
+    <LessonCollapsible title="What a step-by-step trace looks like" label="Example">
+      <p>One record per iteration, written to a log (e.g. a JSON-lines file), is enough to replay what happened:</p>
+      <CodeBlock lang="json" label="trace.jsonl (one line per iteration, pretty-printed)" code={traceExample} />
+      <p>
+        With this you can see <em>why</em> iteration 2 improved (the feedback named the
+        <code>None</code> return), spot a loop repeating the same mistake, and measure where the
+        iterations stop paying off.
+      </p>
+    </LessonCollapsible>
 
     <h2 class="lesson-heading">Example: Iterative Code Refinement <SourceBadge source="course" /></h2>
 
@@ -350,9 +469,8 @@ flowchart LR
 
     <LessonCallout variant="info" title="Still to capture">
       <p>
-        This page comes near the end of the course's Lesson 5. The earlier pages (likely covering the
-        feedback sources in more depth) and the exercise notebook, <em>Code Generation and Debugging
-        Assistant</em>, are still to be added here.
+        The course's Lesson 5 exercise notebook, <em>Code Generation and Debugging Assistant</em>, is
+        still to be added here.
       </p>
     </LessonCallout>
 
@@ -366,7 +484,9 @@ flowchart LR
         '<strong>Make feedback specific</strong> — input, expected, actual for every failure, not just FAIL',
         '<strong>Send the previous output with the feedback</strong> — FUNCTION + FEEDBACK',
         '<strong>Set an iteration limit</strong> — and decide what happens when it’s hit',
-        '<strong>Log every iteration</strong> — results per round show whether the loop is converging',
+        '<strong>Log a step-by-step trace</strong> — prompt, response, and feedback for every iteration',
+        '<strong>Track a metric per iteration</strong> — quality, error rate, or goal adherence, to see convergence vs. stalling',
+        '<strong>Prefer objective feedback</strong> — tests and validators before self-correction',
         '<strong>Isolate generated code</strong> — separate process, timeout, and a real sandbox outside experiments',
       ]}
     />
@@ -379,6 +499,18 @@ flowchart LR
         options: ['The results of running the generated code against test cases', 'A human rating of the code style', 'The model’s own confidence score', 'The number of tokens used'],
         answer:  0,
         explain: 'An external tool (the test runner) evaluates the code; its results go into the next prompt.',
+      },
+      {
+        q:       'What is the core mechanism behind a feedback loop?',
+        options: ['Prompt chaining — the evaluation of one output is put into the prompt for the next iteration', 'Fine-tuning the model after every response', 'Raising the temperature each round', 'Caching previous answers'],
+        answer:  0,
+        explain: 'Same as prompt chaining, except the chain points back at itself with feedback added.',
+      },
+      {
+        q:       'Which monitoring record does the course call crucial for debugging an agent?',
+        options: ['A step-by-step trace: each prompt, response, and feedback', 'Only the final output', 'The total token count', 'The number of API calls'],
+        answer:  0,
+        explain: 'The trace lets you replay the agent’s “thought” process and see where it went wrong.',
       },
       {
         q:       'Why should failed tests report input, expected output, and actual output?',
@@ -403,7 +535,7 @@ flowchart LR
   </div>
 
   <DeepDive
-    sources="udacity — LLM Feedback Loops: Iterative Coding Example"
+    sources="udacity — LLM Feedback Loops: Developing Feedback Loops; Iterative Coding Example"
     tensions={[
       { a: 'More iterations (higher success rate)', b: 'Cost, latency, and diminishing returns' },
       { a: 'Autonomous fixing', b: 'Safety of executing generated code' },
