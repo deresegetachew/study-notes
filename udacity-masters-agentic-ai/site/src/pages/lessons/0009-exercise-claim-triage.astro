@@ -172,14 +172,14 @@ const mindMap = `
     <CodeBlock lang="text" label="sample FNOL" code={sampleFnol} />
 
     <LessonDiagram definition={`
-flowchart LR
-  F["📄 FNOL text"]:::in --> S1["🤖 I · Extract<br/>claim info"]:::llm --> G1{"🚦 Gate 1<br/>ClaimInformation<br/>valid?"}:::gate
-  G1 -->|"object"| S2["🤖 II · Assess<br/>severity + cost"]:::llm --> G2{"🚦 Gate 2<br/>shape + cost in<br/>severity range?"}:::gate
-  G2 -->|"object"| S3["🤖 III · Route<br/>to a queue"]:::llm --> G3{"🚦 Gate 3<br/>allowed queue?"}:::gate
-  G3 --> Q["📥 glass · fast_track ·<br/>material_damage · total_loss"]:::done
-  G1 -.->|"fail → None"| X["⚠️ claim dropped"]:::warn
-  G2 -.->|"fail → None"| X
-  G3 -.->|"fail → None"| X
+flowchart TB
+  F["📄 FNOL text"]:::in --> S1["🤖 Stage I · Extract claim info"]:::llm --> G1{{"🚦 Gate 1<br/>ClaimInformation valid?"}}:::gate
+  G1 -->|"✅ object"| S2["🤖 Stage II · Assess severity + cost"]:::llm --> G2{{"🚦 Gate 2<br/>shape OK + cost in severity range?"}}:::gate
+  G2 -->|"✅ object"| S3["🤖 Stage III · Route to a queue"]:::llm --> G3{{"🚦 Gate 3<br/>allowed queue?"}}:::gate
+  G3 -->|"✅"| Q["📥 glass · fast_track · material_damage · total_loss"]:::done
+  G1 -.->|"❌ None"| X["⚠️ claim dropped (only printed)"]:::warn
+  G2 -.->|"❌ None"| X
+  G3 -.->|"❌ None"| X
 
   classDef in   fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
   classDef llm  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
