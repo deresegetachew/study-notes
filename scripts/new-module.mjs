@@ -83,6 +83,21 @@ if (withCapture) {
   );
 }
 
+// Where the module lives on GitHub (OpenInColab / NotebookView build Colab links from it).
+const pkgRoot = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+const repo = process.env.NOTES_REPO || `deresegetachew/${pkgRoot.name}`;
+writeFileSync(
+  join(siteDir, 'src/data/site.ts'),
+  readFileSync(join(SKILL, 'assets/data/site.ts.template'), 'utf8')
+    .replace('OWNER/REPO', repo).replace('MODULE_SLUG', slug)
+);
+
+// code/: notebooks shown in the lessons (NotebookView) and opened in Colab.
+mkdirSync(join(moduleDir, 'code/shared'), { recursive: true });
+cpSync(join(SKILL, 'assets/code/llm.py'), join(moduleDir, 'code/shared/llm.py'));
+cpSync(join(SKILL, 'assets/code/run_notebooks.py'), join(moduleDir, 'code/run_notebooks.py'));
+cpSync(join(SKILL, 'assets/code/requirements.txt'), join(moduleDir, 'code/requirements.txt'));
+
 writeFileSync(
   join(siteDir, 'src/data/lessons.ts'),
   `export interface LessonEntry {\n  href:  string;\n  num:   string;\n  title: string;\n}\n\n// Ordered list drives LessonLayout's auto prev/next nav — keep in sequence.\nexport const LESSONS: LessonEntry[] = [];\n`

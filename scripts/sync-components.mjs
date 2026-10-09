@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Copy components from the study-notes skill (the source of truth) into every
 // module that has a site/. Modules keep their own copies — this is how a new or
-// updated shared component reaches them.
+// updated shared component reaches them. Modules with a code/ folder also get
+// the shared notebook helpers (code/shared/llm.py, code/run_notebooks.py).
 //
 // Usage:
 //   npm run sync-components                       # copy components a module is missing; report ones that differ
@@ -11,12 +12,13 @@
 // Files that differ on purpose per module (e.g. SourceBadge labels) are never
 // overwritten without --force, and are listed so you can decide.
 
-import { existsSync, readdirSync, readFileSync, copyFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, copyFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SRC = join(ROOT, '.claude/skills/study-notes/assets/components');
+const CODE_SRC = join(ROOT, '.claude/skills/study-notes/assets/code');
 
 const args = process.argv.slice(2);
 const force = args.includes('--force');
@@ -48,6 +50,17 @@ for (const mod of modules) {
     } else if (readFileSync(from, 'utf8') !== readFileSync(to, 'utf8')) {
       if (force) { copyFileSync(from, to); lines.push(`  ~ ${f} (overwritten)`); }
       else { differing++; lines.push(`  ! ${f} differs from the skill — kept (use --force to overwrite)`); }
+    }
+  }
+  // Shared notebook helpers, for modules that have a code/ folder.
+  if (existsSync(join(ROOT, mod, 'code')) && only.length === 0) {
+    for (const [from, to] of [['llm.py', 'code/shared/llm.py'], ['run_notebooks.py', 'code/run_notebooks.py']]) {
+      const src = join(CODE_SRC, from), dst = join(ROOT, mod, to);
+      if (!existsSync(dst)) { mkdirSync(dirname(dst), { recursive: true }); copyFileSync(src, dst); lines.push(`  + ${to} (added)`); }
+      else if (readFileSync(src, 'utf8') !== readFileSync(dst, 'utf8')) {
+        if (force) { copyFileSync(src, dst); lines.push(`  ~ ${to} (overwritten)`); }
+        else { differing++; lines.push(`  ! ${to} differs from the skill — kept (use --force to overwrite)`); }
+      }
     }
   }
   console.log(`${mod}: ${lines.length ? '\n' + lines.join('\n') : 'up to date'}`);

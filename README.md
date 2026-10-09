@@ -51,11 +51,26 @@ templates. For a `--site` module, run `npm install` again afterward (root-level 
 the new workspace member gets picked up automatically), then `npm run dev --
 <module-slug>`.
 
+## Node version
+
+The repo pins Node in `.nvmrc` (CI reads the same file):
+
+```bash
+nvm use        # or: nvm install
+```
+
+## Runnable code (notebooks)
+
+Modules can keep runnable examples as Jupyter notebooks in `<module>/code/`. Lessons show
+them with `NotebookView` (with real outputs) and link to Colab with `OpenInColab`. See
+`udacity-masters-agentic-ai/code/README.md` for running them and setting an LLM key.
+
 ## Shared components
 
 Each module's site keeps its **own copy** of the lesson components; the
 `study-notes` skill's `assets/components/` is the source of truth they were copied
-from. After adding or changing a component in the skill, push it into every module:
+from. After adding or changing a component in the skill, push it into every module
+(modules with a `code/` folder also get the shared `llm.py` and `run_notebooks.py`):
 
 ```bash
 npm run sync-components                      # add missing components; report ones that differ

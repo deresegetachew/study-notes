@@ -11,6 +11,8 @@ import LessonMindMap     from '@/components/LessonMindMap.astro';
 import LessonCollapsible from '@/components/LessonCollapsible.astro';
 import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
+import NotebookView      from '@/components/NotebookView.astro';
+import claimTriageNb     from '../../../../code/course-1/4.4-claim-triage/claim_triage.ipynb?raw';
 
 const sampleFnol = `
 Claim ID: C003
@@ -63,63 +65,6 @@ def assess_severity(claim_info: ClaimInformation) -> Optional[SeverityAssessment
         return None
 `.trim().replaceAll('@@{', '$' + '{');
 
-const improved = String.raw`
-COST_RANGES = {"Minor": (100, 1_000), "Moderate": (1_000, 5_000), "Major": (5_000, 50_000)}
-GLASS_ONLY = {"windshield", "glass"}
-
-class GateFailed(Exception):
-    pass
-
-def gate1(raw: str) -> ClaimInformation:
-    try:
-        return ClaimInformation.model_validate_json(raw)     # shape (min_length=1, not min_items)
-    except ValidationError as e:
-        raise ValueError(str(e))
-
-def gate2(raw: str) -> SeverityAssessment:
-    try:
-        sev = SeverityAssessment.model_validate_json(raw)
-    except ValidationError as e:
-        raise ValueError(str(e))
-    low, high = COST_RANGES[sev.severity]                     # logic: cost fits severity
-    if not low <= sev.est_cost <= high:
-        raise ValueError(f"{sev.severity} damage must cost @@{low:,}-@@{high:,}, got @@{sev.est_cost:,.0f}")
-    return sev
-
-def route(claim: ClaimInformation, sev: SeverityAssessment) -> str:
-    """Stage III in code: the routing rules are fixed, so no LLM call is needed."""
-    if sev.severity == "Major":
-        return "total_loss"
-    if sev.severity == "Moderate":
-        return "material_damage"
-    if set(claim.damage_area) <= GLASS_ONLY:
-        return "glass"
-    return "fast_track"
-
-def call_with_gate(system_prompt: str, user_content: str, gate, max_attempts: int = 3):
-    """One chain step: call the LLM, run the gate, retry with the gate's error as feedback."""
-    messages = [{"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}]
-    for attempt in range(1, max_attempts + 1):
-        raw = strip_fences(get_completion(messages=messages, temperature=0))
-        try:
-            return gate(raw)
-        except ValueError as e:
-            if attempt == max_attempts:
-                raise GateFailed(f"{gate.__name__} failed {max_attempts}x: {e}")
-            messages += [{"role": "assistant", "content": raw},
-                         {"role": "user", "content": f"Your answer failed validation:\n{e}\nReturn corrected JSON only."}]
-
-def triage(fnol_text: str) -> dict:
-    """Never drops a claim: anything that fails a gate goes to human review."""
-    try:
-        claim = call_with_gate(info_extraction_system_prompt, fnol_text, gate1)
-        sev = call_with_gate(severity_assessment_system_prompt, claim.model_dump_json(), gate2)
-        return {"claim_id": claim.claim_id, "severity": sev.severity, "est_cost": sev.est_cost,
-                "queue": route(claim, sev), "status": "auto"}
-    except GateFailed as e:
-        return {"claim_id": None, "queue": "needs_review", "status": "human", "reason": str(e)}
-`.trim().replaceAll('@@{', '$' + '{');
 
 const mindMap = `
 # Exercise: Automated Claim Triage
@@ -430,19 +375,27 @@ flowchart TB
 
     <p>
       Applying the reflections: routing in code, retries with feedback, fence stripping,
-      <code>temperature=0</code>, and a <code>needs_review</code> fallback. Tested with a scripted fake
-      LLM: the happy path, a cost that fails gate 2 and is fixed on retry, an extraction that fails three
-      times and goes to review, and all four routing rules.
+      <code>temperature=0</code>, and a <code>needs_review</code> fallback. The code lives in a
+      notebook in the repo; what you see below is that notebook, with the outputs from actually
+      running it.
     </p>
 
-    <CodeBlock lang="python" label="improved_chain.py" code={improved} />
+    <NotebookView notebook={claimTriageNb} cells={['gates', 'route', 'chain']} path="code/course-1/4.4-claim-triage/claim_triage.ipynb" />
 
-    <LessonCallout variant="info" title="Two notes on running it">
+    <h3 class="lesson-heading">Three scenarios, run for real</h3>
+
+    <p>
+      Scripted LLM replies make each scenario reproducible: a fenced answer on the happy path, a cost that
+      fails gate 2 and is fixed by the retry, and an extraction that keeps failing and lands in human review.
+    </p>
+
+    <NotebookView notebook={claimTriageNb} cells={['demo']} path="code/course-1/4.4-claim-triage/claim_triage.ipynb" />
+
+    <LessonCallout variant="tip" title="Run it yourself">
       <p>
-        The notebook's <code>get_completion</code> hard-codes <code>temperature=0.7</code>; add a
-        <code>temperature</code> parameter to it. <code>strip_fences()</code> is the helper from the
-        production-ready chain in 4.2, with <code>json</code> instead of <code>python</code> as the
-        fence label.
+        <strong>Open in Colab</strong> runs the whole notebook (phone included). Without an API key the
+        scripted scenarios still work; add <code>GEMINI_API_KEY</code> or <code>OPENAI_API_KEY</code> in
+        Colab's Secrets panel to run the last cell on real claims with a real model.
       </p>
     </LessonCallout>
 
