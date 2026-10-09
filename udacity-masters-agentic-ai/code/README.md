@@ -19,13 +19,16 @@ code/.venv/bin/python code/run_notebooks.py            # execute all, refresh ou
 
 ## LLM access
 
-Set one of these as an environment variable, or in Colab's **Secrets** panel:
+**In Colab, no key may be needed:** if your plan includes Colab's built-in models
+(`google.colab.ai`), notebooks use them automatically (model `google/gemini-2.5-flash`).
+Otherwise, or to choose a provider, set one of these as an environment variable or in Colab's
+**Secrets** panel (with **Notebook access** on):
 
 | Setting | Meaning |
 |---|---|
-| `GEMINI_API_KEY` | Use Gemini (e.g. the Google AI plan's API credits) |
+| `GEMINI_API_KEY` | Use Gemini via Google AI Studio (e.g. a Google AI plan's API credits) |
 | `OPENAI_API_KEY` | Use OpenAI, or Vocareum with `LLM_PROVIDER=vocareum` |
-| `LLM_PROVIDER` | Force `gemini`, `openai`, `vocareum` or `mock` |
+| `LLM_PROVIDER` | Force `colab`, `gemini`, `openai`, `vocareum` or `mock` |
 | `LLM_MODEL` | Override the provider's default model |
 
 With no key, notebooks still run: demo cells use scripted replies (`set_mock_replies`).
