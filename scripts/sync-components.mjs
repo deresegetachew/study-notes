@@ -2,7 +2,7 @@
 // Copy components from the study-notes skill (the source of truth) into every
 // module that has a site/. Modules keep their own copies — this is how a new or
 // updated shared component reaches them. Modules with a code/ folder also get
-// the shared notebook helpers (code/shared/llm.py, code/run_notebooks.py).
+// the shared notebook runner (code/run_notebooks.py).
 //
 // Usage:
 //   npm run sync-components                       # copy components a module is missing; report ones that differ
@@ -52,9 +52,9 @@ for (const mod of modules) {
       else { differing++; lines.push(`  ! ${f} differs from the skill — kept (use --force to overwrite)`); }
     }
   }
-  // Shared notebook helpers, for modules that have a code/ folder.
+  // Shared notebook runner, for modules that have a code/ folder.
   if (existsSync(join(ROOT, mod, 'code')) && only.length === 0) {
-    for (const [from, to] of [['llm.py', 'code/shared/llm.py'], ['run_notebooks.py', 'code/run_notebooks.py']]) {
+    for (const [from, to] of [['run_notebooks.py', 'code/run_notebooks.py']]) {
       const src = join(CODE_SRC, from), dst = join(ROOT, mod, to);
       if (!existsSync(dst)) { mkdirSync(dirname(dst), { recursive: true }); copyFileSync(src, dst); lines.push(`  + ${to} (added)`); }
       else if (readFileSync(src, 'utf8') !== readFileSync(dst, 'utf8')) {

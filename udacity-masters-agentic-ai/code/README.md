@@ -5,7 +5,6 @@ from the **Open in Colab** button. They're our own code, not the course's notebo
 (those stay in the gitignored `excercises/` folder).
 
 ```
-shared/llm.py      get_completion() on Colab's built-in models (synced from the study-notes skill)
 run_notebooks.py   re-run notebooks so the outputs shown in the notes are real
 course-1/…         one folder per lesson topic
 ```
@@ -20,9 +19,9 @@ code/.venv/bin/python code/run_notebooks.py            # execute all, refresh ou
 ## LLM access
 
 Notebooks use **Colab's built-in models** (`google.colab.ai`): no API key, nothing to set up,
-so open them in Colab. In the setup cell, `check_setup()` lists the available models; choose
-one with `use_model("google/…")` there, or keep `use_model(None)` for Colab's default.
+so open them in Colab and run the setup cell first. It prints the available models; to choose
+one, uncomment its `MODEL = ...` line in that cell (default: Colab's own choice).
 
-Cells that call a model are tagged `needs-llm`. `run_notebooks.py` (run locally) skips them
-and keeps the outputs they already have, so a Colab run saved back to GitHub
-(*File → Save a copy in GitHub*) is what the notes show.
+Colab-only cells (the setup cell and every cell that calls a model) are tagged `needs-llm`.
+`run_notebooks.py` (run locally) skips them and keeps their saved outputs, so a Colab run saved
+back to GitHub (*File → Save a copy in GitHub*) is what the notes show.

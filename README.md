@@ -70,7 +70,7 @@ them with `NotebookView` (with real outputs) and link to Colab with `OpenInColab
 Each module's site keeps its **own copy** of the lesson components; the
 `study-notes` skill's `assets/components/` is the source of truth they were copied
 from. After adding or changing a component in the skill, push it into every module
-(modules with a `code/` folder also get the shared `llm.py` and `run_notebooks.py`):
+(modules with a `code/` folder also get the shared `run_notebooks.py`):
 
 ```bash
 npm run sync-components                      # add missing components; report ones that differ

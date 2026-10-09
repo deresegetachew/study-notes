@@ -93,8 +93,7 @@ writeFileSync(
 );
 
 // code/: notebooks shown in the lessons (NotebookView) and opened in Colab.
-mkdirSync(join(moduleDir, 'code/shared'), { recursive: true });
-cpSync(join(SKILL, 'assets/code/llm.py'), join(moduleDir, 'code/shared/llm.py'));
+mkdirSync(join(moduleDir, 'code'), { recursive: true });
 cpSync(join(SKILL, 'assets/code/run_notebooks.py'), join(moduleDir, 'code/run_notebooks.py'));
 cpSync(join(SKILL, 'assets/code/requirements.txt'), join(moduleDir, 'code/requirements.txt'));
 
