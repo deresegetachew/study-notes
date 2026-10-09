@@ -96,6 +96,29 @@ except ValidationError as e:
     retry_with_feedback(prompt, str(e))         # ❌ the error text is the feedback
 `.trim();
 
+const optionalTrap = String.raw`
+class Order(BaseModel):
+    customer_email: Optional[str]          # no default → REQUIRED (but may be null)
+
+Order.model_validate({"customer_email": "a@b.com"})   # ✅
+Order.model_validate({"customer_email": None})        # ✅ None
+Order.model_validate({})                              # ❌ ValidationError: Field required
+
+class Order(BaseModel):
+    customer_email: Optional[str] = None   # may be missing OR null → becomes None
+
+Order.model_validate({})                              # ✅ customer_email=None
+`.trim();
+
+const laxDemo = String.raw`
+class UserProfile(BaseModel):
+    user_id: int
+    is_active: bool
+
+UserProfile.model_validate_json('{"user_id": "42", "is_active": "yes"}')
+# → user_id=42 is_active=True     ✅ no error, no warning
+`.trim();
+
 const strictDemo = String.raw`
 from pydantic import BaseModel, ConfigDict
 
@@ -172,6 +195,8 @@ const mindMap = `
 ## Watch out
 ### Lax mode converts "42" → 42
 ### strict=True to forbid
+### Optional[str] alone is still required
+### Optional = values · default = can be missing
 ### Shape ≠ correct content
 ## Exercise
 ### Order + nested OrderItem
@@ -281,15 +306,139 @@ flowchart LR
 
     <CodeBlock lang="python" label="parsing" code={parseDemo} />
 
-    <LessonCallout variant="warn" title="Lax by default: Pydantic converts types">
+    <LessonCallout variant="warn" title="Two behaviors that surprise people">
       <p>
-        By default Pydantic <em>coerces</em> where it reasonably can: <code>"42"</code> becomes
-        <code>42</code>, and <code>"yes"</code> becomes <code>True</code>. Usually helpful with LLM
-        output, but if a string where a number belongs should count as a failure, turn on strict mode:
+        Pydantic quietly converts types (<code>"42"</code> → <code>42</code>), and
+        <code>Optional</code> doesn't mean "can be left out". Both are explained with examples in
+        the next section.
       </p>
     </LessonCallout>
 
+    <h2 class="lesson-heading">Two Gotchas <SourceBadge source="mine" /></h2>
+
+    <p>
+      Both come from Pydantic doing something different from what the code <em>looks like</em> it
+      says. Every result below comes from running it on Pydantic 2.13.
+    </p>
+
+    <h3 class="lesson-heading">Gotcha 1: Optional[str] doesn't mean "can be left out"</h3>
+
+    <p>
+      In Python type hints, <code>Optional[str]</code> means "a string <strong>or None</strong>": it
+      describes which <em>values</em> are allowed. It says nothing about whether the key can be
+      <strong>missing</strong>. Pydantic decides that by one thing only: <strong>does the field have a
+      default?</strong>
+    </p>
+
+    <CodeBlock lang="python" label="optional_trap.py" code={optionalTrap} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Declaration</th><th>Key missing</th><th><code>null</code></th><th><code>"a@b.com"</code></th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>email: str</code></td><td>❌ Field required</td><td>❌ must be a string</td><td>✅</td></tr>
+          <tr><td><code>email: Optional[str]</code></td><td>❌ <strong>Field required</strong></td><td>✅ None</td><td>✅</td></tr>
+          <tr><td><code>email: Optional[str] = None</code></td><td>✅ None</td><td>✅ None</td><td>✅</td></tr>
+          <tr><td><code>email: str = "unknown"</code></td><td>✅ "unknown"</td><td>❌ must be a string</td><td>✅</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonDiagram definition={`
+flowchart LR
+  Q1{"Does the field<br/>have a default?"}:::q
+  Q1 -->|"no"| R["Required:<br/>key must be present"]:::warn
+  Q1 -->|"yes"| O["Can be left out:<br/>gets the default"]:::done
+  Q2{"Is None in the type?<br/>Optional[...]"}:::q
+  Q2 -->|"no"| N1["null rejected"]:::warn
+  Q2 -->|"yes"| N2["null accepted"]:::done
+
+  classDef q    fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef warn fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+    `} />
+
+    <p>
+      <strong>Why it bites with LLMs:</strong> when there's no email in the text, the most natural thing
+      for a model to do is <em>leave the key out</em>. With <code>Optional[str]</code> alone, that
+      perfectly reasonable answer fails the gate check.
+    </p>
+
+    <LessonCallout variant="key" title="Remember">
+      <p>
+        <code>Optional[...]</code> controls which <strong>values</strong> are allowed;
+        <code>= default</code> controls whether the field can be <strong>left out</strong>. For a truly
+        optional field you usually want both: <code>Optional[str] = None</code>.
+      </p>
+    </LessonCallout>
+
+    <h3 class="lesson-heading">Gotcha 2: lax mode quietly converts types</h3>
+
+    <p>
+      By default Pydantic runs in <strong>lax mode</strong>: if a value has the wrong type but can
+      reasonably be converted, it converts it instead of raising an error.
+    </p>
+
+    <CodeBlock lang="python" label="lax_coercion.py" code={laxDemo} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Field type</th><th>LLM sent</th><th>Lax (default)</th><th>Strict</th></tr>
+        </thead>
+        <tbody>
+          <tr><td rowspan="5"><code>bool</code></td><td><code>"yes"</code>, <code>"true"</code>, <code>"on"</code>, <code>"y"</code>, <code>"1"</code>, <code>1</code></td><td>✅ True</td><td>❌ error</td></tr>
+          <tr><td><code>"no"</code>, <code>"false"</code>, <code>"off"</code>, <code>"0"</code>, <code>0</code></td><td>✅ False</td><td>❌ error</td></tr>
+          <tr><td><code>"maybe"</code>, <code>"probably"</code></td><td>❌ error</td><td>❌ error</td></tr>
+          <tr><td><code>2</code></td><td>❌ error</td><td>❌ error</td></tr>
+          <tr><td><code>true</code> (real JSON boolean)</td><td>✅ True</td><td>✅ True</td></tr>
+          <tr><td rowspan="3"><code>int</code></td><td><code>"42"</code>, <code>" 42 "</code>, <code>"42.0"</code>, <code>42.0</code></td><td>✅ 42</td><td>❌ error</td></tr>
+          <tr><td><code>42.5</code>, <code>"42.5"</code></td><td>❌ error (would lose data)</td><td>❌ error</td></tr>
+          <tr><td><code>"forty-two"</code></td><td>❌ error</td><td>❌ error</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Often that's helpful, since LLMs regularly put numbers in quotes. <strong>The pitfall is the
+      signal you lose.</strong> If you asked for a JSON boolean and got <code>"yes"</code>, the model
+      didn't follow your format, and the next answer might be <code>"probably"</code>. Because the
+      conversion is silent:
+    </p>
+
+    <ul>
+      <li><strong>The gate passes</strong>, so you never learn the model is drifting from the schema.</li>
+      <li><strong>You trust Pydantic's fixed rules</strong> for what the text meant, which may not be what you'd decide.</li>
+    </ul>
+
+    <p>To require exact types, use <strong>strict mode</strong>:</p>
+
     <CodeBlock lang="python" label="strict_mode.py" code={strictDemo} />
+
+    <p>
+      Now the mismatch raises a <code>ValidationError</code>, and its message becomes retry feedback
+      ("is_active should be a valid boolean"), so the model corrects the format instead of the problem
+      being hidden.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Mode</th><th>Use when</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Lax (default)</td><td>You mainly want a usable value, and small format slips like quoted numbers don't matter</td></tr>
+          <tr><td>Strict</td><td>The exact format matters, or you want to catch the model ignoring the schema early, e.g. claim triage (4.4), where a silently converted value can send a claim to the wrong queue</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Strict mode can also be set per field, e.g. <code>is_active: bool = Field(strict=True)</code>, so
+      you can be strict where it matters and lax elsewhere.
+    </p>
 
     <h2 class="lesson-heading">Two Uses in an Agent Workflow <SourceBadge source="course" /></h2>
 
@@ -492,6 +641,18 @@ flowchart TB
         options: ['Its schema goes in the prompt, and it validates the LLM’s response in the gate check', 'It trains the model and then evaluates it', 'It is used once per API call', 'It replaces the system prompt'],
         answer:  0,
         explain: 'Describe what you want (model_json_schema), then check what you got (model_validate_json).',
+      },
+      {
+        q:       'A field is declared customer_email: Optional[str] with no default. The LLM leaves the key out. What happens?',
+        options: ['ValidationError: Field required — without a default the key must be present', 'customer_email becomes None', 'customer_email becomes an empty string', 'The field is silently dropped'],
+        answer:  0,
+        explain: 'Optional only allows None as a value. To allow a missing key, add a default: Optional[str] = None.',
+      },
+      {
+        q:       'A bool field receives "yes" from the LLM. In default (lax) mode, what does Pydantic do?',
+        options: ['Converts it to True without any error', 'Raises a ValidationError', 'Stores the string "yes"', 'Converts it to None'],
+        answer:  0,
+        explain: 'Lax mode coerces yes/true/on/y/1 to True. Use strict mode to reject it and get retry feedback instead.',
       },
       {
         q:       'What is the relationship between Instructor and Pydantic?',
