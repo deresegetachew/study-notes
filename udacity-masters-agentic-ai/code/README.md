@@ -29,3 +29,7 @@ Set one of these as an environment variable, or in Colab's **Secrets** panel:
 | `LLM_MODEL` | Override the provider's default model |
 
 With no key, notebooks still run: demo cells use scripted replies (`set_mock_replies`).
+
+**Run the setup cell first.** It calls `check_setup()`, which lists each setting and why it's
+missing, e.g. *"secret exists, but Notebook access is switched off for it"*. Cells that need a
+real model start with `check_setup(require_key=True)` and stop with instructions if no key is set.
