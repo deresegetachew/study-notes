@@ -1,0 +1,433 @@
+---
+import LessonLayout      from '@/layouts/LessonLayout.astro';
+import LessonHeader      from '@/components/LessonHeader.astro';
+import LessonCallout     from '@/components/LessonCallout.astro';
+import LessonDiagram     from '@/components/LessonDiagram.astro';
+import CodeBlock         from '@/components/CodeBlock.astro';
+import LessonChecklist   from '@/components/LessonChecklist.astro';
+import LessonQuiz        from '@/components/LessonQuiz.astro';
+import DeepDive          from '@/components/DeepDive.astro';
+import LessonMindMap     from '@/components/LessonMindMap.astro';
+import LessonCollapsible from '@/components/LessonCollapsible.astro';
+import LessonToc         from '@/components/LessonToc.astro';
+import SourceBadge       from '@/components/SourceBadge.astro';
+
+const step1Prompt = `
+Write a Python function called sort_numbers that takes a list of integers and
+returns a new list with the numbers sorted in ascending order.
+`.trim();
+
+const step2Command = `
+cat $CODE > sort_numbers.py && pytest test_sort_numbers.py
+`.trim();
+
+const step3Prompt = `
+Re-write the Python function called sort_numbers ... using the provided feedback.
+
+FUNCTION: {PREVIOUS_RESULT}
+FEEDBACK: {TEST_RESULTS}
+`.trim();
+
+const vagueVsDetailed = `
+# Vague feedback: the model has to guess what's wrong
+FAIL
+
+# Detailed feedback: the model can see exactly what's wrong
+0/3 tests passed.
+FAIL input=[3, 1, 2] expected=[1, 2, 3] actual=None
+FAIL input=[] expected=[] actual=None
+FAIL input=[5, -1, 5, 0] expected=[-1, 0, 5, 5] actual=None
+`.trim();
+
+const loopCode = String.raw`
+import json, re, subprocess, sys, tempfile, textwrap
+
+TEST_CASES = [
+    {"input": [3, 1, 2],      "expected": [1, 2, 3]},
+    {"input": [],             "expected": []},
+    {"input": [5, -1, 5, 0],  "expected": [-1, 0, 5, 5]},
+]
+
+HARNESS = textwrap.dedent("""
+    import json, sys
+    ns = {}
+    exec(open(sys.argv[1]).read(), ns)
+    results = []
+    for case in json.loads(sys.argv[2]):
+        try:
+            actual = ns["sort_numbers"](list(case["input"]))
+            results.append({**case, "actual": actual, "passed": actual == case["expected"]})
+        except Exception as e:
+            results.append({**case, "actual": f"{type(e).__name__}: {e}", "passed": False})
+    print(json.dumps(results))
+""")
+
+def strip_fences(text: str) -> str:
+    return re.sub(r"^\s*\x60{3}(?:python)?\s*\n|\n?\x60{3}\s*$", "", text.strip())
+
+def run_tests(code: str) -> list[dict]:
+    """The external tool: run the generated code in a separate process, with a timeout."""
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+        f.write(code)
+    try:
+        out = subprocess.run([sys.executable, "-c", HARNESS, f.name, json.dumps(TEST_CASES)],
+                             capture_output=True, text=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        return [{**c, "actual": "timed out", "passed": False} for c in TEST_CASES]
+    if out.returncode != 0:                     # the code didn't even load (syntax error, crash)
+        error = out.stderr.strip().splitlines()[-1] if out.stderr.strip() else "unknown error"
+        return [{**c, "actual": error, "passed": False} for c in TEST_CASES]
+    return json.loads(out.stdout)
+
+def feedback_text(results: list[dict]) -> str:
+    """Detailed feedback: input, expected, and actual for every failure."""
+    lines = [f"{sum(r['passed'] for r in results)}/{len(results)} tests passed."]
+    for r in results:
+        if not r["passed"]:
+            lines.append(f"FAIL input={r['input']} expected={r['expected']} actual={r['actual']}")
+    return "\n".join(lines)
+
+TASK = ("Write a Python function called sort_numbers that takes a list of integers and "
+        "returns a new list with the numbers sorted in ascending order.")
+
+def refine_until_passing(max_iterations: int = 5) -> tuple[str, list[str]]:
+    code = strip_fences(get_completion(TASK))                       # step 1: first attempt
+    history = []
+    for i in range(1, max_iterations + 1):
+        results = run_tests(code)                                   # step 2: run the tests
+        passed = sum(r["passed"] for r in results)
+        history.append(f"Iteration {i}: {passed}/{len(results)} passed")   # monitoring
+        if passed == len(results):
+            return code, history                                    # ✅ all tests pass
+        code = strip_fences(get_completion(                          # step 3: feed results back
+            f"{TASK}\nRe-write the function using the provided feedback.\n\n"
+            f"FUNCTION:\n{code}\n\nFEEDBACK:\n{feedback_text(results)}"))
+    raise RuntimeError("Tests still failing after the iteration limit:\n" + "\n".join(history))
+`.trim();
+
+const runOutput = `
+Iteration 1: 0/3 passed
+Iteration 2: 1/3 passed
+Iteration 3: 2/3 passed
+Iteration 4: 3/3 passed
+`.trim();
+
+const mindMap = `
+# LLM Feedback Loops
+## The loop
+### Output → feedback → next prompt
+### Repeat until good or limit reached
+## Feedback sources
+### Self-critique
+### External tools (tests, linters, APIs)
+### Validation checks
+### User input
+## Iterative coding example
+### Generate sort_numbers
+### Run tests (external tool)
+### Feed input / expected / actual back
+### 0/3 → 1/3 → 2/3 → 3/3
+## Make it work
+### Detailed feedback beats PASS/FAIL
+### Iteration limit
+### Monitor every iteration
+### Run generated code isolated
+## Relation to earlier lessons
+### Gate check retry (4.2) = one-shot feedback loop
+### ReAct observe (2.1) = feedback from tools
+`.trim();
+---
+
+<LessonLayout title="5.1 — LLM Feedback Loops">
+
+  <LessonHeader
+    num="5.1"
+    title="LLM Feedback Loops"
+    subtitle="Feeding an output's results back into the next prompt, so the model improves its own work until it passes."
+  />
+
+  <div class="lesson-content">
+
+    <LessonToc />
+
+    <h2 class="lesson-heading">What a Feedback Loop Is <SourceBadge source="course" /></h2>
+
+    <p>
+      A <strong>feedback loop</strong> lets an LLM-powered system refine its output over several rounds:
+      produce something, get feedback on it, put that feedback into the next prompt, and repeat until
+      the result is good enough or an iteration limit is reached.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  P["📝 Prompt"]:::step --> L["🤖 LLM"]:::llm --> O["📄 Output"]:::out --> F{"🔍 Feedback<br/>good enough?"}:::gate
+  F -->|"yes"| D["✅ Done"]:::done
+  F -->|"no, here is what's wrong"| P2["📝 Prompt + output + feedback"]:::retry --> L
+  F -->|"limit reached"| X["🛑 Stop, report"]:::warn
+
+  classDef step  fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef out   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef gate  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef retry fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+  classDef warn  fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <p>Feedback can come from:</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Source</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Self-critique</td><td>The LLM reviews its own draft against the requirements</td></tr>
+          <tr><td>External tools</td><td>Running tests, a linter, a compiler, an API call</td></tr>
+          <tr><td>Validation checks</td><td>Gate checks: Pydantic, ranges, rules (4.2–4.4)</td></tr>
+          <tr><td>User input</td><td>A person says what to change</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Example: Iterative Code Refinement <SourceBadge source="course" /></h2>
+
+    <p>
+      <strong>Goal:</strong> generate Python code that passes tests. <strong>Feedback:</strong> the
+      test results. The LLM writes code, an external tool runs it against tests, and the results go back
+      to the LLM.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  T["🎯 Task:<br/>write sort_numbers"]:::step --> L["🤖 LLM writes code"]:::llm --> C["📄 sort_numbers.py"]:::out
+  C --> R["🧪 External tool<br/>pytest runs the tests"]:::tool --> Q{"all pass?"}:::gate
+  Q -->|"yes"| D["✅ Done"]:::done
+  Q -->|"no"| FB["📋 FEEDBACK: input,<br/>expected, actual"]:::retry -->|"+ FUNCTION"| L
+  Q -->|"iteration limit"| X["🛑 Stop"]:::warn
+
+  classDef step  fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm   fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef out   fill:#fef9c3,color:#713f12,stroke:#ca8a04,stroke-width:2px
+  classDef tool  fill:#ccfbf1,color:#134e4a,stroke:#0d9488,stroke-width:2px
+  classDef gate  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef retry fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+  classDef warn  fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <h3 class="lesson-heading">Step 1: initial code generation</h3>
+
+    <CodeBlock lang="text" label="prompt" code={step1Prompt} />
+    <p>Expected output: a first attempt at the code.</p>
+
+    <h3 class="lesson-heading">Step 2: run the tests (the feedback mechanism)</h3>
+
+    <p>Take the generated code and run it against predefined test cases with a test framework, an <strong>external tool</strong>:</p>
+
+    <CodeBlock lang="bash" label="shell" code={step2Command} />
+
+    <p>
+      Expected output: PASS/FAIL results. For each failure, include the <strong>input</strong>, the
+      <strong>expected output</strong>, and the <strong>actual output</strong>. That detail is what makes
+      the feedback useful.
+    </p>
+
+    <h3 class="lesson-heading">Step 3: put the feedback into the prompt</h3>
+
+    <CodeBlock lang="text" label="refinement prompt" code={step3Prompt} />
+
+    <p>The model now sees its own previous code <em>and</em> exactly how it failed, and produces a second attempt.</p>
+
+    <h3 class="lesson-heading">Step 4: iterate and watch it improve</h3>
+
+    <p>Repeat steps 2 and 3, tracking the test results each round:</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Iteration</th><th>Tests</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>❌❌❌ 3 failed</td></tr>
+          <tr><td>2</td><td>✅❌❌ 1 passed, 2 failed</td></tr>
+          <tr><td>3</td><td>✅✅❌ 2 passed, 1 failed</td></tr>
+          <tr><td>4</td><td>✅✅✅ all 3 passed: success</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      It continues until all tests pass or a <strong>predefined iteration limit</strong> is reached. The
+      agent diagnoses its own mistakes and works toward a solution autonomously.
+    </p>
+
+    <h2 class="lesson-heading">Why Detailed Feedback Matters <SourceBadge source="mine" /></h2>
+
+    <CodeBlock lang="text" label="the same failure, two ways" code={vagueVsDetailed} />
+
+    <p>
+      With "actual=None" in front of it, the model can spot the classic bug: <code>nums.sort()</code>
+      sorts in place and returns <code>None</code>. With just "FAIL", it can only guess, and may rewrite
+      code that was nearly right. <strong>The feedback is the prompt for the next attempt</strong>, so it
+      deserves the same care as any prompt (3.1).
+    </p>
+
+    <h2 class="lesson-heading">A Runnable Version <SourceBadge source="mine" /></h2>
+
+    <p>
+      The whole loop in plain Python, with a small test runner instead of pytest so it's
+      self-contained. Tested with a scripted LLM whose attempts contain realistic bugs:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Attempt</th><th>Code</th><th>Bug</th><th>Result</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td><code>return nums.sort()</code></td><td><code>.sort()</code> returns None</td><td>0/3</td></tr>
+          <tr><td>2</td><td><code>return sorted(nums, reverse=True) if nums else []</code></td><td>Wrong order</td><td>1/3 (only the empty list)</td></tr>
+          <tr><td>3</td><td><code>return sorted(set(nums))</code></td><td><code>set()</code> drops the duplicate 5</td><td>2/3</td></tr>
+          <tr><td>4</td><td><code>return sorted(nums)</code></td><td>None</td><td>3/3 ✅</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <CodeBlock lang="text" label="monitoring output" code={runOutput} />
+
+    <p>Exactly the course's progression. The code:</p>
+
+    <CodeBlock lang="python" label="feedback_loop.py" code={loopCode} />
+
+    <LessonCollapsible title="How run_tests turns crashes into feedback">
+      <ul>
+        <li><strong>Separate process:</strong> the generated code runs in its own Python process (<code>subprocess.run</code>), so a crash can't take down the loop.</li>
+        <li><strong>Timeout:</strong> <code>timeout=5</code> stops infinite loops; they come back as <code>actual=timed out</code>.</li>
+        <li><strong>Won't load:</strong> if the file has a syntax error, every test reports the error, e.g. <code>actual=SyntaxError: invalid syntax</code>, so the model learns why.</li>
+        <li><strong>Runtime errors per test:</strong> an exception in one case becomes that case's <code>actual</code>, and the other tests still run.</li>
+      </ul>
+      <p>All three paths were exercised in testing. In every case the loop gets feedback text it can send, instead of an exception.</p>
+    </LessonCollapsible>
+
+    <LessonCallout variant="warn" title="Running model-written code is a security decision">
+      <p>
+        This loop executes code an LLM wrote. A separate process with a timeout stops crashes and hangs,
+        but it is <strong>not a sandbox</strong>: the code can still read files or use the network. For
+        anything beyond experiments, run it in an isolated container (no network, no secrets, read-only
+        filesystem) and use a static check first, like the allowed-imports gate in 4.2.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">How This Relates to Earlier Lessons <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Gate check + retry (4.2)</th><th>ReAct loop (2.1)</th><th>Feedback loop (this lesson)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Signal</td><td>Validation error</td><td>Tool result (OBSERVE)</td><td>Any evaluation: tests, critique, user</td></tr>
+          <tr><td>Goal of each round</td><td>Fix the format or rule that failed</td><td>Gather information, decide the next action</td><td>Improve the same output toward "passes"</td></tr>
+          <tr><td>Who decides to stop</td><td>Code: gate passes or retries run out</td><td>The model calls final_answer (or a step limit)</td><td>Code: all checks pass or an iteration limit</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The retry-with-error-feedback in 4.2 and 4.4 <em>was</em> a small feedback loop. This lesson makes
+      the loop the main design: the evaluation is richer (real tests), and you expect several rounds.
+    </p>
+
+    <h2 class="lesson-heading">Key Takeaways <SourceBadge source="course" /></h2>
+
+    <ul>
+      <li><strong>Feedback loops let LLM systems refine outputs iteratively.</strong> Feedback from self-critique, external tools, validation checks, or users goes into the next prompt.</li>
+      <li><strong>Monitoring is essential</strong> to track progress, debug, and optimize. Log every iteration's result.</li>
+      <li><strong>The coding example shows an AI finding and fixing its own errors</strong> autonomously.</li>
+      <li><strong>Start simple:</strong> pick a task, define the feedback mechanism, build the loop. Frameworks exist, or you can build your own (as above).</li>
+    </ul>
+
+    <LessonCallout variant="info" title="Still to capture">
+      <p>
+        This page comes near the end of the course's Lesson 5. The earlier pages (likely covering the
+        feedback sources in more depth) and the exercise notebook, <em>Code Generation and Debugging
+        Assistant</em>, are still to be added here.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
+
+    <LessonChecklist
+      title="Building a feedback loop:"
+      items={[
+        '<strong>Define "good enough"</strong> — tests, rules, or a rubric the output must pass',
+        '<strong>Pick the feedback source</strong> — external tool where possible (tests, linters), critique or user input where not',
+        '<strong>Make feedback specific</strong> — input, expected, actual for every failure, not just FAIL',
+        '<strong>Send the previous output with the feedback</strong> — FUNCTION + FEEDBACK',
+        '<strong>Set an iteration limit</strong> — and decide what happens when it’s hit',
+        '<strong>Log every iteration</strong> — results per round show whether the loop is converging',
+        '<strong>Isolate generated code</strong> — separate process, timeout, and a real sandbox outside experiments',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'In the iterative coding example, what is the feedback?',
+        options: ['The results of running the generated code against test cases', 'A human rating of the code style', 'The model’s own confidence score', 'The number of tokens used'],
+        answer:  0,
+        explain: 'An external tool (the test runner) evaluates the code; its results go into the next prompt.',
+      },
+      {
+        q:       'Why should failed tests report input, expected output, and actual output?',
+        options: ['So the model can see exactly what went wrong instead of guessing', 'To make the prompt longer', 'Because pytest requires it', 'To slow the loop down'],
+        answer:  0,
+        explain: 'actual=None points straight at the .sort() bug; a bare FAIL gives the model nothing to work with.',
+      },
+      {
+        q:       'What stops a feedback loop that never converges?',
+        options: ['A predefined iteration limit', 'The model eventually gives up on its own', 'The test runner deletes the code', 'Nothing — it is safe to loop forever'],
+        answer:  0,
+        explain: 'Loop until all tests pass or the limit is reached, then stop and report.',
+      },
+      {
+        q:       'Running LLM-generated code in a separate process with a timeout protects against which problems?',
+        options: ['Crashes and infinite loops — but not file or network access', 'All security risks', 'Wrong answers', 'Syntax errors only'],
+        answer:  0,
+        explain: 'A subprocess and a timeout are not a sandbox; untrusted code needs an isolated container.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="udacity — LLM Feedback Loops: Iterative Coding Example"
+    tensions={[
+      { a: 'More iterations (higher success rate)', b: 'Cost, latency, and diminishing returns' },
+      { a: 'Autonomous fixing', b: 'Safety of executing generated code' },
+    ]}
+    questions={[
+      {
+        q:      'The tests pass. Is the code correct?',
+        hint:   'What do the tests actually cover?',
+        answer: '<p>Only as correct as the tests. A loop optimizing for “all tests pass” will happily satisfy weak tests, and models can even special-case the visible inputs. Use enough cases to cover edge cases (empty lists, duplicates, negatives), keep some held-out tests the model never sees in feedback, and review the final code.</p>',
+      },
+      {
+        q:      'The loop went 0/3 → 1/3 → 1/3 → 1/3. What would you change?',
+        hint:   'Is it converging?',
+        answer: '<p>It has stalled, so more iterations of the same thing won’t help. Options: stop early when results stop improving, give richer feedback (a traceback, a hint about the failing case), include the full history of attempts so the model doesn’t repeat itself, switch to a stronger model for the next attempt, or escalate to a human with the log.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Sending only PASS/FAIL — the model can’t fix what it can’t see.',
+      'No iteration limit — a non-converging loop burns calls forever.',
+      'Executing generated code in your own process or environment without isolation.',
+      'Trusting “all tests pass” when the tests are thin.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
