@@ -5,11 +5,18 @@
 // which resolves to: npm run dev -w oreilly-ai-agents/site
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+// Use the Node version pinned in .nvmrc (the notebook renderer needs it).
+const wanted = readFileSync(join(ROOT, '.nvmrc'), 'utf8').trim().replace(/^v/, '');
+if (process.versions.node.split('.')[0] !== wanted.split('.')[0]) {
+  console.error(`Node ${process.versions.node} active, but .nvmrc wants ${wanted}. Run: nvm use`);
+  process.exit(1);
+}
 const action = process.env.npm_lifecycle_event; // 'dev' | 'build' | 'preview'
 const [slug, ...rest] = process.argv.slice(2);
 
