@@ -33,6 +33,50 @@ TOOLS   look up the customer's account / order when the email references one (Re
 LOG     prompt · response · gate results · model version, per step, per email
 `.trim();
 
+const knowledgeMap = `
+# Course 1 · Agentic AI
+## Agent design & theory
+### Agent anatomy
+- LLM: the brain, only writes text
+- Tools: functions your code runs
+- Instructions: the system prompt
+- Memory: chat history, long-term
+- Orchestration: the loop around it
+### CoT vs. ReAct
+- CoT: reason in steps, one call
+- ReAct: reason + act with tools
+### Model choice
+- Capability · cost · latency
+- Decompose → cheaper model
+## Core prompting
+### Prompt components
+- Role / persona
+- Task
+- Output format
+- Examples
+- Context
+### Chain-of-Thought
+- Written steps = working memory
+### Refinement
+- Change one component at a time
+- Compare on the same inputs
+## Advanced patterns
+### ReAct loop
+- THINK → ACT → OBSERVE
+- Two exits: final answer, step limit
+### Prompt chaining
+- Output of one step → input of the next
+- Workflow (code decides) vs. agent (model decides)
+### Gate checks
+- Format · content · logic
+- Pydantic contracts
+- Rules in code, fail closed
+### Feedback loops
+- Tests are the spec
+- Full report back, iteration limit
+- Monitor every iteration
+`.trim();
+
 const mindMap = `
 # Course 1: Putting It All Together
 ## Skill scorecard
@@ -181,50 +225,9 @@ flowchart TB
 
     <h2 class="lesson-heading">Knowledge Map <SourceBadge source="mine" /></h2>
 
-    <p>Everything from the module on one map, grouped by the scorecard's three areas. Tap it to zoom.</p>
+    <p>Everything from the module on one map, grouped by the scorecard's three areas. Click a node to fold or unfold it.</p>
 
-    <LessonDiagram definition={`
-mindmap
-  root((Course 1<br/>Agentic AI))
-    Agent design & theory
-      Agent anatomy
-        LLM brain
-        Tools
-        Instructions
-        Memory
-        Orchestration
-      CoT vs ReAct
-        CoT: reason only
-        ReAct: reason + act
-      Model choice
-        Capability · cost · latency
-    Core prompting
-      Prompt components
-        Role / persona
-        Task
-        Output format
-        Examples
-        Context
-      Chain-of-Thought
-        Tokens as working memory
-      Refinement
-        One change at a time
-        Measure on same inputs
-    Advanced patterns
-      ReAct loop
-        THINK · ACT · OBSERVE
-        Code runs the tools
-      Prompt chaining
-        Output → next input
-        Workflow vs agent
-      Gate checks
-        Format · content · logic
-        Pydantic contracts
-        Code for rules
-      Feedback loops
-        Tests as the spec
-        Monitor iterations
-    `} />
+    <LessonMindMap content={knowledgeMap} inline height="600px" />
 
     <h2 class="lesson-heading">How It All Connects <SourceBadge source="mine" /></h2>
 
