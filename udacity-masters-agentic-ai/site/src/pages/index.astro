@@ -40,9 +40,16 @@ const deepDivesBase = import.meta.env.PUBLIC_DEEP_DIVES_URL
 
     {COURSES.map(c => {
       const lessons = LESSONS.filter(l => l.course === c.id);
+      const recap = lessons.find(l => l.num === '★');   // the course's recap page, if written
       return (
         <section class="toc-course">
           <h2 class="lesson-heading">Course {c.id}: {c.title}</h2>
+          {recap && (
+            <p class="toc-note">
+              ★ <a href={`${base}${recap.href}#knowledge-map`}>Course map</a>: the whole course on one page.
+              Look at it before you start, come back to it at the end.
+            </p>
+          )}
           {lessons.length === 0
             ? <p>No lessons yet.</p>
             : <ul class="toc-list">
