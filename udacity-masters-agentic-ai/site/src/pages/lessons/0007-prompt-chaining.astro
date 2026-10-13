@@ -11,6 +11,8 @@ import LessonMindMap   from '@/components/LessonMindMap.astro';
 import SourceBadge     from '@/components/SourceBadge.astro';
 import LessonCollapsible from '@/components/LessonCollapsible.astro';
 import LessonToc       from '@/components/LessonToc.astro';
+import NotebookView    from '@/components/NotebookView.astro';
+import chainingNb      from '../../../../code/course-1/4.2-prompt-chaining/prompt_chaining.ipynb?raw';
 
 const chainCode = String.raw`
 # Each call is stateless, so the previous output is passed in explicitly.
@@ -208,51 +210,6 @@ def check_python_syntax(code):
 is_valid, message = check_python_syntax(code_response)
 print(f"Code is valid: {is_valid}")
 print(message)
-`.trim();
-
-const scriptChain = String.raw`
-import ast, re
-
-TASK = ("a Python script that reads a CSV, calculates the average of a column, "
-        "and writes the results to a new CSV")
-ALLOWED_IMPORTS = {"csv", "statistics", "sys"}
-MAX_REFINES = 3
-
-def strip_fences(text: str) -> str:
-    """Models usually wrap code in a Markdown fence; remove it before parsing."""
-    return re.sub(r"^\s*\x60{3}(?:python)?\s*\n|\n?\x60{3}\s*$", "", text.strip())
-
-def check_code(code: str) -> list[str]:
-    """Gate 2 (logic): parses as Python, and only imports allowed modules."""
-    try:
-        tree = ast.parse(code)                    # syntax check — never runs the code
-    except SyntaxError as e:
-        return [f"SyntaxError line {e.lineno}: {e.msg}"]
-    imported = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
-    imported |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
-    return [f"Restricted import: {m}" for m in sorted(imported - ALLOWED_IMPORTS)]
-
-# Step 1: outline → Gate 1 (format: a list that mentions reading and writing)
-outline = call_llm(f"You are a helpful programming assistant. I need {TASK}. "
-                   "Please provide a simple step-by-step outline for this script.")
-is_list = any(line.lstrip().startswith(("1.", "-", "*")) for line in outline.splitlines())
-if not (is_list and "read" in outline.lower() and "write" in outline.lower()):
-    raise RuntimeError("Gate 1 failed: outline is not a step list covering read/write")
-
-# Step 2: code → Gate 2; Step 3: refine with the error feedback, up to MAX_REFINES times
-code = strip_fences(call_llm(
-    "Based on the following outline, please write the Python code for the script. "
-    f"Use standard libraries like 'csv' and 'statistics'.\n\nOutline:\n{outline}"))
-
-for attempt in range(MAX_REFINES + 1):
-    errors = check_code(code)
-    if not errors:
-        break                                     # ✅ Completed
-    if attempt == MAX_REFINES:
-        raise RuntimeError(f"❌ Failed after {MAX_REFINES} refinements: {errors}")
-    code = strip_fences(call_llm(
-        f"The following Python code contains errors:\n{code}\n\n"
-        f"Error feedback:\n{errors}\n\nPlease correct the code based on this feedback."))
 `.trim();
 
 const mindMap = `
@@ -942,7 +899,10 @@ flowchart LR
       </table>
     </div>
 
-    <CodeBlock lang="python" label="script_chain.py" code={scriptChain} />
+    <p>
+      The full code is in the notebook at the end of this lesson (section 4), where it runs: the
+      gate on sample code locally, the whole chain on Colab's model.
+    </p>
 
     <LessonCollapsible title="How the allowed-imports check works">
       <p>
@@ -974,6 +934,20 @@ flowchart LR
       <li><strong>Use each prompt's output as the next prompt's input.</strong></li>
       <li><strong>Put programmatic gate checks between steps.</strong></li>
     </ol>
+
+    <h2 class="lesson-heading">Run It Yourself <SourceBadge source="mine" /></h2>
+
+    <p>This lesson's runnable code as one notebook, in the lesson's order:</p>
+
+    <ol>
+      <li><strong>Setup:</strong> Colab's built-in model.</li>
+      <li><strong>A sequential chain:</strong> topic → concepts → summary → LinkedIn post.</li>
+      <li><strong>A hard-coded workflow:</strong> a YES/NO classifier call, normalized before the code branches on it, then a calendar tool.</li>
+      <li><strong>Gate checks:</strong> the research gate on four replies (pass, invented quote, missing fields, not JSON), with real output.</li>
+      <li><strong>The production code chain:</strong> outline gate, syntax + allowed-imports gate (shown on sample code), and the refine loop.</li>
+    </ol>
+
+    <NotebookView notebook={chainingNb} path="code/course-1/4.2-prompt-chaining/prompt_chaining.ipynb" />
 
     <h2 class="lesson-heading">Recap <SourceBadge source="course" /></h2>
 
