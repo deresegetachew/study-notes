@@ -5,6 +5,8 @@ import LessonCallout from '@/components/LessonCallout.astro';
 import CodeBlock     from '@/components/CodeBlock.astro';
 import LessonDiagram from '@/components/LessonDiagram.astro';
 import SourceBadge   from '@/components/SourceBadge.astro';
+import NotebookView  from '@/components/NotebookView.astro';
+import refinementNb  from '../../../../code/course-1/3.1-prompt-refinement/prompt_refinement.ipynb?raw';
 import LessonChecklist from '@/components/LessonChecklist.astro';
 import LessonQuiz      from '@/components/LessonQuiz.astro';
 import DeepDive        from '@/components/DeepDive.astro';
@@ -597,6 +599,23 @@ flowchart LR
       </p>
     </LessonCallout>
 
+
+    <h2 class="lesson-heading">Run It Yourself <SourceBadge source="mine" /></h2>
+
+    <p>
+      Refinement is an experiment, so run it: the same emails through a vague prompt and a refined
+      one, with the refined output checked by a Pydantic model. In order:
+    </p>
+
+    <ol>
+      <li><strong>Setup:</strong> Colab's built-in model.</li>
+      <li><strong>Three support emails:</strong> billing, an outage, a general question.</li>
+      <li><strong>Two prompt versions:</strong> vague, and refined with role, task, context (category and urgency definitions) and a JSON output format enforced by a <code>Ticket</code> model.</li>
+      <li><strong>The gate on example replies:</strong> real output for a good reply, an unknown category, and a chatty non-JSON answer.</li>
+      <li><strong>Comparison:</strong> both versions on every email, side by side.</li>
+    </ol>
+
+    <NotebookView notebook={refinementNb} path="code/course-1/3.1-prompt-refinement/prompt_refinement.ipynb" />
 
     <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
 
