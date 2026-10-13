@@ -1,0 +1,257 @@
+---
+import LessonLayout    from '@/layouts/LessonLayout.astro';
+import LessonHeader    from '@/components/LessonHeader.astro';
+import LessonCallout   from '@/components/LessonCallout.astro';
+import LessonDiagram   from '@/components/LessonDiagram.astro';
+import LessonChecklist from '@/components/LessonChecklist.astro';
+import LessonQuiz      from '@/components/LessonQuiz.astro';
+import DeepDive        from '@/components/DeepDive.astro';
+import LessonMindMap   from '@/components/LessonMindMap.astro';
+import LessonToc       from '@/components/LessonToc.astro';
+import SourceBadge     from '@/components/SourceBadge.astro';
+import NotebookView    from '@/components/NotebookView.astro';
+import debugNb         from '../../../../code/course-1/5.2-code-debugging-assistant/code_debugging_assistant.ipynb?raw';
+
+const mindMap = `
+# Exercise: Code Generation & Debugging Assistant
+## The exercise
+### LLM writes process_data
+### Tests run it, failures fed back
+### Tests expanded: median, non-numbers, empty, bad mode
+### Loop: up to 3 retries
+## What the run revealed
+### Spec never updated: tests are the real spec
+### Fix broke a passing test (regression)
+### Same prompt, different first draft
+### Fragile code extraction, no isolation
+### Untested: booleans count as numbers
+## Improvements
+### Full spec in the prompt
+### Full test report, passes included
+### Isolated process + timeout
+### Stop when progress stalls
+## Principles
+### Tests define correct
+### Feedback must show what to keep
+`.trim();
+---
+
+<LessonLayout title="5.2 — Exercise: Code Generation & Debugging Assistant">
+
+  <LessonHeader
+    num="5.2"
+    title="Exercise: Code Generation & Debugging Assistant"
+    subtitle="A feedback loop that writes, tests and fixes code, what the course's run revealed, and an improved version to run in Colab."
+  />
+
+  <div class="lesson-content">
+
+    <LessonToc />
+
+    <h2 class="lesson-heading">The Exercise <SourceBadge source="course" /></h2>
+
+    <p>
+      Lesson 5.1's feedback loop, built for real: an LLM writes a Python function
+      <code>process_data(numbers, mode)</code>, a test runner executes it, and failing tests go back to
+      the model until the code passes.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart TB
+  T["📝 Task description"]:::step --> G["🤖 LLM writes process_data"]:::llm --> X["🧪 Run the test cases"]:::tool
+  X --> Q{{"all pass?"}}:::gate
+  Q -->|"yes"| D["✅ Done"]:::done
+  Q -->|"no"| F["📋 Feedback: failing tests,<br/>expected vs. actual"]:::fb --> G
+  Q -->|"3 retries used"| S["🛑 Stop"]:::warn
+
+  classDef step fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef tool fill:#ccfbf1,color:#134e4a,stroke:#0d9488,stroke-width:2px
+  classDef gate fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef fb   fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+  classDef warn fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <h3 class="lesson-heading">The steps</h3>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Step</th><th>What happens</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1 · Task and tests</td><td>A deliberately incomplete spec: <code>mode</code> is <code>"sum"</code> or <code>"average"</code> (default average). Eight tests on ints, floats and negatives.</td></tr>
+          <tr><td>2 · First generation</td><td>Prompt: "You are an expert Python developer…", code only, inside a <code>python</code> fence. A helper extracts the code and runs the tests.</td></tr>
+          <tr><td>3 · Expand the tests</td><td>Production feedback arrives (the product manager is on vacation): add a <code>median</code> mode, ignore non-numeric values, return <code>None</code> for empty lists, raise <code>ValueError</code> for an unknown mode. Twelve tests now; <strong>only the tests change, not the spec</strong>.</td></tr>
+          <tr><td>4 · One feedback round</td><td>Send the requirements, the current code and the test results; ask for a fixed version.</td></tr>
+          <tr><td>5 · The loop</td><td>From scratch: generate, test, and feed back up to three times, stopping when everything passes.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="lesson-heading">What the solution run produced</h3>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Run</th><th>Tests passed</th><th>What changed</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>First generation, original tests</td><td>8 / 8</td><td>Already filters non-numbers and returns <code>None</code> for empty input</td></tr>
+          <tr><td>Same code, expanded tests</td><td>8 / 12</td><td>No <code>median</code>; unknown mode returns <code>None</code> instead of raising</td></tr>
+          <tr><td>After one feedback round</td><td>12 / 12</td><td>Median added, <code>ValueError</code> raised</td></tr>
+          <tr><td>Loop · iteration 0 (fresh draft)</td><td>7 / 12</td><td>A <em>different</em> first draft: empty list returns <code>0</code>; raises for median</td></tr>
+          <tr><td>Loop · iteration 1</td><td>8 / 12</td><td>Empty list fixed, but the <code>ValueError</code> was replaced by <code>return None</code>: a passing test broke</td></tr>
+          <tr><td>Loop · iteration 2</td><td>12 / 12</td><td>Median and <code>ValueError</code> both in place; also added <code>mode.lower()</code>, which no test asked for</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">What the Run Reveals <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Observation</th><th>Why it matters</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>The task description was never updated: median, <code>None</code> and <code>ValueError</code> exist only in the tests</td><td>The model has to reverse-engineer requirements from failure messages. Fine as a TDD exercise; in practice, put every requirement in the prompt.</td></tr>
+          <tr><td>Iteration 1 fixed one test and broke another</td><td>The feedback listed only failures, so the model didn't know <code>ValueError</code> was already right. Show the whole test report.</td></tr>
+          <tr><td>The same prompt gave two different first drafts (empty list → <code>None</code>, then <code>0</code>)</td><td>Temperature 0.7: generation varies between runs. Judge a loop over several runs, not one.</td></tr>
+          <tr><td>The code is pulled out by finding a line that is exactly <code>```python</code></td><td>A trailing space, a <code>```py</code> fence or no fence raises <code>ValueError</code> and crashes the loop.</td></tr>
+          <tr><td>Generated code runs with <code>exec</code> in the notebook's own process</td><td>No timeout and no isolation: an infinite loop hangs the notebook, a bad line can damage its state.</td></tr>
+          <tr><td>The final code counts <code>True</code> as 1 (<code>bool</code> is a subclass of <code>int</code>)</td><td>"Ignore non-numeric values" isn't fully specified or tested: passing all tests ≠ correct.</td></tr>
+          <tr><td>The model added <code>mode.lower()</code> on its own</td><td>Behaviour no test checks can change silently later.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Reflections <SourceBadge source="mine" /></h2>
+
+    <h3 class="lesson-heading">What improved across iterations?</h3>
+
+    <ul>
+      <li><strong>Correctness:</strong> passed tests went 7 → 8 → 12, though not steadily: iteration 1 fixed one case and broke another.</li>
+      <li><strong>Error handling:</strong> from silently returning <code>None</code> or <code>0</code> to explicitly raising <code>ValueError</code> with a helpful message.</li>
+      <li><strong>Edge cases:</strong> empty lists and mixed types were handled once tests named them; anything untested (booleans, upper-case modes) stayed undefined.</li>
+      <li><strong>Readability:</strong> stayed reasonable, but grew by accretion (an <code>elif</code> per fix). Nothing in the loop rewards simpler code.</li>
+    </ul>
+
+    <h3 class="lesson-heading">How effective was the loop?</h3>
+
+    <ul>
+      <li><strong>Fixed per iteration:</strong> exactly the failures named in the feedback: missing mode, wrong empty-list value, missing exception.</li>
+      <li><strong>What persisted:</strong> requirements the tests never stated, and the risk of regressions, because the model only saw what was failing.</li>
+      <li><strong>Better feedback:</strong> the full test report (passes included), the complete spec in every prompt, a traceback for crashes, and the history of attempts so the model doesn't repeat itself.</li>
+      <li><strong>Compared with traditional debugging:</strong> much faster for small, well-tested functions, and the same discipline (write tests first, change one thing, re-run). But a person understands <em>why</em> code fails and notices missing tests; the loop only optimizes toward the tests it has.</li>
+    </ul>
+
+    <LessonCallout variant="key" title="The principle">
+      <p>
+        In a code feedback loop, <strong>the tests are the specification</strong>. The loop is only as
+        good as its tests and as specific as its feedback: say what's wrong <em>and</em> what's already
+        right.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">The Notebook: An Improved Version <SourceBadge source="mine" /></h2>
+
+    <p>Not a copy of the course's code: rewritten to fix what the run revealed. In order:</p>
+
+    <ol>
+      <li><strong>Setup:</strong> Colab's built-in model.</li>
+      <li><strong>Spec and tests:</strong> every requirement stated in the prompt, booleans excluded and tested; an exception class as the expected value means "should raise".</li>
+      <li><strong>Test runner:</strong> code and tests go to a separate process over stdin, with a timeout; the report lists every test, passes included.</li>
+      <li><strong>Hand-written candidates:</strong> real output from a first draft (5 of 11) and a complete version (11 of 11), with no model involved.</li>
+      <li><strong>Code extraction:</strong> tolerates fence variations and missing fences.</li>
+      <li><strong>The loop:</strong> stops when all tests pass, at the limit, or when progress stalls.</li>
+      <li><strong>Run:</strong> with Colab's model.</li>
+    </ol>
+
+    <NotebookView notebook={debugNb} path="code/course-1/5.2-code-debugging-assistant/code_debugging_assistant.ipynb" />
+
+    <LessonCallout variant="tip" title="Running it in Colab">
+      <p>
+        Run the setup cell first; uncomment a <code>MODEL = ...</code> line there to choose a model. To
+        see the loop work harder, choose a smaller model or remove a requirement from <code>TASK</code>
+        and watch the tests drive it back. To show your run here, use <em>File → Save a copy in
+        GitHub</em> back to this repo.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
+
+    <LessonChecklist
+      title="Building a code-generation feedback loop:"
+      items={[
+        '<strong>State every requirement in the prompt</strong> — don’t leave the model to infer them from failures',
+        '<strong>Tests cover the edge cases</strong> — empty input, mixed types, booleans, invalid options',
+        '<strong>Run generated code isolated</strong> — separate process, timeout; a real sandbox beyond experiments',
+        '<strong>Feed back the whole report</strong> — passing tests too, so fixes don’t cause regressions',
+        '<strong>Extract code robustly</strong> — fences vary; a parsing crash shouldn’t end the loop',
+        '<strong>Stop on stalls</strong> — no progress for N rounds means change something',
+        '<strong>Review the final code</strong> — all tests passing proves only what the tests check',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'In the solution run, iteration 1 fixed the empty-list test but broke the ValueError test. What most likely caused it?',
+        options: ['The feedback listed only failures, so the model didn’t know ValueError was already correct', 'The test runner was broken', 'The model ran out of tokens', 'Python changed how ValueError works'],
+        answer:  0,
+        explain: 'Show the full report, passing tests included, so the model keeps what already works.',
+      },
+      {
+        q:       'The final code passed all 12 tests, yet process_data([True, 2, 3], "sum") returns 6. Why?',
+        options: ['bool is a subclass of int, and no test covered booleans', 'The median logic is wrong', 'sum() ignores booleans', 'The test runner converts True to 2'],
+        answer:  0,
+        explain: 'Passing every test proves only what the tests check — add the case and state it in the spec.',
+      },
+      {
+        q:       'Why run generated code in a separate process with a timeout instead of exec() in the notebook?',
+        options: ['An infinite loop or crash becomes a failed test instead of hanging or breaking the notebook', 'It makes the code faster', 'exec() cannot run functions', 'The model requires it'],
+        answer:  0,
+        explain: 'Isolation plus a timeout keeps the loop alive; real sandboxing is still needed for untrusted code.',
+      },
+      {
+        q:       'When should the loop stop early, before the iteration limit?',
+        options: ['When the pass count hasn’t improved for a few rounds', 'After the first failure', 'Never — always use every iteration', 'When the code gets longer'],
+        answer:  0,
+        explain: 'A stalled loop won’t fix itself; change the prompt, the model or the tests instead.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="udacity — Lesson 5 exercise (Code Generation and Debugging Assistant); own analysis"
+    tensions={[
+      { a: 'Spec in the prompt', b: 'Requirements discovered from failing tests' },
+      { a: 'More iterations', b: 'Cost, time, and code that grows by accretion' },
+    ]}
+    questions={[
+      {
+        q:      'Can a model "cheat" a test-driven loop?',
+        hint:   'What does the model see about the tests?',
+        answer: '<p>Yes. When the feedback shows exact inputs and expected outputs, a model can special-case them (<code>if numbers == [1, 3, 4]: return 3</code>). Defences: keep some hidden tests the model never sees, use property-style tests (e.g. median of a sorted list equals its middle value), and review the final code.</p>',
+      },
+      {
+        q:      'How would you scale this from one function to a module?',
+        hint:   'Think test suites, context size and isolation.',
+        answer: '<p>Run a real test suite (pytest) in a container per attempt, feed back only the failing tests’ tracebacks plus a pass/fail summary to fit the context, include the relevant source files rather than everything, and stop on stalls or regressions. At that size it becomes an agent with tools (run tests, read files), the ReAct pattern from 2.1.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Updating the tests but not the prompt’s spec.',
+      'Feeding back only failures, inviting regressions.',
+      'exec() of model-written code in your own process with no timeout.',
+      'Treating “all tests pass” as “correct”.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
