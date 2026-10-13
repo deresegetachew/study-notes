@@ -324,10 +324,9 @@ flowchart LR
     <h2 class="lesson-heading">The Notebook: Run It Yourself <SourceBadge source="mine" /></h2>
 
     <p>
-      The whole loop in one notebook, read top to bottom: the task and tests, a test runner instead
-      of pytest so it's self-contained, the feedback it produces, the loop, and a run with a real
-      model. Section 2's output is real: the test runner applied to versions of the function with bugs
-      models actually make (<code>.sort()</code> returning <code>None</code>, the wrong order,
+      The whole loop in one notebook: the task and tests, a small test runner, the feedback it
+      produces, the loop, and a run with a model. Section 2 runs the test runner on versions of the
+      function with bugs models actually make (<code>.sort()</code> returning <code>None</code>, the wrong order,
       <code>set()</code> dropping duplicates), plus a syntax error and an infinite loop. That's the
       course's 0/3 → 1/3 → 2/3 → 3/3 progression, and the exact feedback text the model receives.
     </p>
@@ -341,7 +340,7 @@ flowchart LR
         <li><strong>Won't load:</strong> if the file has a syntax error, every test reports the error, e.g. <code>actual=SyntaxError: invalid syntax</code>, so the model learns why.</li>
         <li><strong>Runtime errors per test:</strong> an exception in one case becomes that case's <code>actual</code>, and the other tests still run.</li>
       </ul>
-      <p>All three paths were exercised in testing. In every case the loop gets feedback text it can send, instead of an exception.</p>
+      <p>Every path ends in feedback text the loop can send back, never an exception that stops it.</p>
     </LessonCollapsible>
 
     <LessonCallout variant="warn" title="Running model-written code is a security decision">
@@ -382,12 +381,7 @@ flowchart LR
       <li><strong>Start simple:</strong> pick a task, define the feedback mechanism, build the loop. Frameworks exist, or you can build your own (as above).</li>
     </ul>
 
-    <LessonCallout variant="info" title="Still to capture">
-      <p>
-        The course's Lesson 5 exercise notebook, <em>Code Generation and Debugging Assistant</em>, is
-        still to be added here.
-      </p>
-    </LessonCallout>
+    <p>Practice: <a href={`${import.meta.env.BASE_URL.replace(/\/$/, '')}/lessons/0012-exercise-code-debugging-assistant`}>5.2, the code generation and debugging assistant exercise</a>.</p>
 
     <h2 class="lesson-heading">Checklist <SourceBadge source="course" /></h2>
 

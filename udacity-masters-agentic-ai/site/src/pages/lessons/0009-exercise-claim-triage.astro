@@ -199,8 +199,6 @@ flowchart TB
 
     <h2 class="lesson-heading">Problems Spotted in the Code <SourceBadge source="mine" /></h2>
 
-    <p>Verified by running the code, not just reading it:</p>
-
     <div class="lesson-table">
       <table>
         <thead>
@@ -386,7 +384,7 @@ flowchart TB
       <li><strong>Gate checks:</strong> shape, plus the cost-range logic check.</li>
       <li><strong>Routing in plain code:</strong> with its four rules checked.</li>
       <li><strong>The chain:</strong> retries with feedback, then human review.</li>
-      <li><strong>The gates in action:</strong> real output from feeding them typical bad LLM answers.</li>
+      <li><strong>The gates in action:</strong> typical bad LLM answers, rejected.</li>
       <li><strong>The full chain:</strong> run on the course's five sample claims.</li>
     </ol>
 
@@ -395,8 +393,7 @@ flowchart TB
     <LessonCallout variant="tip" title="Running it in Colab">
       <p>
         <strong>Run the setup cell first.</strong> The notebook uses Colab's built-in models, no API
-        key needed; the setup cell lists them, and uncommenting a <code>MODEL = ...</code> line there picks one. To show
-        your run's results here, use <em>File → Save a copy in GitHub</em> back to this repo.
+        key needed; the setup cell lists them, and uncommenting a <code>MODEL = ...</code> line there picks one.
       </p>
     </LessonCallout>
 
@@ -435,7 +432,7 @@ flowchart TB
         q:       'In the original notebook, what happens when Stage I fails for one claim in the batch?',
         options: ['It returns None, and Stage II crashes calling model_dump_json() on None', 'The claim is retried automatically', 'The claim goes to a human-review queue', 'Stage II skips it gracefully'],
         answer:  0,
-        explain: 'Verified: AttributeError on None. A failed item must leave the main path, not flow downstream.',
+        explain: 'Stage II calls model_dump_json() on None → AttributeError. A failed item must leave the main path, not flow downstream.',
       },
       {
         q:       'What is a good final fallback when a claim keeps failing its gates?',

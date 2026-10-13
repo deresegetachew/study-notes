@@ -157,13 +157,13 @@ flowchart TB
 
     <h2 class="lesson-heading">The Notebook: An Improved Version <SourceBadge source="mine" /></h2>
 
-    <p>Not a copy of the course's code: rewritten to fix what the run revealed. In order:</p>
+    <p>An improved version that fixes the problems above:</p>
 
     <ol>
       <li><strong>Setup:</strong> Colab's built-in model.</li>
       <li><strong>Spec and tests:</strong> every requirement stated in the prompt, booleans excluded and tested; an exception class as the expected value means "should raise".</li>
       <li><strong>Test runner:</strong> code and tests go to a separate process over stdin, with a timeout; the report lists every test, passes included.</li>
-      <li><strong>Hand-written candidates:</strong> real output from a first draft (5 of 11) and a complete version (11 of 11), with no model involved.</li>
+      <li><strong>Hand-written candidates:</strong> a first draft (5 of 11 pass) and a complete version (11 of 11), no model involved.</li>
       <li><strong>Code extraction:</strong> tolerates fence variations and missing fences.</li>
       <li><strong>The loop:</strong> stops when all tests pass, at the limit, or when progress stalls.</li>
       <li><strong>Run:</strong> with Colab's model.</li>
@@ -175,8 +175,7 @@ flowchart TB
       <p>
         Run the setup cell first; uncomment a <code>MODEL = ...</code> line there to choose a model. To
         see the loop work harder, choose a smaller model or remove a requirement from <code>TASK</code>
-        and watch the tests drive it back. To show your run here, use <em>File → Save a copy in
-        GitHub</em> back to this repo.
+        and watch the tests drive it back.
       </p>
     </LessonCallout>
 
