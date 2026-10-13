@@ -11,6 +11,8 @@ import LessonMindMap     from '@/components/LessonMindMap.astro';
 import LessonCollapsible from '@/components/LessonCollapsible.astro';
 import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
+import NotebookView      from '@/components/NotebookView.astro';
+import pydanticNb        from '../../../../code/course-1/4.3-pydantic/pydantic.ipynb?raw';
 
 const inconsistent = `
 "The user is Alex and their order is #8675309."
@@ -545,6 +547,22 @@ classDiagram
       <p>Errors point to the exact spot, even inside nested lists:</p>
       <CodeBlock lang="python" label="nested errors" code={exerciseErrors} />
     </LessonCollapsible>
+
+    <h2 class="lesson-heading">Run It Yourself <SourceBadge source="mine" /></h2>
+
+    <p>Everything in this lesson as one notebook, with real outputs, in order:</p>
+
+    <ol>
+      <li><strong>Setup:</strong> Colab's built-in model, only needed for section 6.</li>
+      <li><strong>A model is a schema:</strong> <code>UserProfile</code>, plus a helper that prints one line per validation problem.</li>
+      <li><strong>Validate and parse:</strong> a valid reply, a wrong type with a missing field, and a chatty non-JSON reply.</li>
+      <li><strong>The schema for the prompt:</strong> <code>model_json_schema()</code>.</li>
+      <li><strong>The two gotchas:</strong> the <code>Optional</code> table and lax vs. strict, computed live.</li>
+      <li><strong>The Order exercise:</strong> also requiring a positive quantity, with three rejected orders.</li>
+      <li><strong>Real extraction:</strong> schema in the prompt, validated by the same model, one retry with the errors.</li>
+    </ol>
+
+    <NotebookView notebook={pydanticNb} path="code/course-1/4.3-pydantic/pydantic.ipynb" />
 
     <h2 class="lesson-heading">Beyond the Course: Instructor and Structured Outputs <SourceBadge source="mine" /></h2>
 
