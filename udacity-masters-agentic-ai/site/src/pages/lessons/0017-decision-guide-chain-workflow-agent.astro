@@ -1,0 +1,314 @@
+---
+import LessonLayout      from '@/layouts/LessonLayout.astro';
+import LessonHeader      from '@/components/LessonHeader.astro';
+import LessonCallout     from '@/components/LessonCallout.astro';
+import LessonDiagram     from '@/components/LessonDiagram.astro';
+import LessonChecklist   from '@/components/LessonChecklist.astro';
+import LessonQuiz        from '@/components/LessonQuiz.astro';
+import DeepDive          from '@/components/DeepDive.astro';
+import LessonMindMap     from '@/components/LessonMindMap.astro';
+import LessonToc         from '@/components/LessonToc.astro';
+import SourceBadge       from '@/components/SourceBadge.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const L = (slug: string) => `${base}/lessons/${slug}`;
+
+const mindMap = `
+# Decision Guide: Prompt Chain, Workflow or Agent?
+## Three designs
+### Prompt chain: fixed steps, all LLM calls
+### Workflow: fixed steps, code + LLM, branches
+### Agent: the model picks each step
+## One claim, three ways
+### Chain: 3 calls, guessed cost, wrong
+### Agent: 4–5 calls, right, path varies
+### Workflow: 1 call, right, same path
+## The decision
+### One prompt enough? → single prompt
+### Steps known in advance? no → agent
+### Every step needs language? → chain
+### Rules and lookups mixed in → workflow
+### One step varies → workflow + agent step
+## Signals
+### Volume, latency, audit → workflow
+### Many rare cases, path depends on findings → agent
+## Same in every design
+### Gates in code, typed contracts, limits, human fallback
+## Start simple
+### Upgrade when the simpler design hurts
+`.trim();
+---
+
+<LessonLayout title="4.7 — Decision Guide: Prompt Chain, Workflow or Agent?">
+
+  <LessonHeader
+    num="4.7"
+    title="Decision Guide: Prompt Chain, Workflow or Agent?"
+    subtitle="The same insurance claims built three ways, compared side by side, and a guide for choosing the design."
+  />
+
+  <div class="lesson-content">
+
+    <LessonToc />
+
+    <h2 class="lesson-heading">One Job, Three Designs <SourceBadge source="mine" /></h2>
+
+    <p>Lessons 4.4 to 4.6 triaged the same car-insurance claims three ways:</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Lesson</th><th>Design</th><th>In one line</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><a href={L('0009-exercise-claim-triage')}>4.4</a></td><td><strong>Prompt chain</strong></td><td>Fixed steps, every step an LLM call: extract → assess → route</td></tr>
+          <tr><td><a href={L('0013-exercise-claim-agent')}>4.5</a></td><td><strong>Agent</strong> (ReAct + feedback loop)</td><td>The model picks the next tool each turn; errors go back to it</td></tr>
+          <tr><td><a href={L('0016-exercise-claims-workflow')}>4.6</a></td><td><strong>Workflow</strong></td><td>Fixed steps in code, one LLM call for reading the claim</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      They differ in one question: <strong>who decides the next step?</strong> In a chain and a workflow, your code
+      does, and the order is the same for every claim. In an agent, the model does, one turn at a time.
+    </p>
+
+    <h2 class="lesson-heading">The Same Claim, Three Ways <SourceBadge source="mine" /></h2>
+
+    <p>Claim C004: hail dents on the hood, roof and trunk, damaged side mirrors, a cracked window.</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>4.4 prompt chain</th><th>4.5 agent</th><th>4.6 workflow</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Steps</td><td>🤖 extract → 🤖 assess → 🤖 route</td><td>🤖 → check_coverage → 🤖 → price_damage → 🤖 → route_claim → 🤖 → final_answer (order chosen by the model)</td><td>🤖 extract → coverage → price → severity → route</td></tr>
+          <tr><td>LLM calls</td><td>3</td><td>4–5, more if it makes mistakes</td><td>1</td></tr>
+          <tr><td>Result</td><td>Moderate, $3,000 → <code>material_damage</code></td><td>Major, $5,450 → <code>total_loss</code></td><td>Major, $5,450 → <code>total_loss</code></td></tr>
+          <tr><td>Why</td><td>The model guessed the cost; the gate only checked it fit the severity</td><td>Cost from the price table; the final gate made the answer match it</td><td>Cost from the price table; severity computed from it</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Two lessons in that table. First, the chain got it wrong because it <em>guessed</em> a number, not because it
+      was a chain. Second, the agent and the workflow got it right for the same reason (the price table), and the
+      workflow did it with a quarter of the LLM calls. Tools and gates decided correctness here; the design decided
+      cost and predictability.
+    </p>
+
+    <h2 class="lesson-heading">Side by Side <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Prompt chain</th><th>Workflow</th><th>Agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Who picks the next step</td><td>Code</td><td>Code</td><td>The model</td></tr>
+          <tr><td>Where the LLM is used</td><td>Every step</td><td>Only where text needs reading or writing</td><td>Every turn, to choose and to read</td></tr>
+          <tr><td>Same input, same path?</td><td>Yes</td><td>Yes</td><td>Not always</td></tr>
+          <tr><td>Cost and latency</td><td>Medium: one call per step</td><td>Lowest</td><td>Highest, and it varies</td></tr>
+          <tr><td>Testing</td><td>Test each step</td><td>Unit-test the code; test the LLM steps</td><td>Test tools and gates; evaluate whole traces</td></tr>
+          <tr><td>Debugging</td><td>Find the failing step</td><td>Find the failing step</td><td>Read the THINK/ACT/OBSERVE trace</td></tr>
+          <tr><td>A new kind of case</td><td>New step or prompt change</td><td>New branch in code</td><td>Often a new tool or a line in a description</td></tr>
+          <tr><td>Best when</td><td>Every step needs language, in a known order</td><td>Steps are known; some are rules or lookups</td><td>The path depends on what you find</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">The Terms <SourceBadge source="mine" /></h2>
+
+    <ul>
+      <li>
+        A <strong>prompt chain</strong> is a workflow whose steps are all LLM calls, each one's output feeding the next
+        (lesson 4.2).
+      </li>
+      <li>
+        A <strong>workflow</strong> is a fixed set of steps that your code runs, with branches. Some steps call an LLM,
+        some call tools or plain functions. Lesson 4.2's "hard-coded workflow" (the dental appointment) is one.
+      </li>
+      <li>
+        An <strong>agent</strong> is an LLM in a loop with tools, choosing its own next step until it decides it's done
+        or hits a limit (lessons 2.1 and 4.5).
+      </li>
+    </ul>
+
+    <p>They sit on a scale, from most predictable to most flexible:</p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  A["📝 Single prompt"]:::p --> B["🔗 Prompt chain"]:::p --> C["⚙️ Workflow<br/>code + LLM steps"]:::w --> D["⚙️🤖 Workflow with<br/>one agent step"]:::w --> E["🤖 Agent"]:::a
+  classDef p fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef w fill:#fef3c7,color:#78350f,stroke:#d97706,stroke-width:2px
+  classDef a fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+    `} />
+
+    <p>
+      Moving right buys flexibility and costs predictability, money and latency. The guide below is about moving
+      only as far right as the problem needs.
+    </p>
+
+    <h2 class="lesson-heading">The Decision Guide <SourceBadge source="mine" /></h2>
+
+    <LessonDiagram definition={`
+flowchart TB
+  S["🧩 A task"]:::in --> Q1{{"Can one well-written prompt<br/>do it reliably?"}}:::q
+  Q1 -->|"yes"| R1["📝 Single prompt<br/>+ a gate on the output"]:::p
+  Q1 -->|"no"| Q2{{"Can you write the steps<br/>down in advance?"}}:::q
+  Q2 -->|"no: the next step depends<br/>on what you find"| R4["🤖 Agent<br/>tools · gates in code · step limit"]:::a
+  Q2 -->|"yes"| Q3{{"Does every step need<br/>language understanding?"}}:::q
+  Q3 -->|"yes"| R2["🔗 Prompt chain<br/>gate between steps"]:::p
+  Q3 -->|"no: some are rules,<br/>lookups or maths"| R3["⚙️ Workflow<br/>code for those steps"]:::w
+  R3 --> Q4{{"Is there one step whose<br/>path varies a lot?"}}:::q
+  Q4 -->|"yes"| R5["⚙️🤖 Workflow with an agent step"]:::w
+  Q4 -->|"no"| R6["✅ Keep the workflow"]:::w
+
+  classDef in fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef q  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef p  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef w  fill:#fef3c7,color:#78350f,stroke:#d97706,stroke-width:2px
+  classDef a  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+    `} />
+
+    <h3 class="lesson-heading">Signals that push one way or the other</h3>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Signal</th><th>Leans toward</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Steps are known and rarely change</td><td>Workflow (or chain)</td></tr>
+          <tr><td>Steps include rules, numbers or lookups</td><td>Workflow: those steps are code</td></tr>
+          <tr><td>The next step depends on what the last one found</td><td>Agent</td></tr>
+          <tr><td>Many rare cases, and new ones keep appearing</td><td>Agent, or a workflow with an agent step</td></tr>
+          <tr><td>High volume, cost per item matters</td><td>Workflow</td></tr>
+          <tr><td>Users are waiting (latency)</td><td>Workflow: fewer calls</td></tr>
+          <tr><td>Audits or regulation: same input, same path</td><td>Workflow</td></tr>
+          <tr><td>The input is open-ended text, a conversation, or research</td><td>Agent</td></tr>
+          <tr><td>The action moves money or can't be undone</td><td>Any design, but the decision is checked by a gate in code</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Applied to the Course's Exercises <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Exercise</th><th>Best fit</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>4.4–4.6 Insurance claims</td><td>Workflow</td><td>Same steps for every claim; costs and rules are code</td></tr>
+          <tr><td><a href={L('0015-exercise-invoice-claim-agent')}>4.8</a> Invoice claims</td><td>Both, per channel</td><td>Claim-button claims are structured (workflow); emails are vague and varied (agent)</td></tr>
+          <tr><td><a href={L('0014-exercise-invoice-agent')}>4.9</a> Supplier invoices</td><td>Workflow now; agent as exceptions grow</td><td>Seven paths fit in a few branches; many more would not</td></tr>
+          <tr><td>2.1 Demand-spike detective</td><td>Agent</td><td>Which data to look at next depends on what the last lookup showed</td></tr>
+          <tr><td>5.1–5.2 Feedback loops</td><td>A loop inside either design</td><td>Generate → test → feed back is a pattern a workflow or an agent can contain</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">What Stays the Same in Every Design <SourceBadge source="mine" /></h2>
+
+    <p>
+      Choosing the design is about who picks the next step. The safety comes from the same places whichever you
+      choose:
+    </p>
+
+    <ul>
+      <li><strong>Gates in code</strong> on anything an LLM produces (Pydantic for shape, rules for logic).</li>
+      <li><strong>Typed contracts</strong> between steps.</li>
+      <li><strong>Rules, numbers and lookups in code</strong>, never guessed by the model.</li>
+      <li><strong>Limits</strong>: retries in a workflow, steps in an agent.</li>
+      <li><strong>A human fallback</strong>, so nothing is dropped or forced through.</li>
+    </ul>
+
+    <LessonCallout variant="key" title="Start simple, move right when it hurts">
+      <p>
+        Begin with the simplest design that could work, and move along the scale only when it stops working: a
+        workflow whose branches keep multiplying, or traces showing an agent that takes the same path every time
+        (it's a workflow in disguise, at a higher price). Anthropic's article
+        <a href="https://www.anthropic.com/engineering/building-effective-agents" target="_blank" rel="noopener">Building effective agents</a>
+        makes the same case, and describes prompt chaining and other workflow patterns in more detail.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="mine" /></h2>
+
+    <LessonChecklist
+      title="Before choosing a design:"
+      items={[
+        '<strong>Try one prompt first</strong>, with a gate on the output',
+        '<strong>Write the steps down</strong>: if you can, start with a chain or a workflow',
+        '<strong>Mark each step</strong> as language (LLM) or rules/lookups/maths (code)',
+        '<strong>Look for the step whose path varies</strong>; only that part might need an agent',
+        '<strong>Weigh volume, latency and audit needs</strong>; they all favour workflows',
+        '<strong>Put the gates in code</strong> whichever design you pick',
+        '<strong>Compare on the same inputs</strong>: results, LLM calls, and whether the path is stable',
+        '<strong>Revisit the choice</strong> when branches multiply or traces show a fixed path',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="mine" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'Why did the prompt chain (4.4) get the hail claim wrong while the agent and the workflow got it right?',
+        options: ['The chain let the model guess the cost; the other two took it from a price table', 'Chains can’t handle hail claims', 'The agent used a better model', 'The workflow skipped the gate'],
+        answer:  0,
+        explain: 'Correctness came from grounding the number in a tool, not from the design.',
+      },
+      {
+        q:       'A support bot must answer open-ended customer questions using several internal tools, and the next lookup depends on the last answer. Which design fits?',
+        options: ['An agent, with gates in code on any actions', 'A prompt chain', 'A single prompt', 'A workflow with no LLM'],
+        answer:  0,
+        explain: 'The steps can’t be written down in advance; that is the agent case.',
+      },
+      {
+        q:       'Your agent’s traces show it takes exactly the same four steps for every input. What does that suggest?',
+        options: ['It could be a workflow: same results, fewer calls, predictable path', 'The step limit is too low', 'It needs more tools', 'The model is broken'],
+        answer:  0,
+        explain: 'A fixed path is a workflow in disguise, at a higher price.',
+      },
+      {
+        q:       'What is the difference between a prompt chain and a workflow?',
+        options: ['A chain is a workflow whose steps are all LLM calls; a workflow can mix LLM steps with code steps and branches', 'A workflow lets the model choose the steps', 'A chain has no fixed order', 'There is no difference'],
+        answer:  0,
+        explain: 'Both have fixed steps chosen by code; the difference is what the steps are.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="own synthesis of lessons 4.2, 4.4, 4.5 and 4.6; Anthropic, “Building effective agents”"
+    tensions={[
+      { a: 'Flexibility (handles cases you didn’t plan for)', b: 'Predictability (same input, same path)' },
+      { a: 'One design for the whole product', b: 'Different designs per channel or step' },
+      { a: 'Build the agent now (future-proof)', b: 'Build the workflow now (cheaper, simpler)' },
+    ]}
+    questions={[
+      {
+        q:      'A team says “agents are the future, so we’ll build everything as an agent.” What would you ask them?',
+        hint:   'What does the agent buy for each task?',
+        answer: '<p>For each task: can you write the steps down? If yes, what does the agent add beyond what a workflow does with the same tools? Ask for the expected LLM calls per item and the volume, the latency budget, and how they will test and audit a path that changes between runs. Agents earn their cost where the path depends on findings; elsewhere they add cost and variance for nothing. Upgrading a workflow step to an agent later is easy, as long as the tools and gates are already separate.</p>',
+      },
+      {
+        q:      'How would you decide, with data rather than opinion, between the workflow (4.6) and the agent (4.5)?',
+        hint:   'Same inputs, several measures.',
+        answer: '<p>Run both on the same labeled set of claims, several times each. Compare accuracy against the labels, LLM calls and latency per claim, the share that ends in human review, and how often the agent’s path or answer changes between runs. Include the awkward cases (theft, injuries, vague text). If the workflow matches the agent’s accuracy on all of them, it wins on everything else; if the agent handles the awkward cases better, consider an agent step just for those.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Choosing an agent because it sounds more advanced.',
+      'Blaming the design for an error caused by a guessed number or a missing gate.',
+      'Forcing a workflow onto open-ended input until it becomes a tangle of special cases.',
+      'Assuming the design choice is permanent; tools and gates carry over between designs.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

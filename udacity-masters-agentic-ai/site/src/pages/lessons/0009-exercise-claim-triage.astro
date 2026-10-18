@@ -14,6 +14,8 @@ import SourceBadge       from '@/components/SourceBadge.astro';
 import NotebookView      from '@/components/NotebookView.astro';
 import claimTriageNb     from '../../../../code/course-1/4.4-claim-triage/claim_triage.ipynb?raw';
 
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 const sampleFnol = `
 Claim ID: C003
 Customer: Michael Rodriguez
@@ -67,7 +69,7 @@ def assess_severity(claim_info: ClaimInformation) -> Optional[SeverityAssessment
 
 
 const mindMap = `
-# Exercise: Automated Claim Triage
+# Exercise: Insurance Claims with a Prompt Chain
 ## The chain
 ### I · Extract → ClaimInformation → Gate 1 (shape)
 ### II · Assess → SeverityAssessment → Gate 2 (shape + cost range)
@@ -93,17 +95,27 @@ const mindMap = `
 `.trim();
 ---
 
-<LessonLayout title="4.4 — Exercise: Automated Claim Triage">
+<LessonLayout title="4.4 — Exercise: Insurance Claims with a Prompt Chain">
 
   <LessonHeader
     num="4.4"
-    title="Exercise: Automated Claim Triage"
+    title="Exercise: Insurance Claims with a Prompt Chain"
     subtitle="A three-stage prompt chain with gate checks, what its run revealed, and reflections on making it production-grade."
   />
 
   <div class="lesson-content">
 
     <LessonToc />
+
+    <LessonCallout variant="info" title="One job, three designs">
+      <p>
+        The course calls this exercise <em>Automated Claim Triage</em>. It's built as a <strong>prompt chain</strong>:
+        every stage is an LLM call, in a fixed order. The next lessons build the same job two more ways:
+        <a href={`${base}/lessons/0013-exercise-claim-agent`}>4.5</a> as a ReAct agent,
+        <a href={`${base}/lessons/0016-exercise-claims-workflow`}>4.6</a> as a workflow, and
+        <a href={`${base}/lessons/0017-decision-guide-chain-workflow-agent`}>4.7</a> compares the three.
+      </p>
+    </LessonCallout>
 
     <h2 class="lesson-heading">The Exercise <SourceBadge source="course" /></h2>
 

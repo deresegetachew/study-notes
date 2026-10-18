@@ -1,0 +1,274 @@
+---
+import LessonLayout      from '@/layouts/LessonLayout.astro';
+import LessonHeader      from '@/components/LessonHeader.astro';
+import LessonCallout     from '@/components/LessonCallout.astro';
+import LessonDiagram     from '@/components/LessonDiagram.astro';
+import LessonChecklist   from '@/components/LessonChecklist.astro';
+import LessonQuiz        from '@/components/LessonQuiz.astro';
+import DeepDive          from '@/components/DeepDive.astro';
+import LessonMindMap     from '@/components/LessonMindMap.astro';
+import LessonToc         from '@/components/LessonToc.astro';
+import SourceBadge       from '@/components/SourceBadge.astro';
+import NotebookView      from '@/components/NotebookView.astro';
+import workflowNb        from '../../../../code/course-1/4.6-claims-workflow/claims_workflow.ipynb?raw';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+const mindMap = `
+# Exercise: Insurance Claims as a Workflow
+## The goal
+### Same claims, data and tools as the 4.5 agent
+### Code fixes the steps; one LLM call
+## Chain vs. workflow
+### Chain: every step an LLM call
+### Workflow: code steps + LLM where needed, with branches
+## The steps
+### Extract (LLM) → gate → retry with feedback
+### Coverage → price → severity → route (code)
+### Not covered → needs_review
+## Results
+### Same queues as the agent should reach
+### 1 LLM call per claim vs. 4–5
+## Limits
+### Every new case is a new branch
+### Too many branches → consider an agent step
+`.trim();
+---
+
+<LessonLayout title="4.6 — Exercise: Insurance Claims as a Workflow">
+
+  <LessonHeader
+    num="4.6"
+    title="Exercise: Insurance Claims as a Workflow"
+    subtitle="The same claims and tools as the 4.5 agent, but code fixes the steps and the LLM is used once."
+  />
+
+  <div class="lesson-content">
+
+    <LessonToc />
+
+    <h2 class="lesson-heading">The Goal <SourceBadge source="mine" /></h2>
+
+    <p>
+      Lesson <a href={`${base}/lessons/0013-exercise-claim-agent`}>4.5</a> built insurance-claim triage as an agent and
+      concluded that, for this job, a workflow would do better. This exercise builds that workflow, with the
+      <strong>same claims, the same data and the same tools</strong> (coverage check, price table, routing rules),
+      so the comparison is fair.
+    </p>
+
+    <p>
+      The difference is who picks the steps. In 4.5 the model chose the next tool every turn. Here your code runs
+      the steps in a fixed order, and the LLM is called <strong>once</strong>, for the only thing code can't do:
+      read the claim text and say what happened and what's damaged.
+    </p>
+
+    <h2 class="lesson-heading">Prompt Chain vs. Workflow <SourceBadge source="mine" /></h2>
+
+    <p>
+      Lesson <a href={`${base}/lessons/0009-exercise-claim-triage`}>4.4</a> was also a fixed sequence, so what's
+      different? In 4.4 every stage was an LLM call: extract, then assess severity and cost, then route. A prompt chain
+      is a workflow whose steps are all LLM calls. This workflow mixes the two kinds of step: one LLM call where
+      judgment is needed, and code everywhere else.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>4.4 prompt chain</th><th>4.6 workflow</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Steps</td><td>3 LLM calls in a line</td><td>1 LLM call, then 4 code steps</td></tr>
+          <tr><td>Severity and cost</td><td>The model guesses them</td><td>Code: price table, then the cost band</td></tr>
+          <tr><td>Coverage</td><td>Not checked</td><td>Checked, with a branch to <code>needs_review</code></td></tr>
+          <tr><td>Gates</td><td>After every LLM stage</td><td>After the one LLM stage; code steps don't need one</td></tr>
+          <tr><td>Hail claim (C004)</td><td>Moderate, $3,000: passed every gate, wrong</td><td>Major, $5,450 → <code>total_loss</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">The Steps <SourceBadge source="mine" /></h2>
+
+    <LessonDiagram definition={`
+flowchart TB
+  F["📄 FNOL text"]:::in --> X["🤖 Extract (the one LLM call)<br/>incident type + damaged areas"]:::llm
+  X --> G{{"🚦 Pydantic gate<br/>allowed types and areas?"}}:::gate
+  G -.->|"❌ error as feedback<br/>(up to 3 tries)"| X
+  G -.->|"❌ 3 failures"| R["👤 needs_review"]:::warn
+  G -->|"✅ ClaimFacts"| C["🛠️ check_coverage"]:::code
+  C -.->|"not covered"| R
+  C -->|"covered"| P["🛠️ price_damage"]:::code
+  P --> S["🧮 severity from the total"]:::code
+  S --> Q["🛠️ route_claim"]:::code
+  Q --> D["📥 glass · fast_track · material_damage · total_loss"]:::done
+
+  classDef in   fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef code fill:#fef3c7,color:#78350f,stroke:#d97706,stroke-width:2px
+  classDef gate fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Step</th><th>Who</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Extract</td><td>LLM</td><td>Returns <code>ClaimFacts</code>: claim ID, incident type, damaged areas (an area listed once per part, so two doors is <code>["door", "door"]</code>)</td></tr>
+          <tr><td>Gate + retry</td><td>Code</td><td>Pydantic refuses anything outside the allowed lists; the error goes back to the model, up to 3 tries. This is the workflow's only feedback loop.</td></tr>
+          <tr><td>Check coverage</td><td>Code</td><td>The one branch: not covered, or the policy has lapsed → <code>needs_review</code></td></tr>
+          <tr><td>Price the damage</td><td>Code</td><td>The price table from 4.5</td></tr>
+          <tr><td>Severity</td><td>Code</td><td>From the total: up to $1,000 Minor, up to $5,000 Moderate, above that Major</td></tr>
+          <tr><td>Route</td><td>Code</td><td>4.4's routing rules</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      In 4.5 the agent chose a severity and the final gate checked it against the price. Here there's nothing to
+      check: once the cost comes from a table, the severity follows from the cost bands, so code computes it.
+    </p>
+
+    <h2 class="lesson-heading">What the Code Part Produces <SourceBadge source="mine" /></h2>
+
+    <p>
+      Everything after extraction runs without a model. Given the facts a correct extraction returns, the notebook's
+      "you play the extraction step" cell produces:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Claim</th><th>Queue</th><th>Severity · cost</th><th>Steps after extraction</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>C001 windshield chip</td><td><code>glass</code></td><td>Minor · $300</td><td>coverage › price › route</td></tr>
+          <tr><td>C002 parked, bumper + taillight</td><td><code>material_damage</code></td><td>Moderate · $1,250</td><td>coverage › price › route</td></tr>
+          <tr><td>C003 collision, engine</td><td><code>total_loss</code></td><td>Major · $11,400</td><td>coverage › price › route</td></tr>
+          <tr><td>C004 hail</td><td><code>total_loss</code></td><td>Major · $5,450</td><td>coverage › price › route</td></tr>
+          <tr><td>C005 keyed doors</td><td><code>needs_review</code></td><td>not covered (vandalism needs comprehensive)</td><td>coverage</td></tr>
+          <tr><td>C006 lapsed policy</td><td><code>needs_review</code></td><td>policy not active</td><td>coverage</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      These are the queues the 4.5 agent should reach, with one LLM call per claim instead of four or five, and the
+      same steps every time. The only part that can vary between runs is the extraction, and it's gated.
+    </p>
+
+    <h2 class="lesson-heading">Run It Yourself <SourceBadge source="mine" /></h2>
+
+    <ol>
+      <li><strong>Setup:</strong> Colab's built-in model.</li>
+      <li><strong>Data and tools:</strong> unchanged from 4.5.</li>
+      <li><strong>The one LLM step:</strong> <code>ClaimFacts</code>, the extraction prompt, and the retry with feedback.</li>
+      <li><strong>The workflow:</strong> <code>decide</code> (all code) and <code>triage</code>.</li>
+      <li><strong>You play the extraction step:</strong> the results above, plus the gate refusing bad extractions. No LLM needed.</li>
+      <li><strong>Run the workflow</strong> on the six claims, with the LLM calls counted.</li>
+      <li><strong>Your turn:</strong> theft, injuries, and when the branches get too many.</li>
+    </ol>
+
+    <NotebookView notebook={workflowNb} path="code/course-1/4.6-claims-workflow/claims_workflow.ipynb" />
+
+    <LessonCallout variant="tip" title="Running it in Colab">
+      <p>
+        <strong>Run the setup cell first.</strong> The notebook uses Colab's built-in models, no API key needed;
+        the setup cell lists them, and uncommenting a <code>MODEL = ...</code> line there picks one. Then run the 4.5
+        notebook on the same claims and compare <code>llm_calls</code> with the agent's steps.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Where the Workflow Runs Out <SourceBadge source="mine" /></h2>
+
+    <p>
+      This workflow has one branch. Real claims bring more: a theft has nothing to price and needs a police report;
+      an injury goes to a different team; a vague description needs photos before anything else. Each is another
+      <code>if</code> in <code>decide</code>, and each needs the extraction to return one more field.
+    </p>
+
+    <p>
+      That's fine for a handful of cases. When the branches keep multiplying, or the right next step depends on what
+      the previous one found, it's time to consider an agent step for that part. Lesson
+      <a href={`${base}/lessons/0017-decision-guide-chain-workflow-agent`}>4.7</a> compares all three designs and
+      turns this into a decision guide.
+    </p>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="mine" /></h2>
+
+    <LessonChecklist
+      title="Building a workflow with LLM steps:"
+      items={[
+        '<strong>Write the steps down first</strong>; if you can, a workflow is an option',
+        '<strong>Use the LLM only where text needs reading or writing</strong>; everything else is code',
+        '<strong>Extract into a typed model</strong> that has exactly the fields the code steps need',
+        '<strong>Gate the LLM step and retry with the error</strong>, capped, then hand over to a person',
+        '<strong>Compute what follows from data</strong> (severity from cost) instead of asking a model',
+        '<strong>Branches are explicit</strong>: every early exit has a reason',
+        '<strong>Record the steps</strong> so runs can be compared with other designs',
+        '<strong>Watch the branch count</strong>: many special cases are a signal to consider an agent step',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="mine" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'What makes 4.6 a workflow rather than a prompt chain like 4.4?',
+        options: ['Code runs most steps; the LLM is one step among them, with a branch', 'It uses Pydantic', 'It has no fixed order', 'The model picks the next step'],
+        answer:  0,
+        explain: 'A prompt chain is a workflow whose steps are all LLM calls. Here only extraction is.',
+      },
+      {
+        q:       'Why does the workflow compute severity in code instead of asking the model?',
+        options: ['The cost comes from the price table, and severity follows from the cost bands', 'The model cannot classify severity', 'Severity is not needed for routing', 'Pydantic computes it'],
+        answer:  0,
+        explain: 'Once an input is grounded in data, whatever follows from it by rule belongs in code.',
+      },
+      {
+        q:       'How many LLM calls does the workflow make for a claim when extraction passes the gate first time?',
+        options: ['1', '2', '4–5', 'One per code step'],
+        answer:  0,
+        explain: 'Only extraction calls the model. The 4.5 agent needs one call per tool call.',
+      },
+      {
+        q:       'Which change would most push you toward an agent step?',
+        options: ['Many new claim types whose next step depends on what earlier checks found', 'A new price in the table', 'A faster model', 'One more queue name'],
+        answer:  0,
+        explain: 'Paths that vary with findings are where agents earn their cost.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="own exercise, building on lesson 4.4 (prompt chain) and lesson 4.5 (agent), same data and tools"
+    tensions={[
+      { a: 'Fixed steps (predictable, cheap, testable)', b: 'New cases need new code' },
+      { a: 'One big extraction (one call)', b: 'More fields to get right in a single answer' },
+      { a: 'Compute severity from cost (consistent)', b: 'Loses judgment the price table can’t express' },
+    ]}
+    questions={[
+      {
+        q:      'The workflow trusts the extraction completely: a missed damage area means a lower price. How would you reduce that risk without adding an agent?',
+        hint:   'Where else could you check the extraction?',
+        answer: '<p>Add a second check on the extraction: a rule cross-check in code (airbags deployed or "not drivable" in the text → at least Major; escalate if not), a second LLM call that only answers "is any damage in the text missing from this list?", or a sample of claims reviewed by people. All of these stay inside the workflow; they add steps, not autonomy.</p>',
+      },
+      {
+        q:      'Severity used to be a judgment (the course’s heuristics: "multiple panels, structural"). Is computing it from cost a loss?',
+        hint:   'What does the price table not know?',
+        answer: '<p>Partly. The table knows typical repair costs, not structural damage, frame alignment or whether a car is worth repairing at all. For most claims the cost band is a good proxy; for the expensive tail it isn’t. A reasonable design keeps the code rule and adds a branch: claims near a band boundary, or with structural keywords, go to a person or get an LLM judgment step.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Calling the model for steps that code can compute from data.',
+      'Gating code steps as if they were LLM steps, and not gating the LLM step.',
+      'An extraction model missing a field a later branch needs.',
+      'Adding branch after branch without asking whether the path has stopped being predictable.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>

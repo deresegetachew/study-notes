@@ -15,10 +15,11 @@ import claimAgentNb      from '../../../../code/course-1/4.5-claim-agent/claim_a
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 const mindMap = `
-# Exercise: Claim Triage as an Agent
+# Exercise: Insurance Claims Agent with ReAct and Feedback Loops
 ## The goal
 ### Same claims as 4.4, built as a ReAct agent
-### Then compare: workflow vs. agent
+### Feedback loop: errors go back to the model
+### Compared with 4.4 (chain) and 4.6 (workflow)
 ## Step 1 · Split the job
 ### Model: read the text, pick the next step
 ### Code: facts, prices, rules
@@ -36,18 +37,19 @@ const mindMap = `
 ## Step 6 · Loop
 ### Exit 1: accepted final answer
 ### Exit 2: step limit → needs_review
+### Every error is feedback the model acts on
 ## Verdict
 ### Known steps → workflow is cheaper
 ### Path depends on findings → agent
 `.trim();
 ---
 
-<LessonLayout title="4.5 — Exercise: Claim Triage as an Agent">
+<LessonLayout title="4.5 — Exercise: Insurance Claims Agent with ReAct and Feedback Loops">
 
   <LessonHeader
     num="4.5"
-    title="Exercise: Claim Triage as an Agent"
-    subtitle="The 4.4 claim triage rebuilt as a ReAct agent, one piece at a time, then compared with the workflow."
+    title="Exercise: Insurance Claims Agent with ReAct and Feedback Loops"
+    subtitle="The 4.4 insurance claims rebuilt as a ReAct agent that corrects itself from feedback, one piece at a time."
   />
 
   <div class="lesson-content">
@@ -59,8 +61,9 @@ const mindMap = `
     <p>
       Lesson 4.2 asked: <strong>workflow or agent?</strong> In a workflow your code fixes the steps; in an
       agent the model picks the next step. Lesson <a href={`${base}/lessons/0009-exercise-claim-triage`}>4.4</a>
-      built claim triage as a workflow. This exercise builds the same job as an agent, using the ReAct loop
-      from lesson 2.1, so the two can be compared on the same claims.
+      built claim triage as a prompt chain: extract → assess → route, every step an LLM call, in a fixed order.
+      This exercise builds the same job as an agent, using the ReAct loop from lesson 2.1. Lesson 4.6 then builds
+      it as a workflow, and 4.7 compares all three on the same claims.
     </p>
 
     <p>Two things change compared with 4.4, and both give the agent a reason to choose its path:</p>
@@ -192,6 +195,16 @@ const mindMap = `
       limit, which sends the claim to <code>needs_review</code> so a stuck agent can't loop forever.
     </p>
 
+    <h3 class="lesson-heading">The feedback loop inside the loop</h3>
+
+    <p>
+      Every <code>OBSERVE: ERROR</code> is feedback. The parser can't read the call, a tool refuses an area name, the
+      final gate refuses a cost that isn't the price total: each time, the error goes back into the history and
+      the model's next turn tries to fix it. That's the feedback-loop pattern (generate, check, feed the result
+      back, try again), with the gates as the checker and the step limit as the iteration limit. Lesson 5.1
+      covers feedback loops in depth.
+    </p>
+
     <LessonDiagram definition={`
 flowchart TB
   F["📄 FNOL text"]:::in --> M["🤖 Model<br/>THINK + ACT"]:::llm
@@ -238,12 +251,12 @@ flowchart TB
       </p>
     </LessonCallout>
 
-    <h2 class="lesson-heading">Workflow vs. Agent: What This Shows <SourceBadge source="mine" /></h2>
+    <h2 class="lesson-heading">Chain vs. Agent: What This Shows <SourceBadge source="mine" /></h2>
 
     <div class="lesson-table">
       <table>
         <thead>
-          <tr><th></th><th>4.4 workflow</th><th>4.5 agent</th></tr>
+          <tr><th></th><th>4.4 prompt chain</th><th>4.5 agent</th></tr>
         </thead>
         <tbody>
           <tr><td>Who picks the next step</td><td>Your code, always the same order</td><td>The model, each turn</td></tr>
@@ -257,8 +270,9 @@ flowchart TB
 
     <p>
       For this job the agent isn't the better design. The steps are known in advance: check coverage, price
-      the damage, route. A workflow that adds <code>check_coverage</code> and <code>price_damage</code> as fixed
-      steps would get the same answers with fewer LLM calls and the same path every time. The price table, not
+      the damage, route. A workflow that runs <code>check_coverage</code> and <code>price_damage</code> as fixed
+      steps gets the same answers with fewer LLM calls and the same path every time. Lesson
+      <a href={`${base}/lessons/0016-exercise-claims-workflow`}>4.6</a> builds exactly that. The price table, not
       the agent, is what fixed the hail claim.
     </p>
 
@@ -266,7 +280,8 @@ flowchart TB
       The agent earns its cost when the path depends on what it finds: a theft needs a police report and no
       pricing, a vague description needs photos first, a claim that mentions an injury goes to a different
       team. That's the rule of thumb from 4.2: known steps, use a workflow; steps that depend on findings, use
-      an agent. Often the answer is both: a workflow with one agent step where the path varies.
+      an agent. Often the answer is both: a workflow with one agent step where the path varies. Lesson
+      <a href={`${base}/lessons/0017-decision-guide-chain-workflow-agent`}>4.7</a> turns this into a decision guide.
     </p>
 
     <h2 class="lesson-heading">Checklist <SourceBadge source="mine" /></h2>

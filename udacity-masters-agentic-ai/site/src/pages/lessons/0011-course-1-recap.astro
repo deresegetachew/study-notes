@@ -360,7 +360,7 @@ flowchart BT
     <p>
       Lessons: <a href={L('0007-prompt-chaining')}>4.2 gate checks</a> ·
       <a href={L('0008-pydantic-structured-data')}>4.3 Pydantic</a> ·
-      <a href={L('0009-exercise-claim-triage')}>4.4 Claim Triage</a>
+      <a href={L('0009-exercise-claim-triage')}>4.4 Prompt Chain</a>
     </p>
 
     <h3 class="lesson-heading">Step 6 · Make it improve</h3>
@@ -465,10 +465,11 @@ flowchart TB
           <tr><td>3.1 Refinement</td><td>Vague vs. refined prompt on three emails, validated</td><td><OpenInColab path="code/course-1/3.1-prompt-refinement/prompt_refinement.ipynb" label="Open" /></td></tr>
           <tr><td>4.2 Prompt chaining</td><td>Sequential chain, workflow, gate checks, code chain</td><td><OpenInColab path="code/course-1/4.2-prompt-chaining/prompt_chaining.ipynb" label="Open" /></td></tr>
           <tr><td>4.3 Pydantic</td><td>Models, validation, gotchas, extraction with retry</td><td><OpenInColab path="code/course-1/4.3-pydantic/pydantic.ipynb" label="Open" /></td></tr>
-          <tr><td>4.4 Claim triage</td><td>Three-stage chain with gates and human review</td><td><OpenInColab path="code/course-1/4.4-claim-triage/claim_triage.ipynb" label="Open" /></td></tr>
-          <tr><td>4.5 Claim agent</td><td>The same triage as a ReAct agent, with a final gate</td><td><OpenInColab path="code/course-1/4.5-claim-agent/claim_agent.ipynb" label="Open" /></td></tr>
-          <tr><td>4.6 Invoice claim agent</td><td>Customer claims by email or claim button: scoped tools, credit policy, reply check</td><td><OpenInColab path="code/course-1/4.6-invoice-claim-agent/invoice_claim_agent.ipynb" label="Open" /></td></tr>
-          <tr><td>4.7 Invoice processing agent</td><td>Accounts-payable agent: varying paths, lopsided gate, prompt injection</td><td><OpenInColab path="code/course-1/4.7-invoice-agent/invoice_agent.ipynb" label="Open" /></td></tr>
+          <tr><td>4.4 Claims, prompt chain</td><td>Three-stage chain with gates and human review</td><td><OpenInColab path="code/course-1/4.4-claim-triage/claim_triage.ipynb" label="Open" /></td></tr>
+          <tr><td>4.5 Claims, agent</td><td>The same claims as a ReAct agent with a final gate and feedback loop</td><td><OpenInColab path="code/course-1/4.5-claim-agent/claim_agent.ipynb" label="Open" /></td></tr>
+          <tr><td>4.6 Claims, workflow</td><td>The same claims as a workflow: one LLM call, the rest in code</td><td><OpenInColab path="code/course-1/4.6-claims-workflow/claims_workflow.ipynb" label="Open" /></td></tr>
+          <tr><td>4.8 Invoice claim agent</td><td>Customer claims by email or claim button: scoped tools, credit policy, reply check</td><td><OpenInColab path="code/course-1/4.8-invoice-claim-agent/invoice_claim_agent.ipynb" label="Open" /></td></tr>
+          <tr><td>4.9 Invoice processing agent</td><td>Accounts-payable agent: varying paths, lopsided gate, prompt injection</td><td><OpenInColab path="code/course-1/4.9-invoice-agent/invoice_agent.ipynb" label="Open" /></td></tr>
           <tr><td>5.1 Feedback loops</td><td>Test-driven refinement of a small function</td><td><OpenInColab path="code/course-1/5.1-feedback-loops/feedback_loop.ipynb" label="Open" /></td></tr>
           <tr><td>5.2 Debugging assistant</td><td>The course's code-correcting loop</td><td><OpenInColab path="code/course-1/5.2-code-debugging-assistant/code_debugging_assistant.ipynb" label="Open" /></td></tr>
         </tbody>
