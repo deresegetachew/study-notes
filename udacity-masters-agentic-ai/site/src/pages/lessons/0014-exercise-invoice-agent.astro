@@ -10,7 +10,7 @@ import LessonMindMap     from '@/components/LessonMindMap.astro';
 import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
 import NotebookView      from '@/components/NotebookView.astro';
-import invoiceAgentNb    from '../../../../code/course-1/4.6-invoice-agent/invoice_agent.ipynb?raw';
+import invoiceAgentNb    from '../../../../code/course-1/4.7-invoice-agent/invoice_agent.ipynb?raw';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -40,10 +40,10 @@ const mindMap = `
 `.trim();
 ---
 
-<LessonLayout title="4.6 — Exercise: Invoice Processing Agent">
+<LessonLayout title="4.7 — Exercise: Invoice Processing Agent">
 
   <LessonHeader
-    num="4.6"
+    num="4.7"
     title="Exercise: Invoice Processing Agent"
     subtitle="An accounts-payable agent whose path depends on the invoice, with a gate that's strict about paying and immune to instructions hidden in the invoice."
   />
@@ -243,7 +243,7 @@ flowchart TB
       <li><strong>Your turn:</strong> four extensions to try.</li>
     </ol>
 
-    <NotebookView notebook={invoiceAgentNb} path="code/course-1/4.6-invoice-agent/invoice_agent.ipynb" />
+    <NotebookView notebook={invoiceAgentNb} path="code/course-1/4.7-invoice-agent/invoice_agent.ipynb" />
 
     <LessonCallout variant="tip" title="Running it in Colab">
       <p>

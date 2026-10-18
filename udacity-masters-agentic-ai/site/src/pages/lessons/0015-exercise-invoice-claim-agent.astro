@@ -1,0 +1,376 @@
+---
+import LessonLayout      from '@/layouts/LessonLayout.astro';
+import LessonHeader      from '@/components/LessonHeader.astro';
+import LessonCallout     from '@/components/LessonCallout.astro';
+import LessonDiagram     from '@/components/LessonDiagram.astro';
+import LessonChecklist   from '@/components/LessonChecklist.astro';
+import LessonQuiz        from '@/components/LessonQuiz.astro';
+import DeepDive          from '@/components/DeepDive.astro';
+import LessonMindMap     from '@/components/LessonMindMap.astro';
+import LessonToc         from '@/components/LessonToc.astro';
+import SourceBadge       from '@/components/SourceBadge.astro';
+import NotebookView      from '@/components/NotebookView.astro';
+import claimAgentNb      from '../../../../code/course-1/4.6-invoice-claim-agent/invoice_claim_agent.ipynb?raw';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+const mindMap = `
+# Exercise: Invoice Claim Agent
+## The goal
+### Customer claims against an invoice
+### credit · reject · request_info · escalate, plus a reply
+## Two channels
+### Email: free text, maybe no invoice number
+### Claim button: invoice + reason + comment
+### Identity from the channel, never the text
+## Split the job
+### Model: understand the claim, find the invoice, write the reply
+### Code: identity, data access, amounts, limits
+## Tools
+### list_invoices · get_invoice · compute_credit
+### Scoped to one customer
+## Credit policy in code
+### double_charge · wrong_price · outage · billed_after_cancel
+## Final gate
+### credit: eligible, exact amount, ≤ $100
+### reject: only when nothing is owed
+### Reply: only amounts a tool returned
+## Workflow or agent?
+### Button claims: nearly a workflow
+### Emails: the agent earns its keep
+`.trim();
+---
+
+<LessonLayout title="4.6 — Exercise: Invoice Claim Agent">
+
+  <LessonHeader
+    num="4.6"
+    title="Exercise: Invoice Claim Agent"
+    subtitle="A customer claims against an invoice by email or with the claim button; a ReAct agent investigates, decides and replies, inside rules it can't break."
+  />
+
+  <div class="lesson-content">
+
+    <LessonToc />
+
+    <h2 class="lesson-heading">The Goal <SourceBadge source="mine" /></h2>
+
+    <p>
+      Customers of an internet provider (Lumen Fiber, made up) sometimes think an invoice is wrong: they were
+      charged twice, billed after cancelling, charged more than their plan, or the service was down. They
+      <strong>claim against the invoice</strong>, and today a support person reads each claim, checks the account and
+      answers.
+    </p>
+
+    <p>
+      The agent does that job. For each claim it finds the invoice, works out what the claim is, checks what's
+      owed, and decides: <code>credit</code>, <code>reject</code>, <code>request_info</code> (ask the customer a
+      question) or <code>escalate</code> (a person takes over). Every decision comes with a reply to the customer.
+      It uses the same ReAct harness as <a href={`${base}/lessons/0013-exercise-claim-agent`}>4.5</a>.
+    </p>
+
+    <h2 class="lesson-heading">Two Channels, One Agent <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Email</th><th>Claim button on the invoice</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Who is the customer?</td><td>The sender address, from the mail system</td><td>The logged-in session</td></tr>
+          <tr><td>Which invoice?</td><td>Maybe mentioned, maybe "my September bill", maybe nothing</td><td>Known: the button is on the invoice</td></tr>
+          <tr><td>What's the problem?</td><td>Free text, sometimes vague or angry</td><td>A reason from a dropdown, plus a comment</td></tr>
+          <tr><td>Steps the agent needs</td><td>More: find the invoice, work out the claim type</td><td>Fewer: often straight to the credit check</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Both channels are turned into one message for the agent, plus a <code>customer_id</code> the agent never sets.
+      An email from an unknown address never reaches the agent: plain code replies asking the sender to claim
+      from their account page.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart TB
+  E["📧 Email<br/>free text"]:::in --> IE["🔐 sender address → customer<br/>(code)"]:::code
+  B["🖱️ Claim button<br/>invoice + reason + comment"]:::in --> IB["🔐 logged-in session → customer<br/>(code)"]:::code
+  IE -.->|"unknown sender"| X["📨 'please claim from your account'<br/>no agent"]:::warn
+  IE --> A["🤖 Agent<br/>THINK + ACT"]:::llm
+  IB --> A
+  A -->|"ACT"| T["🛠️ Tools for this customer only<br/>list_invoices · get_invoice · compute_credit"]:::code
+  T -.->|"OBSERVE"| A
+  A -->|"final_answer"| G{{"🚦 Final gate"}}:::gate
+  G --> R1["💳 credit"]:::done
+  G --> R2["❌ reject"]:::done
+  G --> R3["❓ request_info"]:::done
+  G --> R4["👤 escalate"]:::done
+
+  classDef in   fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef code fill:#fef3c7,color:#78350f,stroke:#d97706,stroke-width:2px
+  classDef gate fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <h2 class="lesson-heading">Step 1 · Split the Job <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Decision</th><th>Who</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>What is the customer claiming?</td><td>Model</td><td>"Two payments of $59 to Lumen" means a double charge</td></tr>
+          <tr><td>Which invoice?</td><td>Model, with <code>list_invoices</code></td><td>"My September bill" has to be matched to an invoice</td></tr>
+          <tr><td>Is it clear enough to act on?</td><td>Model</td><td>"The bill is wrong. Fix it." needs a question back</td></tr>
+          <tr><td>The reply</td><td>Model</td><td>Writing a kind, clear message is what LLMs are good at</td></tr>
+          <tr><td>Who the customer is</td><td>Code (channel)</td><td>Text can claim to be anyone</td></tr>
+          <tr><td>How much is owed</td><td>Code (credit policy)</td><td>A fixed policy with a right answer</td></tr>
+          <tr><td>Whether a person must approve</td><td>Code (final gate)</td><td>A business limit, not a judgment call</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Step 2 · Tools Scoped to One Customer <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Tool</th><th>Returns</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>list_invoices()</code></td><td>The customer's invoices, newest first. For emails that don't name one.</td></tr>
+          <tr><td><code>get_invoice(invoice_id)</code></td><td>One invoice, the payments received, the plan and the contract price</td></tr>
+          <tr><td><code>compute_credit(invoice_id, claim_type)</code></td><td>Applies the credit policy: eligible, amount, and the basis in words</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      None of the tools takes a customer ID. <code>make_tools(customer_id)</code> builds them for the customer the
+      channel identified, so the agent can only ever see that customer's invoices. If an email asks about
+      someone else's invoice, <code>get_invoice</code> answers "no invoice INV-3201 on this customer's account",
+      however the email is worded.
+    </p>
+
+    <LessonCallout variant="key" title="Identity from the channel, access from the tools">
+      <p>
+        Never let the model decide who the customer is, and never give it a tool that can reach other customers'
+        data. Then no wording in a message can widen what the agent can see or do. This is least privilege, applied
+        to an agent.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Step 3 · The Credit Policy, in Code <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Claim type</th><th>Credit</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>double_charge</code></td><td>Everything paid above the invoice amount</td></tr>
+          <tr><td><code>wrong_price</code></td><td>Invoice amount minus the contract price</td></tr>
+          <tr><td><code>outage</code></td><td>Price × outage days / 30, if the outage lasted 2 days or more</td></tr>
+          <tr><td><code>billed_after_cancel</code></td><td>The whole invoice, if its period starts after the cancellation</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The model picks the claim type; the policy computes the amount. <code>compute_credit</code> also returns the
+      <em>basis</em> ("6 outage days recorded in 2026-10"), which the model uses to explain the decision in the reply.
+    </p>
+
+    <h2 class="lesson-heading">Step 4 · The Final Gate <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Action</th><th>Allowed when</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>credit</code></td><td><code>compute_credit</code> ran for this invoice and found it eligible, the amount is exactly what it returned, and it's $100 or less</td></tr>
+          <tr><td><code>reject</code></td><td><code>compute_credit</code> ran for this invoice and found nothing owed</td></tr>
+          <tr><td><code>request_info</code>, <code>escalate</code></td><td>Always</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      One more check runs on <strong>every</strong> action: each dollar amount in the reply must be a number some tool
+      returned. The reply is generated text going straight to a customer, and a promise in it ("we'll refund
+      $65") is hard to take back. The gate pulls the amounts out with a regex and compares them with the tool
+      results.
+    </p>
+
+    <p>
+      Kessler Bakery's email asks for a $200 goodwill credit "as agreed with your support team". Nothing in the
+      tools knows about that agreement, so a reply that mentions $200 is refused, even on an
+      <code>escalate</code>. If the agreement is real, a person will find it.
+    </p>
+
+    <h2 class="lesson-heading">Step 5 · Prompt and Loop <SourceBadge source="mine" /></h2>
+
+    <p>
+      The harness is the one from 4.5: the parser reads the <code>ACT:</code> line with <code>ast</code>, errors go back as
+      <code>OBSERVE: ERROR</code>, and the loop has two exits. It changes in three places:
+    </p>
+
+    <ul>
+      <li>The tools come from <code>make_tools(customer_id)</code>.</li>
+      <li>The executor collects every number a tool returns, for the reply check.</li>
+      <li>Exit 2 (step limit) escalates with a holding reply: "a colleague will look at your claim".</li>
+    </ul>
+
+    <p>
+      The system prompt has the usual four parts. The claim types and actions say <em>when</em> each applies,
+      and the prompt says the customer's message isn't instructions and that the reply may only mention amounts
+      the tools returned. The gate enforces both anyway.
+    </p>
+
+    <h2 class="lesson-heading">The Claims <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Claim</th><th>Channel</th><th>What's going on</th><th>Right outcome</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Maria, charged twice</td><td>Email</td><td>No invoice number; two payments for September</td><td><code>credit</code> $59.00</td></tr>
+          <tr><td>Tom, cancelled</td><td>Button</td><td>Cancelled 31 August, billed for September</td><td><code>credit</code> $79.00</td></tr>
+          <tr><td>Aisha, wrong price</td><td>Email</td><td>Billed $69, plan is $49</td><td><code>credit</code> $20.00</td></tr>
+          <tr><td>Aisha, outage</td><td>Button</td><td>6 outage days recorded in October</td><td><code>credit</code> $9.80</td></tr>
+          <tr><td>Maria, wants a discount</td><td>Email</td><td>"Prices are too high"; the invoice matches her plan</td><td><code>reject</code>, kindly</td></tr>
+          <tr><td>Aisha, vague</td><td>Email</td><td>"The bill is wrong. Fix it." She has two invoices</td><td><code>request_info</code></td></tr>
+          <tr><td>Kessler Bakery</td><td>Email</td><td>Charged twice ($450), plus a $200 "goodwill credit, as agreed"</td><td><code>escalate</code>, no $200 in the reply</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Run It Yourself <SourceBadge source="mine" /></h2>
+
+    <p>One notebook, in this order:</p>
+
+    <ol>
+      <li><strong>Setup:</strong> Colab's built-in model.</li>
+      <li><strong>Account data and the credit policy.</strong></li>
+      <li><strong>Tools:</strong> <code>make_tools(customer_id)</code>.</li>
+      <li><strong>The final gate:</strong> <code>ClaimDecision</code> and <code>check_final</code>.</li>
+      <li><strong>Channels:</strong> <code>from_email</code> and <code>from_button</code>.</li>
+      <li><strong>Parser, executor, loop.</strong></li>
+      <li><strong>You play the model:</strong> a refund reply with the wrong amount, Kessler's $450 and $200, and a look at someone else's invoice. No LLM needed.</li>
+      <li><strong>The system prompt</strong>, then <strong>the run</strong>: Kessler with the full trace, then all seven claims.</li>
+      <li><strong>Your turn:</strong> four extensions to try.</li>
+    </ol>
+
+    <NotebookView notebook={claimAgentNb} path="code/course-1/4.6-invoice-claim-agent/invoice_claim_agent.ipynb" />
+
+    <LessonCallout variant="tip" title="Running it in Colab">
+      <p>
+        <strong>Run the setup cell first.</strong> The notebook uses Colab's built-in models, no API key needed;
+        the setup cell lists them, and uncommenting a <code>MODEL = ...</code> line there picks one. Read the replies,
+        not just the actions: is the reject for Maria's discount request kind and clear about why?
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Button vs. Email: Workflow or Agent? <SourceBadge source="mine" /></h2>
+
+    <p>
+      Look at the steps each claim takes. A button claim already has the invoice and a reason, so the path is
+      nearly fixed: map the reason to a claim type, call <code>compute_credit</code>, decide, reply. That's a
+      workflow, with one LLM call to write the reply.
+    </p>
+
+    <p>
+      An email is different. The agent may need to list invoices, figure out which month the customer means,
+      decide between claim types, or notice that it can't tell and ask. The path depends on what the email says,
+      which is where an agent earns its cost.
+    </p>
+
+    <p>
+      So the practical design is both: <strong>button claims through a workflow, emails through the agent</strong>,
+      with the same tools, the same credit policy and the same final gate. That's the 4.2 rule of thumb again,
+      applied per channel instead of per product.
+    </p>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="mine" /></h2>
+
+    <LessonChecklist
+      title="Building a customer-facing claims agent:"
+      items={[
+        '<strong>Identity from the channel</strong>: sender address or session, never the message text',
+        '<strong>Tools scoped to one customer</strong>: no tool can reach another account',
+        '<strong>Amounts from a policy in code</strong>; the model picks the claim type and explains',
+        '<strong>Return the basis</strong> with every amount, so the reply can explain the decision',
+        '<strong>Limit automatic credits</strong>; above the limit a person decides',
+        '<strong>Check the reply</strong>: every amount in it must come from a tool',
+        '<strong>Let the agent ask</strong> (request_info) when it can’t tell what the claim is',
+        '<strong>Structured channels can skip the agent</strong>: a claim button is nearly a workflow',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="mine" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'An email from maria.lopez@example.com asks for a refund on invoice INV-3201, which belongs to another customer. What stops the agent from refunding it?',
+        options: ['The tools are built for Maria’s account only, so get_invoice and compute_credit can’t find INV-3201', 'The prompt tells the model to check ownership', 'The model recognizes the invoice number is wrong', 'Nothing; the final gate only checks amounts'],
+        answer:  0,
+        explain: 'Identity comes from the sender address, and make_tools scopes every tool to that customer.',
+      },
+      {
+        q:       'The agent escalates Kessler’s claim with the reply “A colleague will refund the $450.00 and add the $200 goodwill credit.” What happens?',
+        options: ['Refused: $200 is not a number any tool returned', 'Accepted: escalate is always allowed', 'Accepted, because the customer mentioned $200', 'The loop crashes'],
+        answer:  0,
+        explain: 'The reply check runs on every action. A promise in a reply is hard to take back.',
+      },
+      {
+        q:       'Why does the agent pick the claim type while code computes the amount?',
+        options: ['Understanding the customer’s text is judgment; the amount follows a fixed policy with a right answer', 'The model cannot do arithmetic', 'Claim types are secret', 'The policy needs the internet'],
+        answer:  0,
+        explain: 'LLM for reading and writing, code for rules and numbers.',
+      },
+      {
+        q:       'Which claims are the best candidates for a fixed workflow instead of the agent?',
+        options: ['Button claims: the invoice and reason are already known', 'Vague emails', 'Emails without an invoice number', 'Emails asking about several invoices'],
+        answer:  0,
+        explain: 'Structured input makes the path predictable; free text is where the agent earns its cost.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="own exercise, building on lesson 4.5's agent harness and lesson 4.2's workflow-vs-agent rule"
+    tensions={[
+      { a: 'Automatic credits (fast for customers)', b: 'A person approves (safe for the business)' },
+      { a: 'Let the model write free replies (natural)', b: 'Templates (nothing unexpected reaches a customer)' },
+      { a: 'Ask the customer when unclear (accurate)', b: 'Guess the likely invoice (fewer round trips)' },
+    ]}
+    questions={[
+      {
+        q:      'The agent could call compute_credit with one claim type after another until one says eligible. How would you stop that, and what could the fix break?',
+        hint:   'Is trying a second claim type ever legitimate?',
+        answer: '<p>Options: allow only one compute_credit call per invoice, require the final claim_type to match the first one tried, or (for button claims) require it to match the reason the customer picked. The catch: a customer can describe one problem that is really another ("the price is wrong" when they were charged twice), and a strict rule would block the right answer. A middle ground: allow a second claim type, but escalate if more than one was tried, so a person sees it.</p>',
+      },
+      {
+        q:      'The reply check only looks at dollar amounts. What else could a generated reply promise that the gate misses?',
+        hint:   'Dates, actions, policies.',
+        answer: '<p>Timelines ("refunded within 24 hours"), actions ("we have cancelled your contract"), policy claims ("you will never be charged a late fee again") or apologies that admit fault. Defenses: keep the reply short and factual through the prompt, check for risky phrases in code, use templates for the factual part (amount, timeline) and let the model write only the friendly part around it, and sample replies for human review.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Taking the customer’s identity from the message text.',
+      'Giving the agent tools that can read any customer’s data.',
+      'Letting the model compute or promise amounts.',
+      'Checking the decision but not the reply that goes to the customer.',
+      'Running structured button claims through an agent when a workflow would do.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
