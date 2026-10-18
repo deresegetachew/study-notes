@@ -1,0 +1,349 @@
+---
+import LessonLayout      from '@/layouts/LessonLayout.astro';
+import LessonHeader      from '@/components/LessonHeader.astro';
+import LessonCallout     from '@/components/LessonCallout.astro';
+import LessonDiagram     from '@/components/LessonDiagram.astro';
+import LessonChecklist   from '@/components/LessonChecklist.astro';
+import LessonQuiz        from '@/components/LessonQuiz.astro';
+import DeepDive          from '@/components/DeepDive.astro';
+import LessonMindMap     from '@/components/LessonMindMap.astro';
+import LessonToc         from '@/components/LessonToc.astro';
+import SourceBadge       from '@/components/SourceBadge.astro';
+import NotebookView      from '@/components/NotebookView.astro';
+import claimAgentNb      from '../../../../code/course-1/4.5-claim-agent/claim_agent.ipynb?raw';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+const mindMap = `
+# Exercise: Claim Triage as an Agent
+## The goal
+### Same claims as 4.4, built as a ReAct agent
+### Then compare: workflow vs. agent
+## Step 1 · Split the job
+### Model: read the text, pick the next step
+### Code: facts, prices, rules
+## Step 2 · Tools
+### check_coverage · price_damage · route_claim
+### The description is the model's only view
+## Step 3 · Final gate
+### Coverage checked, cost = price total, queue = rules
+### Agent picks the path, gate guards the end
+## Step 4 · Parser + executor
+### ACT line → ast → tool call
+### Errors go back as OBSERVE
+## Step 5 · System prompt
+### Role · THINK/ACT · tools · example
+## Step 6 · Loop
+### Exit 1: accepted final answer
+### Exit 2: step limit → needs_review
+## Verdict
+### Known steps → workflow is cheaper
+### Path depends on findings → agent
+`.trim();
+---
+
+<LessonLayout title="4.5 — Exercise: Claim Triage as an Agent">
+
+  <LessonHeader
+    num="4.5"
+    title="Exercise: Claim Triage as an Agent"
+    subtitle="The 4.4 claim triage rebuilt as a ReAct agent, one piece at a time, then compared with the workflow."
+  />
+
+  <div class="lesson-content">
+
+    <LessonToc />
+
+    <h2 class="lesson-heading">The Goal <SourceBadge source="mine" /></h2>
+
+    <p>
+      Lesson 4.2 asked: <strong>workflow or agent?</strong> In a workflow your code fixes the steps; in an
+      agent the model picks the next step. Lesson <a href={`${base}/lessons/0009-exercise-claim-triage`}>4.4</a>
+      built claim triage as a workflow. This exercise builds the same job as an agent, using the ReAct loop
+      from lesson 2.1, so the two can be compared on the same claims.
+    </p>
+
+    <p>Two things change compared with 4.4, and both give the agent a reason to choose its path:</p>
+
+    <ul>
+      <li>
+        <strong>Coverage.</strong> The agent checks the customer's policy. A claim that isn't covered stops
+        there and goes to a human; there's nothing to price.
+      </li>
+      <li>
+        <strong>Grounded cost.</strong> The agent gets the cost from a price table instead of guessing it. In
+        4.4 the hail claim came out as Moderate, $3,000 because the model guessed the number.
+      </li>
+    </ul>
+
+    <h2 class="lesson-heading">Step 1 · Split the Job <SourceBadge source="mine" /></h2>
+
+    <p>
+      Before writing any code, decide what the model does and what code does. Code is better at anything with
+      a right answer that can be looked up or computed. The model is better at reading messy text.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Decision</th><th>Who</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>What kind of incident is this? (glass, collision, hail, vandalism, theft)</td><td>Model</td><td>Needs reading: "someone keyed my car" means vandalism</td></tr>
+          <tr><td>Which areas are damaged, and how many?</td><td>Model</td><td>"Both doors on the driver's side" means two doors</td></tr>
+          <tr><td>What to do next</td><td>Model</td><td>This is what makes it an agent</td></tr>
+          <tr><td>Is the policy active? Does it cover this?</td><td>Code (tool)</td><td>A fact in the policy system</td></tr>
+          <tr><td>What does the repair cost?</td><td>Code (tool)</td><td>A price table, not a guess</td></tr>
+          <tr><td>Which queue?</td><td>Code (tool + gate)</td><td>Fixed business rules, the same as 4.4</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Step 2 · Write the Tools <SourceBadge source="mine" /></h2>
+
+    <p>
+      Tools are plain Python functions. The model never runs them: it writes an <code>ACT:</code> line asking
+      for one, and your code runs it. Each tool raises a clear error on bad input, because that error is
+      what the model reads when it gets a call wrong.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Tool</th><th>Returns</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>check_coverage(claim_id, incident_type)</code></td><td>policy active? covered? deductible</td><td>Reads a stand-in policy table, like <code>get_calendar()</code> in 4.2. Hail and vandalism need comprehensive cover.</td></tr>
+          <tr><td><code>price_damage(areas)</code></td><td>cost per area, and the total</td><td>Adds <code>mirror</code>, <code>light</code> and <code>engine</code>: in 4.4 the taillight was forced into "glass" because the list had no lights.</td></tr>
+          <tr><td><code>route_claim(severity, est_cost, areas)</code></td><td>the queue</td><td>4.4's routing rules. Refuses a cost that doesn't fit the severity.</td></tr>
+          <tr><td><code>final_answer(claim_id, queue, severity, est_cost, reason)</code></td><td>ends the task</td><td>Not a function: the executor checks it against the final gate (step 3).</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="lesson-heading">Step 3 · The Final Gate <SourceBadge source="mine" /></h2>
+
+    <p>
+      An agent picks its own path, so it can skip a step. The final gate is what stops it from skipping one that
+      matters. When the model calls <code>final_answer</code>, code checks:
+    </p>
+
+    <ol>
+      <li>Coverage was checked. If the claim isn't covered, the queue must be <code>needs_review</code>.</li>
+      <li>The cost is the <code>price_damage</code> total, not a number the model made up.</li>
+      <li>The queue is what the routing rules give for that severity and cost.</li>
+    </ol>
+
+    <p>
+      <code>needs_review</code> is always allowed: handing a claim to a human is never wrong. The executor keeps
+      the last result of every tool in a <code>facts</code> dict, which is what the gate checks against.
+    </p>
+
+    <LessonCallout variant="key" title="The agent picks the path; the gate guards the end">
+      <p>
+        The model can take any route through the tools, but it can't finish with an answer that breaks the
+        business rules. A failed check goes back to the model as an error, the same way a failed gate in 4.4
+        triggered a retry with feedback.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Step 4 · Parser and Executor <SourceBadge source="mine" /></h2>
+
+    <p>
+      The model's reply is text, for example <code>ACT: price_damage(areas=["door", "door"])</code>. The
+      parser turns that into a tool name and arguments. Lesson 2.1 used one regex per tool; here Python's own
+      parser (<code>ast</code>) reads any <code>tool(arg=value)</code> call, so adding a tool needs no new regex.
+    </p>
+
+    <p>
+      The executor runs the tool and returns <code>OBSERVE: &#123;result&#125;</code>. Anything that goes wrong
+      (no <code>ACT:</code> line, an unknown tool, a wrong argument, a failed gate) comes back as
+      <code>OBSERVE: ERROR ...</code> instead of crashing. The model reads the error and fixes its next call.
+    </p>
+
+    <h2 class="lesson-heading">Step 5 · The System Prompt <SourceBadge source="mine" /></h2>
+
+    <p>The four parts from lesson 2.1:</p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Part</th><th>In this prompt</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Role and goal</td><td>A claims triage agent that picks the queue, and never guesses what a tool can tell it</td></tr>
+          <tr><td>THINK/ACT format</td><td>One THINK/ACT pair per reply, then stop; errors come back as <code>OBSERVE: ERROR</code></td></tr>
+          <tr><td>Tools</td><td>Each tool with its arguments, allowed values and rules (areas, severity ranges, when to use <code>needs_review</code>)</td></tr>
+          <tr><td>Example</td><td>One THINK/ACT pair for a windshield chip</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The tool descriptions are the model's only view of the tools. If a rule isn't in the description (list
+      both doors as <code>["door", "door"]</code>), the model can't know it until a gate tells it.
+    </p>
+
+    <h2 class="lesson-heading">Step 6 · The Loop <SourceBadge source="mine" /></h2>
+
+    <p>
+      Each turn the model replies with THINK + ACT, the executor runs the call, and the <code>OBSERVE:</code> line
+      goes back into the history. There are two exits: an accepted <code>final_answer</code>, or the step
+      limit, which sends the claim to <code>needs_review</code> so a stuck agent can't loop forever.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart TB
+  F["📄 FNOL text"]:::in --> M["🤖 Model<br/>THINK + ACT"]:::llm
+  M --> P["🔍 Parser<br/>reads the ACT line"]:::code
+  P --> W{{"Which call?"}}:::gate
+  W -->|"a tool"| T["🛠️ Tool runs in code<br/>check_coverage · price_damage · route_claim"]:::code
+  T -->|"OBSERVE: result"| M
+  W -->|"final_answer"| G{{"🚦 Final gate<br/>coverage checked? cost = price total?<br/>queue = rules?"}}:::gate
+  G -->|"✅ exit 1"| Q["📥 Queue"]:::done
+  G -.->|"❌ OBSERVE: ERROR"| M
+  P -.->|"❌ can't read it"| M
+  M -.->|"step limit · exit 2"| R["👤 needs_review"]:::warn
+
+  classDef in   fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef code fill:#fef3c7,color:#78350f,stroke:#d97706,stroke-width:2px
+  classDef gate fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <h2 class="lesson-heading">Run It Yourself <SourceBadge source="mine" /></h2>
+
+    <p>The whole agent is one notebook, in the order of the steps above:</p>
+
+    <ol>
+      <li><strong>Setup:</strong> Colab's built-in model.</li>
+      <li><strong>Tools:</strong> the policy table, the price table and the routing rules.</li>
+      <li><strong>The final gate:</strong> <code>TriageDecision</code> and <code>check_final</code>.</li>
+      <li><strong>Parser and executor.</strong></li>
+      <li><strong>You play the model:</strong> type <code>ACT:</code> lines by hand and watch the gates refuse 4.4's hail answer and a lapsed policy. No LLM needed.</li>
+      <li><strong>The system prompt</strong> and <strong>the loop</strong>.</li>
+      <li><strong>Run the agent:</strong> one claim with the full trace, then all six (4.4's five, plus a lapsed policy).</li>
+      <li><strong>Your turn:</strong> four extensions to try.</li>
+    </ol>
+
+    <NotebookView notebook={claimAgentNb} path="code/course-1/4.5-claim-agent/claim_agent.ipynb" />
+
+    <LessonCallout variant="tip" title="Running it in Colab">
+      <p>
+        <strong>Run the setup cell first.</strong> The notebook uses Colab's built-in models, no API key needed;
+        the setup cell lists them, and uncommenting a <code>MODEL = ...</code> line there picks one. Run the
+        trace cell a few times: the agent's path can differ between runs, and the final answer shouldn't.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">Workflow vs. Agent: What This Shows <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>4.4 workflow</th><th>4.5 agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Who picks the next step</td><td>Your code, always the same order</td><td>The model, each turn</td></tr>
+          <tr><td>LLM calls per claim</td><td>2 (extract, assess), more on retries</td><td>One per tool call, about 4–5 for a covered claim</td></tr>
+          <tr><td>Claim not covered</td><td>Not checked</td><td>Stops after one tool call</td></tr>
+          <tr><td>Same input, same path?</td><td>Yes</td><td>Not always; the gate keeps the answer the same</td></tr>
+          <tr><td>Debugging</td><td>Look at the stage that failed</td><td>Read the THINK/ACT/OBSERVE trace</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      For this job the agent isn't the better design. The steps are known in advance: check coverage, price
+      the damage, route. A workflow that adds <code>check_coverage</code> and <code>price_damage</code> as fixed
+      steps would get the same answers with fewer LLM calls and the same path every time. The price table, not
+      the agent, is what fixed the hail claim.
+    </p>
+
+    <p>
+      The agent earns its cost when the path depends on what it finds: a theft needs a police report and no
+      pricing, a vague description needs photos first, a claim that mentions an injury goes to a different
+      team. That's the rule of thumb from 4.2: known steps, use a workflow; steps that depend on findings, use
+      an agent. Often the answer is both: a workflow with one agent step where the path varies.
+    </p>
+
+    <h2 class="lesson-heading">Checklist <SourceBadge source="mine" /></h2>
+
+    <LessonChecklist
+      title="Building a tool-using agent:"
+      items={[
+        '<strong>Split the job first</strong>: the model reads text and picks steps; facts, prices and rules live in code',
+        '<strong>Tools raise clear errors</strong>: the error message is what the model reads to fix its call',
+        '<strong>Tool descriptions carry the rules</strong>: allowed values, ranges, when to give up',
+        '<strong>A final gate in code</strong>: required steps done, numbers grounded, answer matches the rules',
+        '<strong>Errors go back as OBSERVE</strong>, never crash the loop',
+        '<strong>Two exits</strong>: an accepted final answer, or a step limit that hands over to a human',
+        '<strong>Test the tools and gates by hand</strong> before involving a model',
+        '<strong>Ask whether it needs to be an agent</strong>: known steps are cheaper as a workflow',
+      ]}
+    />
+
+    <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="mine" /></h2>
+
+    <LessonQuiz questions={[
+      {
+        q:       'The model calls final_answer with severity "Moderate" and est_cost 3000 for the hail claim, after price_damage returned a total of 5450. What happens?',
+        options: ['The final gate returns an error, and the model gets another turn to fix it', 'The answer is accepted, because 3000 fits Moderate', 'The loop crashes with a ValidationError', 'The claim goes straight to needs_review'],
+        answer:  0,
+        explain: 'est_cost must be the price_damage total. The error goes back as OBSERVE: ERROR, and the loop continues.',
+      },
+      {
+        q:       'Why is the queue decided by route_claim and checked by the final gate, instead of left to the model?',
+        options: ['The routing rules are fixed, so code applies them exactly; the model only supplies the inputs', 'The model cannot write queue names', 'Tools are faster than prompts', 'ReAct agents are not allowed to make decisions'],
+        answer:  0,
+        explain: 'Same principle as 4.4: the LLM for judgment, code for rules.',
+      },
+      {
+        q:       'What are the two exits of the agent loop?',
+        options: ['A final_answer that passes the final gate, or the step limit (then needs_review)', 'A tool error, or a final_answer', 'The model saying "done", or a timeout in Colab', 'check_coverage returning false, or route_claim succeeding'],
+        answer:  0,
+        explain: 'The first is how it finishes; the second guarantees it stops.',
+      },
+      {
+        q:       'For this triage job, why is a workflow arguably the better design?',
+        options: ['The steps are known in advance, so fixed steps give the same answers with fewer LLM calls', 'Workflows cannot call tools', 'Agents cannot use Pydantic', 'An agent would ignore the price table'],
+        answer:  0,
+        explain: 'An agent pays off when the path depends on what it finds, such as theft or missing photos.',
+      },
+    ]} />
+
+  </div>
+
+  <DeepDive
+    sources="own exercise, building on lesson 4.4 (claim triage) and lesson 2.1 (ReAct loop)"
+    tensions={[
+      { a: 'Let the model choose the path (flexible)', b: 'Fix the path in code (predictable, cheaper)' },
+      { a: 'Strict final gate (rules always hold)', b: 'More gate failures, so more LLM calls' },
+      { a: 'needs_review always allowed (safe)', b: 'An agent can hand over too easily' },
+    ]}
+    questions={[
+      {
+        q:      'needs_review is always accepted by the final gate. How could that be abused, and how would you notice?',
+        hint:   'What is the easiest way for the agent to finish?',
+        answer: '<p>The agent could hand over any claim it finds hard, and every gate would pass. You would notice it in monitoring, not in the gate: track the share of claims sent to needs_review and the reasons given, and compare with a labeled set. If the rate jumps after a prompt or model change, look at the traces. A tighter gate could require a reason that names a failed check (not covered, could not price).</p>',
+      },
+      {
+        q:      'The agent took 4 steps on one run and 6 on the next for the same claim, with the same final answer. Is that a problem?',
+        hint:   'What does the gate guarantee, and what does it not?',
+        answer: '<p>The answer is fine: the gate guarantees it follows the rules. The cost and latency vary, and so does the trace, which makes debugging harder. If the extra steps are always the same kind of mistake (say, a wrong area name), fix the tool description so the model gets it right first time. If the variance matters, that is a sign the job wants a workflow.</p>',
+      },
+    ]}
+    pitfalls={[
+      'Letting the model produce numbers a tool could look up.',
+      'Trusting the agent to call the required tools, with nothing checking that it did.',
+      'Crashing on a bad tool call instead of returning the error as an observation.',
+      'No step limit: a confused agent keeps calling tools and spending tokens.',
+      'Building an agent for a job whose steps are already known.',
+    ]}
+  />
+
+  <LessonMindMap content={mindMap} />
+
+</LessonLayout>
