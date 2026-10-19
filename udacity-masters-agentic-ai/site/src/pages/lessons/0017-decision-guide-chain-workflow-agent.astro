@@ -148,7 +148,7 @@ const mindMap = `
     <p>
       The rest of this page puts them next to each other: how each one runs, what actually tells them apart, the
       same claim through all three, and the shape of the code. The columns are always in the same order: chain,
-      workflow, agent, from most fixed to most flexible.
+      workflow, ReAct agent, from most fixed to most flexible.
     </p>
 
     <h2 class="lesson-heading">A Fair Comparison: The Same Solution Space <SourceBadge source="mine" /></h2>
@@ -492,8 +492,8 @@ flowchart LR
         some call tools or plain functions. Lesson 4.2's "hard-coded workflow" (the dental appointment) is one.
       </li>
       <li>
-        An <strong>agent</strong> is an LLM in a loop with tools, choosing its own next step until it decides it's done
-        or hits a limit (lessons 2.1 and 4.5).
+        A <strong>ReAct agent</strong> is an agent in the course's sense (lesson 4.1): the LLM reasons, plans and decides
+        when to use tools, in a THINK → ACT → OBSERVE loop, until it gives a final answer or hits a limit (lessons 2.1 and 4.5).
       </li>
     </ul>
 
@@ -597,12 +597,12 @@ flowchart TB
         <tbody>
           <tr><td>Steps are known and rarely change</td><td>Workflow (or chain)</td></tr>
           <tr><td>Steps include rules, numbers or lookups</td><td>Workflow: those steps are code</td></tr>
-          <tr><td>The next step depends on what the last one found</td><td>Agent</td></tr>
+          <tr><td>The next step depends on what the last one found</td><td>ReAct agent</td></tr>
           <tr><td>Many rare cases, and new ones keep appearing</td><td>ReAct agent, or a workflow with a ReAct agent step</td></tr>
           <tr><td>High volume, cost per item matters</td><td>Workflow</td></tr>
           <tr><td>Users are waiting (latency)</td><td>Workflow: fewer calls</td></tr>
           <tr><td>Audits or regulation: same input, same path</td><td>Workflow</td></tr>
-          <tr><td>The input is open-ended text, a conversation, or research</td><td>Agent</td></tr>
+          <tr><td>The input is open-ended text, a conversation, or research</td><td>ReAct agent</td></tr>
           <tr><td>The action moves money or can't be undone</td><td>Any design, but the decision is checked by a gate in code</td></tr>
         </tbody>
       </table>
@@ -685,7 +685,7 @@ flowchart TB
         explain: 'The steps can’t be written down in advance; that is the ReAct agent case.',
       },
       {
-        q:       'Your agent’s traces show it takes exactly the same four steps for every input. What does that suggest?',
+        q:       'Your ReAct agent’s traces show it takes exactly the same four steps for every input. What does that suggest?',
         options: ['It could be a workflow: same results, fewer calls, predictable path', 'The step limit is too low', 'It needs more tools', 'The model is broken'],
         answer:  0,
         explain: 'A fixed path is a workflow in disguise, at a higher price.',
