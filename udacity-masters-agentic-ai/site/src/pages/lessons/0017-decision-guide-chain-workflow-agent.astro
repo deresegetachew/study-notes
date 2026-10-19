@@ -48,7 +48,7 @@ const mindMap = `
 ### Prompt chain: fixed steps, all LLM calls
 ### Workflow: fixed steps, code + LLM, branches
 ### ReAct agent: the model picks each step
-### All three are agentic systems; only ReAct is an agent in the narrow sense
+### Course definition (4.1): the LLM plans and decides when to use tools → only ReAct is an agent
 ## Two questions tell them apart
 ### What are the steps? chain vs. workflow
 ### Who decides the next step? workflow vs. agent
@@ -342,15 +342,34 @@ flowchart LR
       </li>
     </ul>
 
-    <h3 class="lesson-heading">Aren't they all agents?</h3>
+    <h3 class="lesson-heading">Which of them is an agent?</h3>
 
     <p>
-      In the broad sense, yes: all three are <strong>agentic systems</strong>, LLM applications built from the
-      lesson 4.1 parts (model, instructions, tools, memory, orchestration). In the narrow sense, only the ReAct one is an
-      <strong>agent</strong>, because only there does the model decide its own next step. The course uses the word both
-      ways: lesson 4.1 calls anything with tools and an orchestration layer an agent, while lesson 4.2 contrasts a
-      "hard-coded workflow" with an "AI agent (ReAct)". Anthropic's article draws the same line as 4.2. These notes say
-      <em>ReAct agent</em> for the narrow meaning, so the comparison stays clear.
+      The course's definition (lesson <a href={L('0006-ai-agents-building-blocks')}>4.1</a>): <em>an AI agent is an
+      AI-driven application that uses an LLM as its brain to reason, plan, and autonomously take actions in an
+      environment, often using external tools.</em> Its orchestration layer <em>lets the LLM decide when to use tools</em>.
+      Applied to the three designs:
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Prompt chain</th><th>Workflow</th><th>ReAct agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>LLM reasons</td><td>Yes, inside each step</td><td>Yes, inside its one step</td><td>Yes, every turn</td></tr>
+          <tr><td>LLM plans the steps</td><td>No: your code fixed them</td><td>No: your code fixed them</td><td><strong>Yes</strong></td></tr>
+          <tr><td>LLM decides when to use tools</td><td>No tools</td><td>No: your code calls them</td><td><strong>Yes</strong></td></tr>
+          <tr><td>Takes actions autonomously</td><td>No</td><td>No</td><td><strong>Yes</strong>, within the final gate</td></tr>
+          <tr><td>An agent, by the course's definition?</td><td>No</td><td>No</td><td><strong>Yes</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      So only the ReAct design is an agent. The chain and the workflow are what lesson 4.2 calls <em>agentic
+      workflows</em>: the building blocks agents are made from, and often the better choice on their own. That's why the
+      title says <em>ReAct agent</em>, and why lesson 4.2's comparison is "hard-coded workflow vs. AI agent (ReAct)".
     </p>
 
     <p>They sit on a scale, from most predictable to most flexible:</p>
