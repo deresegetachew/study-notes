@@ -88,9 +88,10 @@ const mindMap = `
 ### ReAct agent history grows every turn
 ### Chain prompts grow with the data
 ## Cost of change
-### Predictable changes → cheapest in a workflow
-### New kinds of case → cheapest in a ReAct agent
-### Chain: logic in prompt text, hardest to change
+### Cost = edit + verify
+### Workflow: cheap edits, cheap verification (unit tests)
+### ReAct agent: small edits, expensive verification (every scenario, repeatedly)
+### Chain: prompt edits, evaluation every time
 ## Testability
 ### Unit tests for code, evaluations for model steps
 ### Chain: only gates unit-testable
@@ -388,8 +389,9 @@ flowchart LR
     <h2 class="lesson-heading">Cost of Change <SourceBadge source="mine" /></h2>
 
     <p>
-      What it takes to change the system later. This is where the designs differ most, and it's easy to forget when
-      choosing.
+      What it takes to change the system later. A change costs two things: the <strong>edit</strong> (what you write) and the
+      <strong>verification</strong> (what you must re-test before you trust it). The second is easy to forget, and it's where
+      the designs differ most.
     </p>
 
     <div class="lesson-table">
@@ -398,22 +400,24 @@ flowchart LR
           <tr><th>Change</th><th>Prompt chain</th><th>Workflow</th><th>ReAct agent</th></tr>
         </thead>
         <tbody>
-          <tr><td>A repair price changes</td><td>Edit the table text in a prompt, re-test the prompt</td><td>Edit the data; nothing else</td><td>Edit the data; nothing else</td></tr>
-          <tr><td>A new coverage rule</td><td>Rewrite the coverage prompt and check the model applies it</td><td>Change <code>check_coverage</code>, add a unit test</td><td>Change the tool; maybe its description</td></tr>
-          <tr><td>A new queue (e.g. injuries go to a <code>bodily_injury</code> team)</td><td>Route prompt and its output model</td><td>One branch in code, one extracted field</td><td>A line in the prompt and the final gate</td></tr>
-          <tr><td>A new kind of claim with a different path (a theft: no pricing, a police report first)</td><td>Hard: a chain is a straight line, so every step's prompt has to handle it</td><td>A new branch, a new field, new tests; fine once, painful the tenth time</td><td>Often a new tool and a line in its description; it finds the path</td></tr>
-          <tr><td>Switch to a new model</td><td>Re-check 4 prompts</td><td>Re-check 1 prompt</td><td>Re-check whole traces: the paths themselves can change</td></tr>
-          <tr><td>A million policies</td><td>Redesign: move the lookup into code (it becomes a workflow)</td><td>Swap the dict for a database query</td><td>Swap the dict for a database query</td></tr>
-          <tr><td>An auditor asks why a claim got its queue</td><td>Four logged answers</td><td>The same code path every time; easiest</td><td>Read the trace; the path differs per claim</td></tr>
+          <tr><td>A repair price changes</td><td><strong>Edit:</strong> the table text in a prompt<br/><strong>Verify:</strong> re-run the assess evaluation</td><td><strong>Edit:</strong> the data<br/><strong>Verify:</strong> unit tests</td><td><strong>Edit:</strong> the data<br/><strong>Verify:</strong> unit tests (the tool reads it; the prompt doesn't change)</td></tr>
+          <tr><td>A new coverage rule</td><td><strong>Edit:</strong> rewrite the coverage prompt<br/><strong>Verify:</strong> the coverage evaluation, all cases</td><td><strong>Edit:</strong> <code>check_coverage</code><br/><strong>Verify:</strong> a new unit test</td><td><strong>Edit:</strong> the tool, maybe its description<br/><strong>Verify:</strong> unit tests; if the description changed, every scenario again</td></tr>
+          <tr><td>A new queue (e.g. a <code>bodily_injury</code> team)</td><td><strong>Edit:</strong> route prompt and its output model<br/><strong>Verify:</strong> the route evaluation, plus extraction if it needs a new fact</td><td><strong>Edit:</strong> one branch, one extracted field<br/><strong>Verify:</strong> unit tests, plus the extraction evaluation for the new field</td><td><strong>Edit:</strong> a line in the prompt, the final gate<br/><strong>Verify:</strong> every scenario, several times: the prompt is read on every claim</td></tr>
+          <tr><td>A new kind of claim with its own path (a theft: no pricing, a police report first)</td><td><strong>Edit:</strong> every step's prompt has to handle it; a straight line fits badly<br/><strong>Verify:</strong> all four evaluations</td><td><strong>Edit:</strong> a new branch, a new field, new tests<br/><strong>Verify:</strong> the new branch's tests and the extraction evaluation; the old branches' tests show they're untouched</td><td><strong>Edit:</strong> often just a new tool and a description line<br/><strong>Verify:</strong> new <em>and</em> old scenarios, several times each, and read the traces that changed</td></tr>
+          <tr><td>Switch to a new model</td><td><strong>Edit:</strong> none<br/><strong>Verify:</strong> 4 step evaluations</td><td><strong>Edit:</strong> none<br/><strong>Verify:</strong> 1 extraction evaluation</td><td><strong>Edit:</strong> none, or prompt tuning<br/><strong>Verify:</strong> every scenario, several times; the paths themselves can change</td></tr>
+          <tr><td>A million policies</td><td><strong>Edit:</strong> a redesign: move the lookup into code (it becomes a workflow)</td><td><strong>Edit:</strong> swap the dict for a database query<br/><strong>Verify:</strong> unit tests</td><td><strong>Edit:</strong> swap the dict for a database query<br/><strong>Verify:</strong> unit tests</td></tr>
+          <tr><td>How far a change can reach</td><td>One step's prompt; its evaluation shows the effect</td><td>One function or branch; unit tests prove the rest didn't move</td><td>Any prompt or tool-description change can affect any claim, because the model reads them every turn</td></tr>
         </tbody>
       </table>
     </div>
 
     <p>
-      The pattern: the <strong>workflow</strong> is cheapest to change for anything you can predict (prices, rules, queues),
-      because the logic is plain code with tests. The <strong>ReAct agent</strong> is cheapest for what you can't predict (new kinds
-      of cases), because it finds the path itself, but every change needs whole-trace evaluation instead of unit tests.
-      The <strong>chain</strong> keeps logic and data in prompt text, which is the hardest place to change, test and scale.
+      Adding it up: the <strong>workflow</strong> is cheapest to change for anything you can predict (prices, rules,
+      queues), both to edit and to verify, because the logic is code with unit tests. The <strong>ReAct agent</strong> has the
+      smallest <em>edits</em> for new kinds of case, but the most expensive <em>verification</em>: a scenario evaluation set
+      covering every path, run several times after every change, plus reading the traces that moved. Its total cost of change
+      is lower only when new kinds of case arrive often enough that writing branches costs more than running evaluations. The
+      <strong>chain</strong> keeps logic and data in prompt text, so every change is a prompt edit followed by an evaluation.
     </p>
 
     <h2 class="lesson-heading">Testability <SourceBadge source="mine" /></h2>
@@ -554,7 +558,7 @@ flowchart LR
           <tr><td><strong>Avoid it when</strong></td><td>Steps need data lookups or exact numbers, or the data is large</td><td>Paths keep multiplying into special cases</td><td>The path is the same for every input, or every call's cost and latency matter</td></tr>
           <tr><td>Running cost</td><td>Medium, fixed</td><td>Lowest, fixed</td><td>Highest, variable</td></tr>
           <tr><td>Testability</td><td>Low: only the gates are unit-testable</td><td>High: everything but extraction is unit-testable</td><td>Tools and gate unit-testable; decisions need repeated evaluations</td></tr>
-          <tr><td>Cost of change</td><td>High: logic and data live in prompt text</td><td>Low for expected changes, high for new kinds of case</td><td>Low for new kinds of case, but every change needs whole-trace evaluation</td></tr>
+          <tr><td>Cost of change</td><td>High: every change is a prompt edit plus an evaluation</td><td>Low to edit and verify for expected changes; new kinds of case add branches</td><td>Small edits for new kinds of case, but every change needs repeated evaluation of every scenario</td></tr>
           <tr><td>Examples</td><td>Draft → critique → rewrite a marketing post; transcript → summary → action items</td><td>Claim triage, invoice matching, structured form intake, claim-button requests (4.8)</td><td>Research questions, open-ended support emails (4.8), debugging with tools</td></tr>
         </tbody>
       </table>
@@ -662,7 +666,7 @@ flowchart TB
         '<strong>Weigh volume, latency and audit needs</strong>; they all favour workflows',
         '<strong>Estimate the cost of running</strong>: model calls and tokens per item, times volume',
         '<strong>Mark what can be unit-tested</strong>; everything else needs an evaluation set, run more than once',
-        '<strong>List the changes you expect</strong> (prices, rules, new case types) and ask what each costs in each design',
+        '<strong>List the changes you expect</strong> (prices, rules, new case types) and ask what each costs to edit and to verify in each design',
         '<strong>Put the gates in code</strong> whichever design you pick',
         '<strong>Compare on the same inputs</strong>: results, LLM calls, and whether the path is stable',
         '<strong>Revisit the choice</strong> when branches multiply or traces show a fixed path',
@@ -691,10 +695,10 @@ flowchart TB
         explain: 'A fixed path is a workflow in disguise, at a higher price.',
       },
       {
-        q:       'The business adds a new kind of claim every month, each with its own steps. Which design keeps the cost of change lowest?',
-        options: ['The ReAct agent: a new tool and a line in its description, though each change needs whole-trace evaluation', 'The prompt chain: just edit the prompts', 'The workflow: branches are free', 'None: all three cost the same'],
+        q:       'Adding a new kind of claim to the ReAct agent takes one new tool and a line in its description. Why can the change still be expensive?',
+        options: ['The model reads the prompt on every claim, so every existing scenario has to be re-evaluated, several times', 'Tools are expensive to write', 'The final gate has to be rewritten from scratch', 'It isn’t: small edits mean a small cost'],
         answer:  0,
-        explain: 'Predictable changes are cheapest in a workflow; new kinds of case with new paths are cheapest in a ReAct agent.',
+        explain: 'Cost of change is edit plus verification. The ReAct agent’s edits are small; its verification covers every path, repeatedly.',
       },
       {
         q:       'Which part of the ReAct agent can you test without calling a model?',
