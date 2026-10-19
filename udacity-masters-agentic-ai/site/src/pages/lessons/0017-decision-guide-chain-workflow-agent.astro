@@ -17,9 +17,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const L = (slug: string) => `${base}/lessons/${slug}`;
 
 const chainShape = `
-info  = step(EXTRACT_PROMPT, fnol, gate1)          # model
-sev   = step(ASSESS_PROMPT,  info, gate2)          # model: severity + cost
-queue = step(ROUTE_PROMPT,   info + sev, gate3)    # model
+facts = step(EXTRACT_PROMPT,  fnol,  gate_facts)        # model: read the claim
+cov   = step(COVERAGE_PROMPT, facts, gate_coverage)     # model: policy table is in the prompt
+cost  = step(ASSESS_PROMPT,   facts, gate_assessment)   # model: price table is in the prompt
+queue = step(ROUTE_PROMPT,    cov + cost, gate_route)   # model: rules are in the prompt
 `.trim();
 
 const workflowShape = `
@@ -55,9 +56,10 @@ const mindMap = `
 ### Retry: same step again
 ### ReAct: each turn can go somewhere new
 ## One claim, three ways
-### Chain: 3 calls, guessed cost, wrong
-### Workflow: 1 call, right, same path
-### Agent: 4–5 calls, right, path varies
+### Same information for all three
+### Chain: 4 calls, the model does lookups and sums
+### Workflow: 1 call, code does them
+### Agent: 4–5 calls, the model asks code to do them
 ## The decision
 ### One prompt enough? → single prompt
 ### Steps known in advance? no → agent
@@ -96,7 +98,7 @@ const mindMap = `
           <tr><th>Lesson</th><th>Design</th><th>In one line</th></tr>
         </thead>
         <tbody>
-          <tr><td><a href={L('0009-exercise-claim-triage')}>4.4</a></td><td><strong>Prompt chain</strong></td><td>Fixed steps, every step an LLM call: extract → assess → route</td></tr>
+          <tr><td><a href={L('0009-exercise-claim-triage')}>4.4</a></td><td><strong>Prompt chain</strong></td><td>Fixed steps, every step a model call: extract → coverage → assess → route</td></tr>
           <tr><td><a href={L('0016-exercise-claims-workflow')}>4.6</a></td><td><strong>Workflow</strong></td><td>Fixed steps, one LLM call to read the claim, the rest in code</td></tr>
           <tr><td><a href={L('0013-exercise-claim-agent')}>4.5</a></td><td><strong>ReAct agent</strong></td><td>The model picks the next tool each turn; errors go back to it</td></tr>
         </tbody>
@@ -109,15 +111,44 @@ const mindMap = `
       workflow, agent, from most fixed to most flexible.
     </p>
 
+    <h2 class="lesson-heading">A Fair Comparison: The Same Solution Space <SourceBadge source="mine" /></h2>
+
+    <p>
+      Comparing designs only means something if each one gets the <strong>same information</strong> and has to produce the
+      <strong>same output</strong>. Otherwise you're comparing what each one was given, not how it's built. So on this page
+      (and in the notebook below) all three get:
+    </p>
+
+    <ul>
+      <li>the same claims, read by the same extraction step (incident type, damaged areas);</li>
+      <li>the same policy table, price table and routing rules;</li>
+      <li>the same queues to choose from, including <code>needs_review</code> for claims that aren't covered.</li>
+    </ul>
+
+    <p>
+      What differs is <em>where the tables live and who uses them</em>. The chain has no tools, so the tables go into its
+      prompts as text and the model does the lookup, the sum and the rule itself. The workflow's code reads the tables.
+      The agent asks for tools, and the tools read the tables.
+    </p>
+
+    <LessonCallout variant="info" title="Why not compare with the course's 4.4 chain as it was?">
+      <p>
+        The course's chain had no policy data and no price table. Its hail answer (Moderate, $3,000) was wrong because the
+        model had to guess a number it had no way to look up, not because it was a chain. Putting that next to designs
+        that <em>did</em> have the price table would blame the design for missing information. The chain here gets the
+        same tables, in its prompts.
+      </p>
+    </LessonCallout>
+
     <h2 class="lesson-heading">How Each One Runs <SourceBadge source="mine" /></h2>
 
     <LessonDiagram definition={`
 flowchart LR
   subgraph CH["🔗 Prompt chain"]
     direction TB
-    c0["📄 claim"]:::in --> c1["🤖 extract"]:::llm --> c1g{{"🚦"}}:::gate --> c2["🤖 assess<br/>severity + cost"]:::llm --> c2g{{"🚦"}}:::gate --> c3["🤖 route"]:::llm --> c3g{{"🚦"}}:::gate --> c4["📥 queue"]:::done
+    c0["📄 claim"]:::in --> c1["🤖 extract"]:::llm --> c1g{{"🚦"}}:::gate --> c2["🤖 coverage<br/>policy table in prompt"]:::llm --> c2g{{"🚦"}}:::gate --> c3["🤖 assess<br/>price table in prompt"]:::llm --> c3g{{"🚦"}}:::gate --> c5["🤖 route<br/>rules in prompt"]:::llm --> c5g{{"🚦"}}:::gate --> c4["📥 queue"]:::done
     c1g -.->|"retry"| c1
-    c2g -.->|"retry"| c2
+    c3g -.->|"retry"| c3
   end
   subgraph WF["⚙️ Workflow"]
     direction TB
@@ -143,9 +174,9 @@ flowchart LR
     `} />
 
     <p>
-      Blue boxes are model calls, yellow boxes are code. Read the lanes left to right: the chain is all blue; the
-      workflow is one blue box and then yellow; the agent is a single blue box in a loop, and which yellow box it
-      reaches is up to the model. Use the ⤢ button to enlarge the diagram.
+      Blue boxes are model calls, yellow boxes are code. Read the lanes left to right: the chain is all blue, with the
+      tables written into its prompts; the workflow is the same first blue box, then yellow; the agent is a single blue
+      box in a loop, and which yellow box it reaches is up to the model. Use the ⤢ button to enlarge the diagram.
     </p>
 
     <h2 class="lesson-heading">What Tells Them Apart <SourceBadge source="mine" /></h2>
@@ -167,7 +198,8 @@ flowchart LR
         <tbody>
           <tr><td><strong>Who decides the next step?</strong></td><td>Code</td><td>Code</td><td><strong>The model</strong></td></tr>
           <tr><td><strong>What are the steps?</strong></td><td>All model calls</td><td>Model calls <strong>and</strong> code/functions</td><td>Whatever tool the model asks for</td></tr>
-          <tr><td>Functions (coverage, prices…)</td><td>None</td><td>Called by your code</td><td><strong>Called because the model asked</strong> (tool calls)</td></tr>
+          <tr><td>Where the tables live</td><td>In the prompts, as text</td><td>In code</td><td>In code, behind tools</td></tr>
+          <tr><td>Lookups, sums, rules done by</td><td>The model</td><td>Code, called by your code</td><td>Code, <strong>called because the model asked</strong> (tool calls)</td></tr>
           <tr><td>What the loop does</td><td>Retries the same step</td><td>Retries the same step</td><td><strong>Is</strong> the design: each turn can do something different</td></tr>
           <tr><td>Gates</td><td>After each step</td><td>After the model step</td><td>Final gate before the answer is accepted</td></tr>
         </tbody>
@@ -200,36 +232,30 @@ flowchart LR
     <div class="lesson-table">
       <table>
         <thead>
-          <tr><th>Stage</th><th>Prompt chain (course's 4.4)</th><th>Workflow (4.6)</th><th>ReAct agent (4.5)</th></tr>
+          <tr><th>Stage</th><th>Prompt chain</th><th>Workflow (4.6)</th><th>ReAct agent (4.5)</th></tr>
         </thead>
         <tbody>
-          <tr><td>Read the claim</td><td>🤖 Extract: name, vehicle, description, areas</td><td>🤖 Extract: incident type (hail), areas counted (two mirrors)</td><td>🤖 Reads it in its first THINK</td></tr>
-          <tr><td>Coverage</td><td>Not checked</td><td>🛠️ Code calls <code>check_coverage</code>: covered</td><td>🤖 → 🛠️ Asks for <code>check_coverage(hail)</code>: covered</td></tr>
-          <tr><td>Cost</td><td>🤖 <strong>Guesses</strong> $3,000</td><td>🛠️ Code calls <code>price_damage</code>: $5,450</td><td>🤖 → 🛠️ Asks for <code>price_damage</code>: $5,450</td></tr>
-          <tr><td>Severity</td><td>🤖 Judges Moderate</td><td>🧮 Code: $5,450 is Major</td><td>🤖 Picks Major (the gate checks it fits $5,450)</td></tr>
-          <tr><td>Route</td><td>🤖 → <code>material_damage</code></td><td>🛠️ Code → <code>total_loss</code></td><td>🤖 → 🛠️ Asks for <code>route_claim</code> → <code>total_loss</code></td></tr>
+          <tr><td>Read the claim</td><td>🤖 Extract: hail, six areas (two mirrors)</td><td>🤖 The same extraction</td><td>🤖 Reads it in its first THINK</td></tr>
+          <tr><td>Coverage</td><td>🤖 Finds C004 in the policy table in its prompt and applies the rule</td><td>🛠️ Code calls <code>check_coverage</code></td><td>🤖 → 🛠️ Asks for <code>check_coverage(hail)</code></td></tr>
+          <tr><td>Cost</td><td>🤖 Adds up six prices from the table in its prompt</td><td>🛠️ Code sums them: $5,450</td><td>🤖 → 🛠️ Asks for <code>price_damage</code>: $5,450</td></tr>
+          <tr><td>Severity</td><td>🤖 Applies the bands; the gate checks it fits the model's own total</td><td>🧮 Code: $5,450 is Major</td><td>🤖 Picks Major; the final gate checks it against the priced total</td></tr>
+          <tr><td>Route</td><td>🤖 Applies the rules from its prompt</td><td>🛠️ Code calls <code>route_claim</code></td><td>🤖 → 🛠️ Asks for <code>route_claim</code></td></tr>
+          <tr><td>A claim that isn't covered (C005)</td><td>Still runs all four steps; the route step sends it to <code>needs_review</code></td><td>Stops after the coverage check</td><td>Usually stops after the coverage check</td></tr>
           <tr><td>Who chose these steps</td><td>Your code, before any claim arrived</td><td>Your code, before any claim arrived</td><td>The model, while handling this claim</td></tr>
-          <tr><td>If a step fails</td><td>Retry that step, then human review</td><td>Retry extraction, then human review</td><td>Error goes back as OBSERVE; step limit, then human review</td></tr>
-          <tr><td>Model calls</td><td>3</td><td>1</td><td>4–5</td></tr>
-          <tr><td>Result</td><td>❌ Moderate, $3,000</td><td>✅ Major, $5,450</td><td>✅ Major, $5,450</td></tr>
+          <tr><td>Model calls</td><td>4, always</td><td>1</td><td>4–5</td></tr>
+          <tr><td>What makes the answer right</td><td>The model doing every lookup, sum and rule correctly, every time; gates catch inconsistency, not a wrong sum</td><td>Code; only the extraction can vary, and it's gated</td><td>The tools supply the facts; the final gate makes the answer match them</td></tr>
+          <tr><td>With a real policy database</td><td>Breaks: millions of policies don't fit in a prompt</td><td>Works</td><td>Works</td></tr>
         </tbody>
       </table>
     </div>
 
     <p>
-      Two lessons in that table. First, the chain got it wrong because the model <em>guessed</em> a number, not
-      because it was a chain. Second, the workflow and the agent got it right for the same reason, the price table,
-      and the workflow did it with a quarter of the model calls. Tools and gates decided correctness here; the design
-      decided cost and predictability.
+      With the same information, all three can reach the right queue for C004 (Major, $5,450, <code>total_loss</code>).
+      The difference is how. The chain asks the model to do lookups and arithmetic that code does exactly, in four calls
+      for every claim, and its gates can only check that the answers are consistent with each other. The workflow does the
+      same work in code with one call. The agent gets the same correctness from the same tools, but spends calls deciding
+      what to do next. Run the notebook below to see real numbers, including whether the chain's sums hold up.
     </p>
-
-    <LessonCallout variant="info" title="The original 4.4 vs. the improved one">
-      <p>
-        The chain column is the course's original run: three model calls, routing included. The improved version in
-        the 4.4 notebook moves routing into code and adds retries with feedback, so it sits between a chain and a
-        workflow. Each step along the scale hands more of the job to code.
-      </p>
-    </LessonCallout>
 
     <h2 class="lesson-heading">The Shape of the Code <SourceBadge source="mine" /></h2>
 
@@ -251,7 +277,7 @@ flowchart LR
     <h2 class="lesson-heading">Run All Three Yourself <SourceBadge source="mine" /></h2>
 
     <p>
-      One notebook with all three designs, sharing the same claims, data and tools. Pick the design by uncommenting a
+      One notebook with all three designs, on the same solution space: the same claims, extraction, tables, rules and queues. Pick the design by uncommenting a
       <code>DESIGN = ...</code> line in the "Run one" cell, or call <code>triage(fnol, "agent")</code> directly. Every
       result shows the queue and the number of model calls it took.
     </p>
@@ -259,13 +285,13 @@ flowchart LR
     <ol>
       <li><strong>Setup:</strong> Colab's built-in model, with a counter for model calls.</li>
       <li><strong>Shared:</strong> the six claims, the policy and price tables, the tools, and <code>call_with_gate</code> (a model step with its gate and retries).</li>
-      <li><strong>Design 1, prompt chain:</strong> extract → assess → route, all model calls.</li>
+      <li><strong>Design 1, prompt chain:</strong> extract → coverage → assess → route, all model calls, with the tables in the prompts.</li>
       <li><strong>Design 2, workflow:</strong> one model call, then code.</li>
       <li><strong>Design 3, ReAct agent:</strong> tools, final gate, parser, loop.</li>
       <li><strong>One entry point:</strong> <code>triage(fnol, design)</code>.</li>
       <li><strong>Run one:</strong> pick a design and a claim; <code>VERBOSE = True</code> prints every step.</li>
       <li><strong>Compare all three on every claim.</strong></li>
-      <li><strong>Your turn:</strong> the course's original chain (<code>MAX_ATTEMPTS = 1</code>), the agent's path across runs, a claim of your own.</li>
+      <li><strong>Your turn:</strong> the chain without retries (<code>MAX_ATTEMPTS = 1</code>), the agent's path across runs, the chain with a million policies, a claim of your own.</li>
     </ol>
 
     <NotebookView notebook={compareNb} path="code/course-1/4.7-compare-designs/compare_designs.ipynb" />
@@ -273,7 +299,7 @@ flowchart LR
     <LessonCallout variant="tip" title="Running it in Colab">
       <p>
         <strong>Run the cells top to bottom, setup first.</strong> The notebook uses Colab's built-in models, no API key
-        needed. Start with C004 in all three designs with <code>VERBOSE = True</code>: the chain shows three model
+        needed. Start with C004 in all three designs with <code>VERBOSE = True</code>: the chain shows four model
         answers, the workflow one answer and four code steps, the agent every THINK / ACT / OBSERVE turn.
       </p>
     </LessonCallout>
@@ -435,10 +461,10 @@ flowchart TB
 
     <LessonQuiz questions={[
       {
-        q:       'Why did the prompt chain (4.4) get the hail claim wrong while the agent and the workflow got it right?',
-        options: ['The chain let the model guess the cost; the other two took it from a price table', 'Chains can’t handle hail claims', 'The agent used a better model', 'The workflow skipped the gate'],
+        q:       'Given the same policy and price tables (in its prompts), what is the prompt chain’s main weakness compared with the workflow?',
+        options: ['The model must do lookups and sums that code does exactly, in 4 calls every time, and the gates only check consistency', 'It cannot send a claim to needs_review', 'It has no gates', 'The model decides its own steps'],
         answer:  0,
-        explain: 'Correctness came from grounding the number in a tool, not from the design.',
+        explain: 'Same information, same steps: the chain just has the model do work that code does perfectly, and it won’t scale past what fits in a prompt.',
       },
       {
         q:       'A support bot must answer open-ended customer questions using several internal tools, and the next lookup depends on the last answer. Which design fits?',
