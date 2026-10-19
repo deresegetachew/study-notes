@@ -9,9 +9,35 @@ import DeepDive          from '@/components/DeepDive.astro';
 import LessonMindMap     from '@/components/LessonMindMap.astro';
 import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
+import CodeBlock         from '@/components/CodeBlock.astro';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const L = (slug: string) => `${base}/lessons/${slug}`;
+
+const chainShape = `
+info  = step(EXTRACT_PROMPT, fnol, gate1)          # model
+sev   = step(ASSESS_PROMPT,  info, gate2)          # model: severity + cost
+queue = step(ROUTE_PROMPT,   info + sev, gate3)    # model
+`.trim();
+
+const workflowShape = `
+facts = step(EXTRACT_PROMPT, fnol, gate)           # model: the only call
+if not check_coverage(facts.claim_id, facts.incident_type)["covered"]:
+    return "needs_review"                          # code decides the branch
+total = price_damage(facts.damage_areas)["total"]  # code
+queue = route_claim(severity_for(total), total, facts.damage_areas)  # code
+`.trim();
+
+const agentShape = `
+for turn in range(MAX_STEPS):
+    reply = model(history)                         # THINK + ACT: some_tool(...)
+    tool, args = parse_action(reply)
+    if tool == "final_answer" and final_gate_ok(args):
+        return args["queue"]                       # exit 1
+    result = TOOLS[tool](**args)                   # the model picked this tool
+    history += [reply, "OBSERVE: " + str(result)]
+return "needs_review"                              # exit 2: step limit
+`.trim();
 
 const mindMap = `
 # Decision Guide: Prompt Chain, Workflow or Agent?
@@ -19,10 +45,17 @@ const mindMap = `
 ### Prompt chain: fixed steps, all LLM calls
 ### Workflow: fixed steps, code + LLM, branches
 ### Agent: the model picks each step
+## Two questions tell them apart
+### What are the steps? chain vs. workflow
+### Who decides the next step? workflow vs. agent
+### Loops and gates are in all three
+## Two kinds of loop
+### Retry: same step again
+### ReAct: each turn can go somewhere new
 ## One claim, three ways
 ### Chain: 3 calls, guessed cost, wrong
-### Agent: 4–5 calls, right, path varies
 ### Workflow: 1 call, right, same path
+### Agent: 4–5 calls, right, path varies
 ## The decision
 ### One prompt enough? → single prompt
 ### Steps known in advance? no → agent
@@ -62,43 +95,158 @@ const mindMap = `
         </thead>
         <tbody>
           <tr><td><a href={L('0009-exercise-claim-triage')}>4.4</a></td><td><strong>Prompt chain</strong></td><td>Fixed steps, every step an LLM call: extract → assess → route</td></tr>
-          <tr><td><a href={L('0013-exercise-claim-agent')}>4.5</a></td><td><strong>Agent</strong> (ReAct + feedback loop)</td><td>The model picks the next tool each turn; errors go back to it</td></tr>
-          <tr><td><a href={L('0016-exercise-claims-workflow')}>4.6</a></td><td><strong>Workflow</strong></td><td>Fixed steps in code, one LLM call for reading the claim</td></tr>
+          <tr><td><a href={L('0016-exercise-claims-workflow')}>4.6</a></td><td><strong>Workflow</strong></td><td>Fixed steps, one LLM call to read the claim, the rest in code</td></tr>
+          <tr><td><a href={L('0013-exercise-claim-agent')}>4.5</a></td><td><strong>ReAct agent</strong></td><td>The model picks the next tool each turn; errors go back to it</td></tr>
         </tbody>
       </table>
     </div>
 
     <p>
-      They differ in one question: <strong>who decides the next step?</strong> In a chain and a workflow, your code
-      does, and the order is the same for every claim. In an agent, the model does, one turn at a time.
+      The rest of this page puts them next to each other: how each one runs, what actually tells them apart, the
+      same claim through all three, and the shape of the code. The columns are always in the same order: chain,
+      workflow, agent, from most fixed to most flexible.
     </p>
 
-    <h2 class="lesson-heading">The Same Claim, Three Ways <SourceBadge source="mine" /></h2>
+    <h2 class="lesson-heading">How Each One Runs <SourceBadge source="mine" /></h2>
+
+    <LessonDiagram definition={`
+flowchart LR
+  subgraph CH["🔗 Prompt chain"]
+    direction TB
+    c0["📄 claim"]:::in --> c1["🤖 extract"]:::llm --> c1g{{"🚦"}}:::gate --> c2["🤖 assess<br/>severity + cost"]:::llm --> c2g{{"🚦"}}:::gate --> c3["🤖 route"]:::llm --> c3g{{"🚦"}}:::gate --> c4["📥 queue"]:::done
+    c1g -.->|"retry"| c1
+    c2g -.->|"retry"| c2
+  end
+  subgraph WF["⚙️ Workflow"]
+    direction TB
+    w0["📄 claim"]:::in --> w1["🤖 extract"]:::llm --> w1g{{"🚦"}}:::gate --> w2["🛠️ check_coverage"]:::code --> w3["🛠️ price_damage"]:::code --> w4["🧮 severity"]:::code --> w5["🛠️ route_claim"]:::code --> w6["📥 queue"]:::done
+    w1g -.->|"retry"| w1
+    w2 -.->|"not covered"| w7["👤 review"]:::warn
+  end
+  subgraph AG["🤖 ReAct agent"]
+    direction TB
+    a0["📄 claim"]:::in --> a1["🤖 THINK + ACT<br/>picks a tool"]:::llm --> a2["🛠️ the tool it picked"]:::code
+    a2 -.->|"OBSERVE"| a1
+    a1 -->|"final_answer"| a3{{"🚦 final gate"}}:::gate --> a4["📥 queue"]:::done
+    a3 -.->|"ERROR"| a1
+  end
+  CH ~~~ WF ~~~ AG
+
+  classDef in   fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef code fill:#fef3c7,color:#78350f,stroke:#d97706,stroke-width:2px
+  classDef gate fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <p>
+      Blue boxes are model calls, yellow boxes are code. Read the lanes left to right: the chain is all blue; the
+      workflow is one blue box and then yellow; the agent is a single blue box in a loop, and which yellow box it
+      reaches is up to the model. Use the ⤢ button to enlarge the diagram.
+    </p>
+
+    <h2 class="lesson-heading">What Tells Them Apart <SourceBadge source="mine" /></h2>
+
+    <p>
+      All three have gates, and all three can loop. So those aren't the difference. Two questions are:
+    </p>
+
+    <ol>
+      <li><strong>What are the steps?</strong> Separates the chain from the workflow.</li>
+      <li><strong>Who decides the next step?</strong> Separates the workflow from the agent.</li>
+    </ol>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Prompt chain</th><th>Workflow</th><th>ReAct agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Who decides the next step?</strong></td><td>Code</td><td>Code</td><td><strong>The model</strong></td></tr>
+          <tr><td><strong>What are the steps?</strong></td><td>All model calls</td><td>Model calls <strong>and</strong> code/functions</td><td>Whatever tool the model asks for</td></tr>
+          <tr><td>Functions (coverage, prices…)</td><td>None</td><td>Called by your code</td><td><strong>Called because the model asked</strong> (tool calls)</td></tr>
+          <tr><td>What the loop does</td><td>Retries the same step</td><td>Retries the same step</td><td><strong>Is</strong> the design: each turn can do something different</td></tr>
+          <tr><td>Gates</td><td>After each step</td><td>After the model step</td><td>Final gate before the answer is accepted</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="lesson-heading">Two kinds of loop</h3>
+
+    <p>
+      The word "loop" covers two different things here. In the chain and the workflow, a loop is a <strong>retry</strong>:
+      a step's output fails its gate, the error goes back to the model, and the <em>same</em> step runs again, at most
+      three times. The next step is still fixed. In the agent, the loop is the <strong>engine</strong>: think, call a
+      tool, observe, decide again, and each turn can go somewhere different. Both are feedback loops (generate, check,
+      feed the result back); only the agent's decides where to go next.
+    </p>
+
+    <h3 class="lesson-heading">Tool calls are what make it ReAct</h3>
+
+    <p>
+      The workflow and the agent use the same functions. In the workflow your code calls
+      <code>price_damage(...)</code> at a fixed point. In the agent the model writes <code>ACT: price_damage(...)</code>,
+      your code runs it, and the model reads the result before choosing what to do next. A function the model can ask
+      for is a <strong>tool</strong>; the model asking is a <strong>tool call</strong>.
+    </p>
+
+    <h2 class="lesson-heading">Step by Step, Side by Side <SourceBadge source="mine" /></h2>
 
     <p>Claim C004: hail dents on the hood, roof and trunk, damaged side mirrors, a cracked window.</p>
 
     <div class="lesson-table">
       <table>
         <thead>
-          <tr><th></th><th>4.4 prompt chain</th><th>4.5 agent</th><th>4.6 workflow</th></tr>
+          <tr><th>Stage</th><th>Prompt chain (course's 4.4)</th><th>Workflow (4.6)</th><th>ReAct agent (4.5)</th></tr>
         </thead>
         <tbody>
-          <tr><td>Steps</td><td>🤖 extract → 🤖 assess → 🤖 route</td><td>🤖 → check_coverage → 🤖 → price_damage → 🤖 → route_claim → 🤖 → final_answer (order chosen by the model)</td><td>🤖 extract → coverage → price → severity → route</td></tr>
-          <tr><td>LLM calls</td><td>3</td><td>4–5, more if it makes mistakes</td><td>1</td></tr>
-          <tr><td>Result</td><td>Moderate, $3,000 → <code>material_damage</code></td><td>Major, $5,450 → <code>total_loss</code></td><td>Major, $5,450 → <code>total_loss</code></td></tr>
-          <tr><td>Why</td><td>The model guessed the cost; the gate only checked it fit the severity</td><td>Cost from the price table; the final gate made the answer match it</td><td>Cost from the price table; severity computed from it</td></tr>
+          <tr><td>Read the claim</td><td>🤖 Extract: name, vehicle, description, areas</td><td>🤖 Extract: incident type (hail), areas counted (two mirrors)</td><td>🤖 Reads it in its first THINK</td></tr>
+          <tr><td>Coverage</td><td>Not checked</td><td>🛠️ Code calls <code>check_coverage</code>: covered</td><td>🤖 → 🛠️ Asks for <code>check_coverage(hail)</code>: covered</td></tr>
+          <tr><td>Cost</td><td>🤖 <strong>Guesses</strong> $3,000</td><td>🛠️ Code calls <code>price_damage</code>: $5,450</td><td>🤖 → 🛠️ Asks for <code>price_damage</code>: $5,450</td></tr>
+          <tr><td>Severity</td><td>🤖 Judges Moderate</td><td>🧮 Code: $5,450 is Major</td><td>🤖 Picks Major (the gate checks it fits $5,450)</td></tr>
+          <tr><td>Route</td><td>🤖 → <code>material_damage</code></td><td>🛠️ Code → <code>total_loss</code></td><td>🤖 → 🛠️ Asks for <code>route_claim</code> → <code>total_loss</code></td></tr>
+          <tr><td>Who chose these steps</td><td>Your code, before any claim arrived</td><td>Your code, before any claim arrived</td><td>The model, while handling this claim</td></tr>
+          <tr><td>If a step fails</td><td>Retry that step, then human review</td><td>Retry extraction, then human review</td><td>Error goes back as OBSERVE; step limit, then human review</td></tr>
+          <tr><td>Model calls</td><td>3</td><td>1</td><td>4–5</td></tr>
+          <tr><td>Result</td><td>❌ Moderate, $3,000</td><td>✅ Major, $5,450</td><td>✅ Major, $5,450</td></tr>
         </tbody>
       </table>
     </div>
 
     <p>
-      Two lessons in that table. First, the chain got it wrong because it <em>guessed</em> a number, not because it
-      was a chain. Second, the agent and the workflow got it right for the same reason (the price table), and the
-      workflow did it with a quarter of the LLM calls. Tools and gates decided correctness here; the design decided
-      cost and predictability.
+      Two lessons in that table. First, the chain got it wrong because the model <em>guessed</em> a number, not
+      because it was a chain. Second, the workflow and the agent got it right for the same reason, the price table,
+      and the workflow did it with a quarter of the model calls. Tools and gates decided correctness here; the design
+      decided cost and predictability.
     </p>
 
-    <h2 class="lesson-heading">Side by Side <SourceBadge source="mine" /></h2>
+    <LessonCallout variant="info" title="The original 4.4 vs. the improved one">
+      <p>
+        The chain column is the course's original run: three model calls, routing included. The improved version in
+        the 4.4 notebook moves routing into code and adds retries with feedback, so it sits between a chain and a
+        workflow. Each step along the scale hands more of the job to code.
+      </p>
+    </LessonCallout>
+
+    <h2 class="lesson-heading">The Shape of the Code <SourceBadge source="mine" /></h2>
+
+    <p>
+      Simplified from the notebooks, so the three are easy to compare. <code>step(prompt, text, gate)</code> is a model call
+      with its gate and retries.
+    </p>
+
+    <CodeBlock lang="python" label="prompt chain: every step is a model call" code={chainShape} />
+    <CodeBlock lang="python" label="workflow: one model call, then code" code={workflowShape} />
+    <CodeBlock lang="python" label="ReAct agent: the model picks each step" code={agentShape} />
+
+    <p>
+      Compare the first two: same top-to-bottom shape, but the workflow's model calls have become function calls. Then
+      compare the last two: the same functions, but in the agent they're never called in the code you wrote; they're
+      looked up by name from whatever the model asked for.
+    </p>
+
+    <h2 class="lesson-heading">Trade-offs <SourceBadge source="mine" /></h2>
 
     <div class="lesson-table">
       <table>

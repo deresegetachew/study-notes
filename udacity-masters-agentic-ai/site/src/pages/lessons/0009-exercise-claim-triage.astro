@@ -115,6 +115,11 @@ const mindMap = `
         <a href={`${base}/lessons/0016-exercise-claims-workflow`}>4.6</a> as a workflow, and
         <a href={`${base}/lessons/0017-decision-guide-chain-workflow-agent`}>4.7</a> compares the three.
       </p>
+      <p>
+        The course's original is a pure chain. The improved version at the end of this page adds retries with
+        feedback and moves routing into code, which makes it a step toward a workflow. Its loops only retry a step;
+        the order of the steps never changes, so it isn't an agent.
+      </p>
     </LessonCallout>
 
     <h2 class="lesson-heading">The Exercise <SourceBadge source="course" /></h2>
