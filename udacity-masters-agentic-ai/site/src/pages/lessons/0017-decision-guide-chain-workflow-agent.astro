@@ -61,6 +61,18 @@ const mindMap = `
 ### Chain: 4 calls, the model does lookups and sums
 ### Workflow: 1 call, code does them
 ### Agent: 4–5 calls, the model asks code to do them
+## Cost of running (C004)
+### Tokens ≈ 670 : 180 : 2,300
+### Agent history grows every turn
+### Chain prompts grow with the data
+## Cost of change
+### Predictable changes → cheapest in a workflow
+### New kinds of case → cheapest in an agent
+### Chain: logic in prompt text, hardest to change
+## When to use what
+### Chain: all-language steps, fixed order
+### Workflow: known steps with rules and lookups
+### Agent: path depends on findings
 ## The decision
 ### One prompt enough? → single prompt
 ### Steps known in advance? no → agent
@@ -317,6 +329,66 @@ flowchart LR
       </table>
     </div>
 
+    <h2 class="lesson-heading">Cost of Running <SourceBadge source="mine" /></h2>
+
+    <p>
+      What each claim costs, every time it runs. Token counts are rough (about 4 characters per token), measured from the
+      notebook's prompts for claim C004 with no retries.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Per claim</th><th>Prompt chain</th><th>Workflow</th><th>ReAct agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Model calls</td><td>4, always</td><td>1</td><td>4–5, more after mistakes</td></tr>
+          <tr><td>Input tokens</td><td>≈ 670</td><td>≈ 180</td><td>≈ 2,300</td></tr>
+          <tr><td>Why</td><td>Four prompts, two of them carrying a table</td><td>One short prompt and the claim</td><td>The whole history is resent every turn, and it grows each turn</td></tr>
+          <tr><td>Latency</td><td>4 round trips, one after another</td><td>1 round trip, then fast code</td><td>4–5 round trips; varies per claim</td></tr>
+          <tr><td>Predictable cost?</td><td>Yes</td><td>Yes</td><td>No: depends on the path the model takes</td></tr>
+          <tr><td>As the business grows</td><td>Prompts grow with the data: about 15 tokens per policy in the coverage prompt. A million policies don't fit.</td><td>Flat: code queries the data</td><td>Flat per turn: tools query the data</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Roughly 1 : 4 : 12 in tokens for the same answer. At ten claims a day nobody notices; at a hundred thousand a day it
+      decides the budget, and the latency decides whether a customer waits for an answer or gets an email later. Retries
+      add to all three, but they hit the agent hardest: every extra turn resends the longest history.
+    </p>
+
+    <h2 class="lesson-heading">Cost of Change <SourceBadge source="mine" /></h2>
+
+    <p>
+      What it takes to change the system later. This is where the designs differ most, and it's easy to forget when
+      choosing.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th>Change</th><th>Prompt chain</th><th>Workflow</th><th>ReAct agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>A repair price changes</td><td>Edit the table text in a prompt, re-test the prompt</td><td>Edit the data; nothing else</td><td>Edit the data; nothing else</td></tr>
+          <tr><td>A new coverage rule</td><td>Rewrite the coverage prompt and check the model applies it</td><td>Change <code>check_coverage</code>, add a unit test</td><td>Change the tool; maybe its description</td></tr>
+          <tr><td>A new queue (e.g. injuries go to a <code>bodily_injury</code> team)</td><td>Route prompt and its output model</td><td>One branch in code, one extracted field</td><td>A line in the prompt and the final gate</td></tr>
+          <tr><td>A new kind of claim with a different path (a theft: no pricing, a police report first)</td><td>Hard: a chain is a straight line, so every step's prompt has to handle it</td><td>A new branch, a new field, new tests; fine once, painful the tenth time</td><td>Often a new tool and a line in its description; the agent finds the path</td></tr>
+          <tr><td>Switch to a new model</td><td>Re-check 4 prompts</td><td>Re-check 1 prompt</td><td>Re-check whole traces: the paths themselves can change</td></tr>
+          <tr><td>A million policies</td><td>Redesign: move the lookup into code (it becomes a workflow)</td><td>Swap the dict for a database query</td><td>Swap the dict for a database query</td></tr>
+          <tr><td>An auditor asks why a claim got its queue</td><td>Four logged answers</td><td>The same code path every time; easiest</td><td>Read the trace; the path differs per claim</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The pattern: the <strong>workflow</strong> is cheapest to change for anything you can predict (prices, rules, queues),
+      because the logic is plain code with tests. The <strong>agent</strong> is cheapest for what you can't predict (new kinds
+      of cases), because it finds the path itself, but every change needs whole-trace evaluation instead of unit tests.
+      The <strong>chain</strong> keeps logic and data in prompt text, which is the hardest place to change, test and scale.
+    </p>
+
     <h2 class="lesson-heading">The Terms <SourceBadge source="mine" /></h2>
 
     <ul>
@@ -377,6 +449,28 @@ flowchart LR
     <p>
       Moving right buys flexibility and costs predictability, money and latency. The guide below is about moving
       only as far right as the problem needs.
+    </p>
+
+    <h2 class="lesson-heading">When to Use What <SourceBadge source="mine" /></h2>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Prompt chain</th><th>Workflow</th><th>ReAct agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Use it when</strong></td><td>Every step is a language task (summarize → translate → reformat), the steps are fixed, and there's little data or arithmetic</td><td>The steps are known, some are rules, lookups or maths, and volume, latency or audits matter</td><td>The next step depends on what the last one found, cases vary a lot, or new kinds of case keep appearing</td></tr>
+          <tr><td><strong>Avoid it when</strong></td><td>Steps need data lookups or exact numbers, or the data is large</td><td>Paths keep multiplying into special cases</td><td>The path is the same for every input, or every call's cost and latency matter</td></tr>
+          <tr><td>Running cost</td><td>Medium, fixed</td><td>Lowest, fixed</td><td>Highest, variable</td></tr>
+          <tr><td>Cost of change</td><td>High: logic and data live in prompt text</td><td>Low for expected changes, high for new kinds of case</td><td>Low for new kinds of case, but every change needs whole-trace evaluation</td></tr>
+          <tr><td>Examples</td><td>Draft → critique → rewrite a marketing post; transcript → summary → action items</td><td>Claim triage, invoice matching, structured form intake, claim-button requests (4.8)</td><td>Research questions, open-ended support emails (4.8), debugging with tools</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Mixing is normal: a workflow with one agent step where the path varies, or an agent whose tools are small
+      workflows. The decision guide below is for choosing each part.
     </p>
 
     <h2 class="lesson-heading">The Decision Guide <SourceBadge source="mine" /></h2>
@@ -474,6 +568,8 @@ flowchart TB
         '<strong>Mark each step</strong> as language (LLM) or rules/lookups/maths (code)',
         '<strong>Look for the step whose path varies</strong>; only that part might need an agent',
         '<strong>Weigh volume, latency and audit needs</strong>; they all favour workflows',
+        '<strong>Estimate the cost of running</strong>: model calls and tokens per item, times volume',
+        '<strong>List the changes you expect</strong> (prices, rules, new case types) and ask what each costs in each design',
         '<strong>Put the gates in code</strong> whichever design you pick',
         '<strong>Compare on the same inputs</strong>: results, LLM calls, and whether the path is stable',
         '<strong>Revisit the choice</strong> when branches multiply or traces show a fixed path',
@@ -500,6 +596,12 @@ flowchart TB
         options: ['It could be a workflow: same results, fewer calls, predictable path', 'The step limit is too low', 'It needs more tools', 'The model is broken'],
         answer:  0,
         explain: 'A fixed path is a workflow in disguise, at a higher price.',
+      },
+      {
+        q:       'The business adds a new kind of claim every month, each with its own steps. Which design keeps the cost of change lowest?',
+        options: ['The ReAct agent: a new tool and a line in its description, though each change needs whole-trace evaluation', 'The prompt chain: just edit the prompts', 'The workflow: branches are free', 'None: all three cost the same'],
+        answer:  0,
+        explain: 'Predictable changes are cheapest in a workflow; new kinds of case with new paths are cheapest in an agent.',
       },
       {
         q:       'What is the difference between a prompt chain and a workflow?',
