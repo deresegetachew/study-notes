@@ -42,6 +42,28 @@ for turn in range(MAX_STEPS):
 return "needs_review"                              # exit 2: step limit
 `.trim();
 
+const testShape = `
+# Unit test: plain code, no model, same result every run (workflow; the agent's tools)
+def test_hail_is_total_loss():
+    facts = ClaimFacts(claim_id="C004", incident_type="hail",
+                       damage_areas=["hood", "roof", "trunk", "mirror", "mirror", "glass"])
+    assert decide(facts)["queue"] == "total_loss"
+
+# Gate test: you play the model, no model needed (the agent's final gate)
+def test_gate_refuses_a_guessed_cost():
+    facts = {}
+    execute('ACT: check_coverage(claim_id="C004", incident_type="hail")', facts)
+    execute('ACT: price_damage(areas=["hood", "roof", "trunk", "mirror", "mirror", "glass"])', facts)
+    observation, decision = execute('ACT: final_answer(claim_id="C004", queue="material_damage", '
+                                    'severity="Moderate", est_cost=3000, reason="hail dents")', facts)
+    assert decision is None and "ERROR" in observation
+
+# Evaluation: calls the model, so run a labeled set (several times) and measure
+def eval_extraction(labeled_claims, runs=3):
+    hits = sum(extract(c.text)[0] == c.expected_facts for c in labeled_claims for _ in range(runs))
+    return hits / (len(labeled_claims) * runs)
+`.trim();
+
 const mindMap = `
 # Decision Guide: Prompt Chain, Workflow or ReAct Agent?
 ## Three designs
@@ -69,6 +91,11 @@ const mindMap = `
 ### Predictable changes → cheapest in a workflow
 ### New kinds of case → cheapest in an agent
 ### Chain: logic in prompt text, hardest to change
+## Testability
+### Unit tests for code, evaluations for model steps
+### Chain: only gates unit-testable
+### Workflow: all but extraction unit-testable
+### Agent: tools + gate unit-testable, decisions need evals
 ## When to use what
 ### Chain: all-language steps, fixed order
 ### Workflow: known steps with rules and lookups
@@ -389,6 +416,70 @@ flowchart LR
       The <strong>chain</strong> keeps logic and data in prompt text, which is the hardest place to change, test and scale.
     </p>
 
+    <h2 class="lesson-heading">Testability <SourceBadge source="mine" /></h2>
+
+    <p>
+      Two kinds of test apply here. A <strong>unit test</strong> checks plain code: no model call, free to run, the same
+      result every time, and a failure points to a line. An <strong>evaluation</strong> checks a model step: it costs
+      model calls, the result can vary, so you run a labeled set several times and measure how often it's right. The more of
+      the logic lives in code, the more of the system unit tests can cover.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  subgraph CH["🔗 Prompt chain"]
+    direction TB
+    c1["🎲 extract"]:::ev --> c1g{{"✅ gate"}}:::ut --> c2["🎲 coverage"]:::ev --> c2g{{"✅ gate"}}:::ut --> c3["🎲 assess"]:::ev --> c3g{{"✅ gate"}}:::ut --> c4["🎲 route"]:::ev --> c4g{{"✅ gate"}}:::ut
+  end
+  subgraph WF["⚙️ Workflow"]
+    direction TB
+    w1["🎲 extract"]:::ev --> w1g{{"✅ gate"}}:::ut --> w2["✅ check_coverage"]:::ut --> w3["✅ price_damage"]:::ut --> w4["✅ severity"]:::ut --> w5["✅ route_claim"]:::ut
+  end
+  subgraph AG["🤖 ReAct agent"]
+    direction TB
+    a1["🎲 which tool, which arguments,<br/>when to stop (every turn)"]:::ev --> a2["✅ parser + tools"]:::ut
+    a2 -.-> a1
+    a1 --> a3{{"✅ final gate"}}:::ut
+  end
+  CH ~~~ WF ~~~ AG
+
+  classDef ut fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef ev fill:#ffedd5,color:#7c2d12,stroke:#ea580c,stroke-width:2px
+    `} />
+
+    <p>
+      Green ✅ boxes can be unit-tested; orange 🎲 boxes need evaluations. The chain is mostly orange: only its gates are
+      plain code. The workflow is mostly green: one orange box at the top. The agent's tools, parser and final gate are
+      green, but the most important part, the decisions it makes every turn, is orange.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Prompt chain</th><th>Workflow</th><th>ReAct agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Unit-testable (no model)</td><td>Only the gates</td><td>Everything after extraction: coverage, price, severity, route, every branch, the gate</td><td>Tools, parser, executor, final gate (the notebooks' "you play the model" cells)</td></tr>
+          <tr><td>Needs evaluations</td><td>All four steps: lookup, sum, rule, route</td><td>Only the extraction</td><td>The decisions: which tool, which arguments, in what order, when to stop</td></tr>
+          <tr><td>What an evaluation compares</td><td>Each step's output with the expected one</td><td>Extracted facts with labeled facts</td><td>Whole runs: the final answer, and whether the path was sensible</td></tr>
+          <tr><td>Same test, same result?</td><td>Steps are fixed; outputs vary</td><td>Path fixed; only extraction varies</td><td>Path and outputs vary: run each case several times</td></tr>
+          <tr><td>Cost of a full test run</td><td>4 model calls per case</td><td>1 call per case; unit tests free</td><td>4–5 calls per case, times the repeats</td></tr>
+          <tr><td>When a test fails</td><td>The failing step's output shows it</td><td>A stack trace, or the extraction's output</td><td>Read the trace; the mistake may be several turns before the wrong answer</td></tr>
+          <tr><td>After a model upgrade</td><td>Re-run 4 step evaluations</td><td>Re-run 1 extraction evaluation</td><td>Re-run every scenario, several times each</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>What each kind of test looks like, using the notebooks' functions:</p>
+
+    <CodeBlock lang="python" label="unit test · gate test · evaluation" code={testShape} />
+
+    <p>
+      Testability follows the same line as everything else on this page: whatever moves from a prompt into code becomes
+      cheap, fast and exact to test. That's one more reason to keep rules and numbers in code whichever design you choose,
+      and to reach for an agent only where its flexibility is worth evaluations instead of unit tests.
+    </p>
+
     <h2 class="lesson-heading">The Terms <SourceBadge source="mine" /></h2>
 
     <ul>
@@ -462,6 +553,7 @@ flowchart LR
           <tr><td><strong>Use it when</strong></td><td>Every step is a language task (summarize → translate → reformat), the steps are fixed, and there's little data or arithmetic</td><td>The steps are known, some are rules, lookups or maths, and volume, latency or audits matter</td><td>The next step depends on what the last one found, cases vary a lot, or new kinds of case keep appearing</td></tr>
           <tr><td><strong>Avoid it when</strong></td><td>Steps need data lookups or exact numbers, or the data is large</td><td>Paths keep multiplying into special cases</td><td>The path is the same for every input, or every call's cost and latency matter</td></tr>
           <tr><td>Running cost</td><td>Medium, fixed</td><td>Lowest, fixed</td><td>Highest, variable</td></tr>
+          <tr><td>Testability</td><td>Low: only the gates are unit-testable</td><td>High: everything but extraction is unit-testable</td><td>Tools and gate unit-testable; decisions need repeated evaluations</td></tr>
           <tr><td>Cost of change</td><td>High: logic and data live in prompt text</td><td>Low for expected changes, high for new kinds of case</td><td>Low for new kinds of case, but every change needs whole-trace evaluation</td></tr>
           <tr><td>Examples</td><td>Draft → critique → rewrite a marketing post; transcript → summary → action items</td><td>Claim triage, invoice matching, structured form intake, claim-button requests (4.8)</td><td>Research questions, open-ended support emails (4.8), debugging with tools</td></tr>
         </tbody>
@@ -569,6 +661,7 @@ flowchart TB
         '<strong>Look for the step whose path varies</strong>; only that part might need an agent',
         '<strong>Weigh volume, latency and audit needs</strong>; they all favour workflows',
         '<strong>Estimate the cost of running</strong>: model calls and tokens per item, times volume',
+        '<strong>Mark what can be unit-tested</strong>; everything else needs an evaluation set, run more than once',
         '<strong>List the changes you expect</strong> (prices, rules, new case types) and ask what each costs in each design',
         '<strong>Put the gates in code</strong> whichever design you pick',
         '<strong>Compare on the same inputs</strong>: results, LLM calls, and whether the path is stable',
@@ -602,6 +695,12 @@ flowchart TB
         options: ['The ReAct agent: a new tool and a line in its description, though each change needs whole-trace evaluation', 'The prompt chain: just edit the prompts', 'The workflow: branches are free', 'None: all three cost the same'],
         answer:  0,
         explain: 'Predictable changes are cheapest in a workflow; new kinds of case with new paths are cheapest in an agent.',
+      },
+      {
+        q:       'Which part of the ReAct agent can you test without calling a model?',
+        options: ['The tools, the parser and the final gate, by feeding hand-written ACT lines', 'Which tool it picks first', 'Whether it stops at the right time', 'Nothing: every part needs the model'],
+        answer:  0,
+        explain: 'Everything in code is unit-testable. The decisions the model makes each turn need evaluations, run several times.',
       },
       {
         q:       'What is the difference between a prompt chain and a workflow?',
