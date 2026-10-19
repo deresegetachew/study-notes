@@ -10,6 +10,8 @@ import LessonMindMap     from '@/components/LessonMindMap.astro';
 import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
 import CodeBlock         from '@/components/CodeBlock.astro';
+import NotebookView      from '@/components/NotebookView.astro';
+import compareNb         from '../../../../code/course-1/4.7-compare-designs/compare_designs.ipynb?raw';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const L = (slug: string) => `${base}/lessons/${slug}`;
@@ -245,6 +247,36 @@ flowchart LR
       compare the last two: the same functions, but in the agent they're never called in the code you wrote; they're
       looked up by name from whatever the model asked for.
     </p>
+
+    <h2 class="lesson-heading">Run All Three Yourself <SourceBadge source="mine" /></h2>
+
+    <p>
+      One notebook with all three designs, sharing the same claims, data and tools. Pick the design by uncommenting a
+      <code>DESIGN = ...</code> line in the "Run one" cell, or call <code>triage(fnol, "agent")</code> directly. Every
+      result shows the queue and the number of model calls it took.
+    </p>
+
+    <ol>
+      <li><strong>Setup:</strong> Colab's built-in model, with a counter for model calls.</li>
+      <li><strong>Shared:</strong> the six claims, the policy and price tables, the tools, and <code>call_with_gate</code> (a model step with its gate and retries).</li>
+      <li><strong>Design 1, prompt chain:</strong> extract → assess → route, all model calls.</li>
+      <li><strong>Design 2, workflow:</strong> one model call, then code.</li>
+      <li><strong>Design 3, ReAct agent:</strong> tools, final gate, parser, loop.</li>
+      <li><strong>One entry point:</strong> <code>triage(fnol, design)</code>.</li>
+      <li><strong>Run one:</strong> pick a design and a claim; <code>VERBOSE = True</code> prints every step.</li>
+      <li><strong>Compare all three on every claim.</strong></li>
+      <li><strong>Your turn:</strong> the course's original chain (<code>MAX_ATTEMPTS = 1</code>), the agent's path across runs, a claim of your own.</li>
+    </ol>
+
+    <NotebookView notebook={compareNb} path="code/course-1/4.7-compare-designs/compare_designs.ipynb" />
+
+    <LessonCallout variant="tip" title="Running it in Colab">
+      <p>
+        <strong>Run the cells top to bottom, setup first.</strong> The notebook uses Colab's built-in models, no API key
+        needed. Start with C004 in all three designs with <code>VERBOSE = True</code>: the chain shows three model
+        answers, the workflow one answer and four code steps, the agent every THINK / ACT / OBSERVE turn.
+      </p>
+    </LessonCallout>
 
     <h2 class="lesson-heading">Trade-offs <SourceBadge source="mine" /></h2>
 
