@@ -10,14 +10,14 @@ import LessonMindMap     from '@/components/LessonMindMap.astro';
 import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
 import NotebookView      from '@/components/NotebookView.astro';
-import workflowNb        from '../../../../code/course-1/4.6-claims-workflow/claims_workflow.ipynb?raw';
+import workflowNb        from '../../../../code/course-1/p2-claims-workflow/claims_workflow.ipynb?raw';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 const mindMap = `
 # Exercise: Insurance Claims as a Workflow
 ## The goal
-### Same claims, data and tools as the 4.5 agent
+### Same claims, data and tools as the P1 agent
 ### Code fixes the steps; one LLM call
 ## Chain vs. workflow
 ### Chain: every step an LLM call
@@ -35,12 +35,12 @@ const mindMap = `
 `.trim();
 ---
 
-<LessonLayout title="4.6 — Exercise: Insurance Claims as a Workflow">
+<LessonLayout title="P2 — Exercise: Insurance Claims as a Workflow">
 
   <LessonHeader
-    num="4.6"
+    num="P2"
     title="Exercise: Insurance Claims as a Workflow"
-    subtitle="The same claims and tools as the 4.5 agent, but code fixes the steps and the LLM is used once."
+    subtitle="The same claims and tools as the P1 agent, but code fixes the steps and the LLM is used once."
   />
 
   <div class="lesson-content">
@@ -50,14 +50,14 @@ const mindMap = `
     <h2 class="lesson-heading">The Goal <SourceBadge source="mine" /></h2>
 
     <p>
-      Lesson <a href={`${base}/lessons/0013-exercise-claim-agent`}>4.5</a> built insurance-claim triage as an agent and
+      Lesson <a href={`${base}/lessons/0013-exercise-claim-agent`}>P1</a> built insurance-claim triage as an agent and
       concluded that, for this job, a workflow would do better. This exercise builds that workflow, with the
       <strong>same claims, the same data and the same tools</strong> (coverage check, price table, routing rules),
       so the comparison is fair.
     </p>
 
     <p>
-      The difference is who picks the steps. In 4.5 the model chose the next tool every turn. Here your code runs
+      The difference is who picks the steps. In P1 the model chose the next tool every turn. Here your code runs
       the steps in a fixed order, and the LLM is called <strong>once</strong>, for the only thing code can't do:
       read the claim text and say what happened and what's damaged.
     </p>
@@ -74,7 +74,7 @@ const mindMap = `
     <div class="lesson-table">
       <table>
         <thead>
-          <tr><th></th><th>4.4 prompt chain</th><th>4.6 workflow</th></tr>
+          <tr><th></th><th>4.4 prompt chain</th><th>P2 workflow</th></tr>
         </thead>
         <tbody>
           <tr><td>Steps</td><td>3 LLM calls in a line</td><td>1 LLM call, then 4 code steps</td></tr>
@@ -118,7 +118,7 @@ flowchart TB
           <tr><td>Extract</td><td>LLM</td><td>Returns <code>ClaimFacts</code>: claim ID, incident type, damaged areas (an area listed once per part, so two doors is <code>["door", "door"]</code>)</td></tr>
           <tr><td>Gate + retry</td><td>Code</td><td>Pydantic refuses anything outside the allowed lists; the error goes back to the model, up to 3 tries. This is the workflow's only feedback loop.</td></tr>
           <tr><td>Check coverage</td><td>Code</td><td>The one branch: not covered, or the policy has lapsed → <code>needs_review</code></td></tr>
-          <tr><td>Price the damage</td><td>Code</td><td>The price table from 4.5</td></tr>
+          <tr><td>Price the damage</td><td>Code</td><td>The price table from P1</td></tr>
           <tr><td>Severity</td><td>Code</td><td>From the total: up to $1,000 Minor, up to $5,000 Moderate, above that Major</td></tr>
           <tr><td>Route</td><td>Code</td><td>4.4's routing rules</td></tr>
         </tbody>
@@ -126,7 +126,7 @@ flowchart TB
     </div>
 
     <p>
-      In 4.5 the agent chose a severity and the final gate checked it against the price. Here there's nothing to
+      In P1 the agent chose a severity and the final gate checked it against the price. Here there's nothing to
       check: once the cost comes from a table, the severity follows from the cost bands, so code computes it.
     </p>
 
@@ -154,7 +154,7 @@ flowchart TB
     </div>
 
     <p>
-      These are the queues the 4.5 agent should reach, with one LLM call per claim instead of four or five, and the
+      These are the queues the P1 agent should reach, with one LLM call per claim instead of four or five, and the
       same steps every time. The only part that can vary between runs is the extraction, and it's gated.
     </p>
 
@@ -162,7 +162,7 @@ flowchart TB
 
     <ol>
       <li><strong>Setup:</strong> Colab's built-in model.</li>
-      <li><strong>Data and tools:</strong> unchanged from 4.5.</li>
+      <li><strong>Data and tools:</strong> unchanged from P1.</li>
       <li><strong>The one LLM step:</strong> <code>ClaimFacts</code>, the extraction prompt, and the retry with feedback.</li>
       <li><strong>The workflow:</strong> <code>decide</code> (all code) and <code>triage</code>.</li>
       <li><strong>You play the extraction step:</strong> the results above, plus the gate refusing bad extractions. No LLM needed.</li>
@@ -170,12 +170,12 @@ flowchart TB
       <li><strong>Your turn:</strong> theft, injuries, and when the branches get too many.</li>
     </ol>
 
-    <NotebookView notebook={workflowNb} path="code/course-1/4.6-claims-workflow/claims_workflow.ipynb" />
+    <NotebookView notebook={workflowNb} path="code/course-1/p2-claims-workflow/claims_workflow.ipynb" />
 
     <LessonCallout variant="tip" title="Running it in Colab">
       <p>
         <strong>Run the setup cell first.</strong> The notebook uses Colab's built-in models, no API key needed;
-        the setup cell lists them, and uncommenting a <code>MODEL = ...</code> line there picks one. Then run the 4.5
+        the setup cell lists them, and uncommenting a <code>MODEL = ...</code> line there picks one. Then run the P1
         notebook on the same claims and compare <code>llm_calls</code> with the agent's steps.
       </p>
     </LessonCallout>
@@ -191,7 +191,7 @@ flowchart TB
     <p>
       That's fine for a handful of cases. When the branches keep multiplying, or the right next step depends on what
       the previous one found, it's time to consider an agent step for that part. Lesson
-      <a href={`${base}/lessons/0017-decision-guide-chain-workflow-agent`}>4.7</a> compares all three designs and
+      <a href={`${base}/lessons/0017-decision-guide-chain-workflow-agent`}>P3</a> compares all three designs and
       turns this into a decision guide.
     </p>
 
@@ -215,7 +215,7 @@ flowchart TB
 
     <LessonQuiz questions={[
       {
-        q:       'What makes 4.6 a workflow rather than a prompt chain like 4.4?',
+        q:       'What makes P2 a workflow rather than a prompt chain like 4.4?',
         options: ['Code runs most steps; the LLM is one step among them, with a branch', 'It uses Pydantic', 'It has no fixed order', 'The model picks the next step'],
         answer:  0,
         explain: 'A prompt chain is a workflow whose steps are all LLM calls. Here only extraction is.',
@@ -230,7 +230,7 @@ flowchart TB
         q:       'How many LLM calls does the workflow make for a claim when extraction passes the gate first time?',
         options: ['1', '2', '4–5', 'One per code step'],
         answer:  0,
-        explain: 'Only extraction calls the model. The 4.5 agent needs one call per tool call.',
+        explain: 'Only extraction calls the model. The P1 agent needs one call per tool call.',
       },
       {
         q:       'Which change would most push you toward an agent step?',
@@ -243,7 +243,7 @@ flowchart TB
   </div>
 
   <DeepDive
-    sources="own exercise, building on lesson 4.4 (prompt chain) and lesson 4.5 (agent), same data and tools"
+    sources="own exercise, building on lesson 4.4 (prompt chain) and lesson P1 (agent), same data and tools"
     tensions={[
       { a: 'Fixed steps (predictable, cheap, testable)', b: 'New cases need new code' },
       { a: 'One big extraction (one call)', b: 'More fields to get right in a single answer' },

@@ -10,7 +10,7 @@ import LessonMindMap     from '@/components/LessonMindMap.astro';
 import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
 import NotebookView      from '@/components/NotebookView.astro';
-import claimAgentNb      from '../../../../code/course-1/4.8-invoice-claim-agent/invoice_claim_agent.ipynb?raw';
+import claimAgentNb      from '../../../../code/course-1/p4-invoice-claim-agent/invoice_claim_agent.ipynb?raw';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -41,10 +41,10 @@ const mindMap = `
 `.trim();
 ---
 
-<LessonLayout title="4.8 — Exercise: Invoice Claim Agent">
+<LessonLayout title="P4 — Exercise: Invoice Claim Agent">
 
   <LessonHeader
-    num="4.8"
+    num="P4"
     title="Exercise: Invoice Claim Agent"
     subtitle="A customer claims against an invoice by email or with the claim button; a ReAct agent investigates, decides and replies, inside rules it can't break."
   />
@@ -66,7 +66,7 @@ const mindMap = `
       The agent does that job. For each claim it finds the invoice, works out what the claim is, checks what's
       owed, and decides: <code>credit</code>, <code>reject</code>, <code>request_info</code> (ask the customer a
       question) or <code>escalate</code> (a person takes over). Every decision comes with a reply to the customer.
-      It uses the same ReAct harness as <a href={`${base}/lessons/0013-exercise-claim-agent`}>4.5</a>.
+      It uses the same ReAct harness as <a href={`${base}/lessons/0013-exercise-claim-agent`}>P1</a>.
     </p>
 
     <h2 class="lesson-heading">Two Channels, One Agent <SourceBadge source="mine" /></h2>
@@ -215,7 +215,7 @@ flowchart TB
     <h2 class="lesson-heading">Step 5 · Prompt and Loop <SourceBadge source="mine" /></h2>
 
     <p>
-      The harness is the one from 4.5: the parser reads the <code>ACT:</code> line with <code>ast</code>, errors go back as
+      The harness is the one from P1: the parser reads the <code>ACT:</code> line with <code>ast</code>, errors go back as
       <code>OBSERVE: ERROR</code>, and the loop has two exits. It changes in three places:
     </p>
 
@@ -266,7 +266,7 @@ flowchart TB
       <li><strong>Your turn:</strong> four extensions to try.</li>
     </ol>
 
-    <NotebookView notebook={claimAgentNb} path="code/course-1/4.8-invoice-claim-agent/invoice_claim_agent.ipynb" />
+    <NotebookView notebook={claimAgentNb} path="code/course-1/p4-invoice-claim-agent/invoice_claim_agent.ipynb" />
 
     <LessonCallout variant="tip" title="Running it in Colab">
       <p>
@@ -344,7 +344,7 @@ flowchart TB
   </div>
 
   <DeepDive
-    sources="own exercise, building on lesson 4.5's agent harness and lesson 4.2's workflow-vs-agent rule"
+    sources="own exercise, building on lesson P1's agent harness and lesson 4.2's workflow-vs-agent rule"
     tensions={[
       { a: 'Automatic credits (fast for customers)', b: 'A person approves (safe for the business)' },
       { a: 'Let the model write free replies (natural)', b: 'Templates (nothing unexpected reaches a customer)' },

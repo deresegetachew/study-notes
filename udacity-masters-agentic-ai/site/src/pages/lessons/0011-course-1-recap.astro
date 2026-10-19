@@ -75,6 +75,21 @@ const knowledgeMap = `
 - Tests are the spec
 - Full report back, iteration limit
 - Monitor every iteration
+## Choosing a design
+### Three designs
+- Prompt chain: fixed steps, all model calls
+- Workflow: fixed steps, code + one model step
+- ReAct agent: the model picks each step
+### Two questions
+- What are the steps?
+- Who decides the next step?
+### What each costs
+- Running: 4 · 1 · 4–5 model calls
+- Change: edit + verify
+- Testability: unit tests vs. evaluations
+### The rule
+- Simplest design that works
+- Rules and numbers in code, gates on every output
 `.trim();
 
 const mindMap = `
@@ -105,6 +120,11 @@ const mindMap = `
 ## 6 · Make it improve
 ### Feedback loops
 ### Monitoring + traces
+## 7 · Choose the design
+### Prompt chain · workflow · ReAct agent
+### Who decides the next step?
+### Running cost, cost of change, testability
+### Start simple; rules in code
 ## Principles
 ### The model only writes text
 ### Context is everything
@@ -452,6 +472,97 @@ flowchart TB
       </table>
     </div>
 
+    <h2 class="lesson-heading">Choosing a Design <SourceBadge source="mine" /></h2>
+
+    <p>
+      The course gives three ways to build a multi-step system, and the practice lessons built the same claims all three
+      ways, on the same information: a <strong>prompt chain</strong>, a <strong>workflow</strong> and a <strong>ReAct
+      agent</strong>. Choosing between them is the decision every later project starts with. This is the summary; the full
+      guide, with the notebook that runs all three, is <a href={L('0017-decision-guide-chain-workflow-agent')}>P3</a>.
+    </p>
+
+    <LessonDiagram definition={`
+flowchart LR
+  subgraph CH["🔗 Prompt chain"]
+    direction TB
+    c0["📄 claim"]:::in --> c1["🤖 extract"]:::llm --> c1g{{"🚦"}}:::gate --> c2["🤖 coverage<br/>policy table in prompt"]:::llm --> c2g{{"🚦"}}:::gate --> c3["🤖 assess<br/>price table in prompt"]:::llm --> c3g{{"🚦"}}:::gate --> c5["🤖 route<br/>rules in prompt"]:::llm --> c5g{{"🚦"}}:::gate --> c4["📥 queue"]:::done
+    c1g -.->|"retry"| c1
+    c3g -.->|"retry"| c3
+  end
+  subgraph WF["⚙️ Workflow"]
+    direction TB
+    w0["📄 claim"]:::in --> w1["🤖 extract"]:::llm --> w1g{{"🚦"}}:::gate --> w2["🛠️ check_coverage"]:::code --> w3["🛠️ price_damage"]:::code --> w4["🧮 severity"]:::code --> w5["🛠️ route_claim"]:::code --> w6["📥 queue"]:::done
+    w1g -.->|"retry"| w1
+    w2 -.->|"not covered"| w7["👤 review"]:::warn
+  end
+  subgraph AG["🤖 ReAct agent"]
+    direction TB
+    a0["📄 claim"]:::in --> a1["🤖 THINK + ACT<br/>picks a tool"]:::llm --> a2["🛠️ the tool it picked"]:::code
+    a2 -.->|"OBSERVE"| a1
+    a1 -->|"final_answer"| a3{{"🚦 final gate"}}:::gate --> a4["📥 queue"]:::done
+    a3 -.->|"ERROR"| a1
+  end
+  CH ~~~ WF ~~~ AG
+
+  classDef in   fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef llm  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+  classDef code fill:#fef3c7,color:#78350f,stroke:#d97706,stroke-width:2px
+  classDef gate fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef done fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef warn fill:#fee2e2,color:#7f1d1d,stroke:#dc2626,stroke-width:2px
+    `} />
+
+    <p>
+      Blue boxes are model calls, yellow boxes are code. Two questions tell the designs apart: <strong>what are the
+      steps?</strong> (all model calls in a chain; model calls and code in a workflow) and <strong>who decides the next
+      step?</strong> (your code in both; the model in the ReAct agent). Loops and gates appear in all three. By the course's
+      definition (4.1), only the ReAct design is an agent: only there does the LLM plan and decide when to use tools.
+    </p>
+
+    <div class="lesson-table">
+      <table>
+        <thead>
+          <tr><th></th><th>Prompt chain</th><th>Workflow</th><th>ReAct agent</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Who decides the next step</td><td>Code</td><td>Code</td><td>The model</td></tr>
+          <tr><td>Model calls per claim</td><td>4, always</td><td>1</td><td>4–5, varies</td></tr>
+          <tr><td>Input tokens (hail claim)</td><td>≈ 670</td><td>≈ 180</td><td>≈ 2,300</td></tr>
+          <tr><td>Cost of change</td><td>Prompt edit + evaluation, every time</td><td>Cheap to edit and verify for expected changes</td><td>Small edits, but every scenario re-evaluated, repeatedly</td></tr>
+          <tr><td>Testability</td><td>Only the gates unit-testable</td><td>Everything but extraction unit-testable</td><td>Tools and gate unit-testable; decisions need evaluations</td></tr>
+          <tr><td>Use it when</td><td>Every step is a language task, in a fixed order</td><td>Steps are known; some are rules, lookups or maths</td><td>The next step depends on what the last one found</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <LessonDiagram definition={`
+flowchart TB
+  S["🧩 A task"]:::in --> Q1{{"Can one well-written prompt<br/>do it reliably?"}}:::q
+  Q1 -->|"yes"| R1["📝 Single prompt<br/>+ a gate on the output"]:::p
+  Q1 -->|"no"| Q2{{"Can you write the steps<br/>down in advance?"}}:::q
+  Q2 -->|"no: the next step depends<br/>on what you find"| R4["🤖 ReAct agent<br/>tools · gates in code · step limit"]:::a
+  Q2 -->|"yes"| Q3{{"Does every step need<br/>language understanding?"}}:::q
+  Q3 -->|"yes"| R2["🔗 Prompt chain<br/>gate between steps"]:::p
+  Q3 -->|"no: some are rules,<br/>lookups or maths"| R3["⚙️ Workflow<br/>code for those steps"]:::w
+  R3 --> Q4{{"Is there one step whose<br/>path varies a lot?"}}:::q
+  Q4 -->|"yes"| R5["⚙️🤖 Workflow with a ReAct agent step"]:::w
+  Q4 -->|"no"| R6["✅ Keep the workflow"]:::w
+
+  classDef in fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
+  classDef q  fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:2px
+  classDef p  fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
+  classDef w  fill:#fef3c7,color:#78350f,stroke:#d97706,stroke-width:2px
+  classDef a  fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
+    `} />
+
+    <LessonCallout variant="key" title="Start simple, keep the rules in code">
+      <p>
+        Pick the simplest design that works and move toward the ReAct agent only when the path really depends on what
+        it finds. Whatever you pick, rules, numbers and lookups stay in code, and every model output passes a gate in code:
+        that's what makes the answer right; the design decides cost, changeability and testability.
+      </p>
+    </LessonCallout>
+
     <h2 class="lesson-heading">Practice: Every Notebook <SourceBadge source="mine" /></h2>
 
     <p>Each notebook runs in Colab with its built-in models; run the setup cell first.</p>
@@ -466,11 +577,11 @@ flowchart TB
           <tr><td>4.2 Prompt chaining</td><td>Sequential chain, workflow, gate checks, code chain</td><td><OpenInColab path="code/course-1/4.2-prompt-chaining/prompt_chaining.ipynb" label="Open" /></td></tr>
           <tr><td>4.3 Pydantic</td><td>Models, validation, gotchas, extraction with retry</td><td><OpenInColab path="code/course-1/4.3-pydantic/pydantic.ipynb" label="Open" /></td></tr>
           <tr><td>4.4 Claims, prompt chain</td><td>Three-stage chain with gates and human review</td><td><OpenInColab path="code/course-1/4.4-claim-triage/claim_triage.ipynb" label="Open" /></td></tr>
-          <tr><td>4.5 Claims, agent</td><td>The same claims as a ReAct agent with a final gate and feedback loop</td><td><OpenInColab path="code/course-1/4.5-claim-agent/claim_agent.ipynb" label="Open" /></td></tr>
-          <tr><td>4.6 Claims, workflow</td><td>The same claims as a workflow: one LLM call, the rest in code</td><td><OpenInColab path="code/course-1/4.6-claims-workflow/claims_workflow.ipynb" label="Open" /></td></tr>
-          <tr><td>4.7 Compare designs</td><td>Chain, workflow and agent in one notebook; pick with a parameter</td><td><OpenInColab path="code/course-1/4.7-compare-designs/compare_designs.ipynb" label="Open" /></td></tr>
-          <tr><td>4.8 Invoice claim agent</td><td>Customer claims by email or claim button: scoped tools, credit policy, reply check</td><td><OpenInColab path="code/course-1/4.8-invoice-claim-agent/invoice_claim_agent.ipynb" label="Open" /></td></tr>
-          <tr><td>4.9 Invoice processing agent</td><td>Accounts-payable agent: varying paths, lopsided gate, prompt injection</td><td><OpenInColab path="code/course-1/4.9-invoice-agent/invoice_agent.ipynb" label="Open" /></td></tr>
+          <tr><td>P1 Claims, agent</td><td>The same claims as a ReAct agent with a final gate and feedback loop</td><td><OpenInColab path="code/course-1/p1-claim-agent/claim_agent.ipynb" label="Open" /></td></tr>
+          <tr><td>P2 Claims, workflow</td><td>The same claims as a workflow: one LLM call, the rest in code</td><td><OpenInColab path="code/course-1/p2-claims-workflow/claims_workflow.ipynb" label="Open" /></td></tr>
+          <tr><td>P3 Compare designs</td><td>Chain, workflow and agent in one notebook; pick with a parameter</td><td><OpenInColab path="code/course-1/p3-compare-designs/compare_designs.ipynb" label="Open" /></td></tr>
+          <tr><td>P4 Invoice claim agent</td><td>Customer claims by email or claim button: scoped tools, credit policy, reply check</td><td><OpenInColab path="code/course-1/p4-invoice-claim-agent/invoice_claim_agent.ipynb" label="Open" /></td></tr>
+          <tr><td>P5 Invoice processing agent</td><td>Accounts-payable agent: varying paths, lopsided gate, prompt injection</td><td><OpenInColab path="code/course-1/p5-invoice-agent/invoice_agent.ipynb" label="Open" /></td></tr>
           <tr><td>5.1 Feedback loops</td><td>Test-driven refinement of a small function</td><td><OpenInColab path="code/course-1/5.1-feedback-loops/feedback_loop.ipynb" label="Open" /></td></tr>
           <tr><td>5.2 Debugging assistant</td><td>The course's code-correcting loop</td><td><OpenInColab path="code/course-1/5.2-code-debugging-assistant/code_debugging_assistant.ipynb" label="Open" /></td></tr>
         </tbody>
@@ -493,6 +604,7 @@ flowchart TB
         'Build a ReAct loop: tool descriptions, parser, executor, history, two exits?',
         'Name the five agent components and point to each in your own code?',
         'Split a task into a chain, and decide workflow vs. agent?',
+        'Choose between a prompt chain, a workflow and a ReAct agent, and justify it by running cost, cost of change and testability?',
         'Write a Pydantic model and use it both in the prompt and as a gate?',
         'Design gates for format, content, and logic, and a fallback when they fail?',
         'Build a feedback loop with specific feedback, an iteration limit, and a trace?',
@@ -502,6 +614,12 @@ flowchart TB
     <h2 class="lesson-heading">Quick-check quiz <SourceBadge source="course" /></h2>
 
     <LessonQuiz questions={[
+      {
+        q:       'A claims system has the same steps for every claim, and most steps are lookups and rules. Which design fits, and why?',
+        options: ['A workflow: code runs the known steps; one model call reads the claim, so it’s cheapest to run, change and test', 'A ReAct agent: agents are more capable', 'A prompt chain: every step should be a model call', 'A single prompt with all the data'],
+        answer:  0,
+        explain: 'Known steps with rules and lookups are the workflow case. A ReAct agent pays off only when the path depends on what it finds.',
+      },
       {
         q:       'Your chain’s outputs are well-formed JSON but sometimes factually wrong. Which layer addresses this?',
         options: ['Content and logic gate checks, plus feedback loops to fix failures', 'A better Role in the prompt', 'A larger output token limit', 'Removing the Pydantic model'],

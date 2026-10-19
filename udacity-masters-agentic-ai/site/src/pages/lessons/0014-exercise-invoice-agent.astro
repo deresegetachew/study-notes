@@ -10,7 +10,7 @@ import LessonMindMap     from '@/components/LessonMindMap.astro';
 import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
 import NotebookView      from '@/components/NotebookView.astro';
-import invoiceAgentNb    from '../../../../code/course-1/4.9-invoice-agent/invoice_agent.ipynb?raw';
+import invoiceAgentNb    from '../../../../code/course-1/p5-invoice-agent/invoice_agent.ipynb?raw';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -40,10 +40,10 @@ const mindMap = `
 `.trim();
 ---
 
-<LessonLayout title="4.9 — Exercise: Invoice Processing Agent">
+<LessonLayout title="P5 — Exercise: Invoice Processing Agent">
 
   <LessonHeader
-    num="4.9"
+    num="P5"
     title="Exercise: Invoice Processing Agent"
     subtitle="An accounts-payable agent whose path depends on the invoice, with a gate that's strict about paying and immune to instructions hidden in the invoice."
   />
@@ -58,7 +58,7 @@ const mindMap = `
       Lesson 4.4's reflections listed other domains where the same pattern works. One was <strong>invoice
       processing</strong>: extract the vendor, amounts and line items, judge whether the invoice matches the
       purchase order, and route it to auto-pay, review or reject. This exercise builds it as a ReAct agent, using
-      the same harness as <a href={`${base}/lessons/0013-exercise-claim-agent`}>4.5</a>.
+      the same harness as <a href={`${base}/lessons/0013-exercise-claim-agent`}>P1</a>.
     </p>
 
     <p>
@@ -67,7 +67,7 @@ const mindMap = `
     </p>
 
     <p>
-      In 4.5 every claim needed the same steps, which made a workflow the better design. Here the checks
+      In P1 every claim needed the same steps, which made a workflow the better design. Here the checks
       depend on the invoice: one with a purchase order (PO) is matched against the PO and what was received; one
       without a PO needs a contract or a manager; a duplicate stops after two checks.
     </p>
@@ -187,7 +187,7 @@ flowchart TB
     </div>
 
     <p>
-      In 4.5 only <code>needs_review</code> was always allowed. Here there are two kinds of hand-over: approval (nothing
+      In P1 only <code>needs_review</code> was always allowed. Here there are two kinds of hand-over: approval (nothing
       is wrong, but there's no PO to authorize the spend) and review (something is wrong).
     </p>
 
@@ -236,14 +236,14 @@ flowchart TB
       <li><strong>Business data:</strong> vendors, paid invoices, POs, goods receipts, contracts.</li>
       <li><strong>Tools.</strong></li>
       <li><strong>The final gate:</strong> <code>PaymentDecision</code> and <code>check_final</code>.</li>
-      <li><strong>Parser, executor, loop:</strong> the 4.5 harness, plus a record of the tools called.</li>
+      <li><strong>Parser, executor, loop:</strong> the P1 harness, plus a record of the tools called.</li>
       <li><strong>The seven invoices.</strong></li>
       <li><strong>You play the model:</strong> the injection invoice, the duplicate and the short delivery, by hand. No LLM needed.</li>
       <li><strong>The system prompt</strong>, then <strong>the agent run</strong>: the injection invoice with its full trace, then all seven with their paths.</li>
       <li><strong>Your turn:</strong> four extensions to try.</li>
     </ol>
 
-    <NotebookView notebook={invoiceAgentNb} path="code/course-1/4.9-invoice-agent/invoice_agent.ipynb" />
+    <NotebookView notebook={invoiceAgentNb} path="code/course-1/p5-invoice-agent/invoice_agent.ipynb" />
 
     <LessonCallout variant="tip" title="Running it in Colab">
       <p>
@@ -277,7 +277,7 @@ flowchart TB
     <p>
       With seven kinds of invoice and five tools, the workflow is still manageable, and cheaper. The agent pulls
       ahead as invoice types and exceptions multiply, because each new case costs a tool or a description instead
-      of another branch. Either way, the gate stays in code. Compared with 4.5, the case for an agent is stronger
+      of another branch. Either way, the gate stays in code. Compared with P1, the case for an agent is stronger
       here because the path really does vary, but it's still a trade-off, not a clear win.
     </p>
 
@@ -329,7 +329,7 @@ flowchart TB
   </div>
 
   <DeepDive
-    sources="own exercise, building on lesson 4.4's other-domains reflection and lesson 4.5's agent harness"
+    sources="own exercise, building on lesson 4.4's other-domains reflection and lesson P1's agent harness"
     tensions={[
       { a: 'Let the agent find the path (adapts to new cases)', b: 'Branching workflow (predictable, fewer LLM calls)' },
       { a: 'Strict auto_pay gate (safe)', b: 'More invoices land on people’s desks' },

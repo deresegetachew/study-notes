@@ -53,13 +53,35 @@ const deepDivesBase = import.meta.env.PUBLIC_DEEP_DIVES_URL
           {lessons.length === 0
             ? <p>No lessons yet.</p>
             : <ul class="toc-list">
-                {lessons.map(l => (
+                {lessons.filter(l => !l.num.startsWith('P') && l !== recap).map(l => (
                   <li>
                     <a href={base + l.href}>{l.num} — {l.title}</a>
                     {sourcesFor(l.href).map(s => <SourceBadge source={s} />)}
                   </li>
                 ))}
               </ul>}
+          {lessons.some(l => l.num.startsWith('P')) && (
+            <>
+              <h3 class="lesson-heading">Practice: beyond the course</h3>
+              <p class="toc-note">Own exercises that build on the course: the same problems as agents and workflows, and how to choose between them.</p>
+              <ul class="toc-list">
+                {lessons.filter(l => l.num.startsWith('P')).map(l => (
+                  <li>
+                    <a href={base + l.href}>{l.num} — {l.title}</a>
+                    {sourcesFor(l.href).map(s => <SourceBadge source={s} />)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {recap && (
+            <ul class="toc-list">
+              <li>
+                <a href={base + recap.href}>{recap.num} — {recap.title}</a>
+                {sourcesFor(recap.href).map(s => <SourceBadge source={s} />)}
+              </li>
+            </ul>
+          )}
         </section>
       );
     })}

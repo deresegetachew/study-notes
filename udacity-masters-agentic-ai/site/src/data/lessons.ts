@@ -26,13 +26,13 @@ export const LESSONS: LessonEntry[] = [
   { href: '/lessons/0007-prompt-chaining',                      num: '4.2', title: 'Prompt Chaining',                    course: 1 },
   { href: '/lessons/0008-pydantic-structured-data',             num: '4.3', title: 'Pydantic: Structured Data for Agents', course: 1 },
   { href: '/lessons/0009-exercise-claim-triage',                num: '4.4', title: 'Exercise: Insurance Claims with a Prompt Chain', course: 1 },
-  { href: '/lessons/0013-exercise-claim-agent',                num: '4.5', title: 'Exercise: Insurance Claims Agent with ReAct and Feedback Loops', course: 1 },
-  { href: '/lessons/0016-exercise-claims-workflow',            num: '4.6', title: 'Exercise: Insurance Claims as a Workflow', course: 1 },
-  { href: '/lessons/0017-decision-guide-chain-workflow-agent', num: '4.7', title: 'Decision Guide: Prompt Chain, Workflow or ReAct Agent?', course: 1 },
-  { href: '/lessons/0015-exercise-invoice-claim-agent',        num: '4.8', title: 'Exercise: Invoice Claim Agent',      course: 1 },
-  { href: '/lessons/0014-exercise-invoice-agent',              num: '4.9', title: 'Exercise: Invoice Processing Agent', course: 1 },
   { href: '/lessons/0010-llm-feedback-loops',                   num: '5.1', title: 'LLM Feedback Loops',                 course: 1 },
   { href: '/lessons/0012-exercise-code-debugging-assistant',   num: '5.2', title: 'Exercise: Code Generation & Debugging Assistant', course: 1 },
+  { href: '/lessons/0013-exercise-claim-agent',                num: 'P1', title: 'Exercise: Insurance Claims Agent with ReAct and Feedback Loops', course: 1 },
+  { href: '/lessons/0016-exercise-claims-workflow',            num: 'P2', title: 'Exercise: Insurance Claims as a Workflow', course: 1 },
+  { href: '/lessons/0017-decision-guide-chain-workflow-agent', num: 'P3', title: 'Decision Guide: Prompt Chain, Workflow or ReAct Agent?', course: 1 },
+  { href: '/lessons/0015-exercise-invoice-claim-agent',        num: 'P4', title: 'Exercise: Invoice Claim Agent',      course: 1 },
+  { href: '/lessons/0014-exercise-invoice-agent',              num: 'P5', title: 'Exercise: Invoice Processing Agent', course: 1 },
   { href: '/lessons/0011-course-1-recap',                       num: '★',   title: 'Course 1 Recap: Putting It All Together', course: 1 },
 ];
 

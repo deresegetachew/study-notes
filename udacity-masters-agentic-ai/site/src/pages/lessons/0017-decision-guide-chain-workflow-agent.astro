@@ -11,7 +11,7 @@ import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
 import CodeBlock         from '@/components/CodeBlock.astro';
 import NotebookView      from '@/components/NotebookView.astro';
-import compareNb         from '../../../../code/course-1/4.7-compare-designs/compare_designs.ipynb?raw';
+import compareNb         from '../../../../code/course-1/p3-compare-designs/compare_designs.ipynb?raw';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const L = (slug: string) => `${base}/lessons/${slug}`;
@@ -117,10 +117,10 @@ const mindMap = `
 `.trim();
 ---
 
-<LessonLayout title="4.7 — Decision Guide: Prompt Chain, Workflow or ReAct Agent?">
+<LessonLayout title="P3 — Decision Guide: Prompt Chain, Workflow or ReAct Agent?">
 
   <LessonHeader
-    num="4.7"
+    num="P3"
     title="Decision Guide: Prompt Chain, Workflow or ReAct Agent?"
     subtitle="The same insurance claims built three ways, compared side by side, and a guide for choosing the design."
   />
@@ -131,7 +131,7 @@ const mindMap = `
 
     <h2 class="lesson-heading">One Job, Three Designs <SourceBadge source="mine" /></h2>
 
-    <p>Lessons 4.4 to 4.6 triaged the same car-insurance claims three ways:</p>
+    <p>Lessons 4.4 to P2 triaged the same car-insurance claims three ways:</p>
 
     <div class="lesson-table">
       <table>
@@ -140,8 +140,8 @@ const mindMap = `
         </thead>
         <tbody>
           <tr><td><a href={L('0009-exercise-claim-triage')}>4.4</a></td><td><strong>Prompt chain</strong></td><td>Fixed steps, every step a model call: extract → coverage → assess → route</td></tr>
-          <tr><td><a href={L('0016-exercise-claims-workflow')}>4.6</a></td><td><strong>Workflow</strong></td><td>Fixed steps, one LLM call to read the claim, the rest in code</td></tr>
-          <tr><td><a href={L('0013-exercise-claim-agent')}>4.5</a></td><td><strong>ReAct agent</strong></td><td>The model picks the next tool each turn; errors go back to it</td></tr>
+          <tr><td><a href={L('0016-exercise-claims-workflow')}>P2</a></td><td><strong>Workflow</strong></td><td>Fixed steps, one LLM call to read the claim, the rest in code</td></tr>
+          <tr><td><a href={L('0013-exercise-claim-agent')}>P1</a></td><td><strong>ReAct agent</strong></td><td>The model picks the next tool each turn; errors go back to it</td></tr>
         </tbody>
       </table>
     </div>
@@ -265,7 +265,7 @@ flowchart LR
     <div class="lesson-table">
       <table>
         <thead>
-          <tr><th>Stage</th><th>Prompt chain</th><th>Workflow (4.6)</th><th>ReAct agent (4.5)</th></tr>
+          <tr><th>Stage</th><th>Prompt chain</th><th>Workflow (P2)</th><th>ReAct agent (P1)</th></tr>
         </thead>
         <tbody>
           <tr><td>Read the claim</td><td>🤖 Extract: hail, six areas (two mirrors)</td><td>🤖 The same extraction</td><td>🤖 Reads it in its first THINK</td></tr>
@@ -327,7 +327,7 @@ flowchart LR
       <li><strong>Your turn:</strong> the chain without retries (<code>MAX_ATTEMPTS = 1</code>), the ReAct agent's path across runs, the chain with a million policies, a claim of your own.</li>
     </ol>
 
-    <NotebookView notebook={compareNb} path="code/course-1/4.7-compare-designs/compare_designs.ipynb" />
+    <NotebookView notebook={compareNb} path="code/course-1/p3-compare-designs/compare_designs.ipynb" />
 
     <LessonCallout variant="tip" title="Running it in Colab">
       <p>
@@ -497,7 +497,7 @@ flowchart LR
       </li>
       <li>
         A <strong>ReAct agent</strong> is an agent in the course's sense (lesson 4.1): the LLM reasons, plans and decides
-        when to use tools, in a THINK → ACT → OBSERVE loop, until it gives a final answer or hits a limit (lessons 2.1 and 4.5).
+        when to use tools, in a THINK → ACT → OBSERVE loop, until it gives a final answer or hits a limit (lessons 2.1 and P1).
       </li>
     </ul>
 
@@ -559,7 +559,7 @@ flowchart LR
           <tr><td>Running cost</td><td>Medium, fixed</td><td>Lowest, fixed</td><td>Highest, variable</td></tr>
           <tr><td>Testability</td><td>Low: only the gates are unit-testable</td><td>High: everything but extraction is unit-testable</td><td>Tools and gate unit-testable; decisions need repeated evaluations</td></tr>
           <tr><td>Cost of change</td><td>High: every change is a prompt edit plus an evaluation</td><td>Low to edit and verify for expected changes; new kinds of case add branches</td><td>Small edits for new kinds of case, but every change needs repeated evaluation of every scenario</td></tr>
-          <tr><td>Examples</td><td>Draft → critique → rewrite a marketing post; transcript → summary → action items</td><td>Claim triage, invoice matching, structured form intake, claim-button requests (4.8)</td><td>Research questions, open-ended support emails (4.8), debugging with tools</td></tr>
+          <tr><td>Examples</td><td>Draft → critique → rewrite a marketing post; transcript → summary → action items</td><td>Claim triage, invoice matching, structured form intake, claim-button requests (P4)</td><td>Research questions, open-ended support emails (P4), debugging with tools</td></tr>
         </tbody>
       </table>
     </div>
@@ -620,9 +620,9 @@ flowchart TB
           <tr><th>Exercise</th><th>Best fit</th><th>Why</th></tr>
         </thead>
         <tbody>
-          <tr><td>4.4–4.6 Insurance claims</td><td>Workflow</td><td>Same steps for every claim; costs and rules are code</td></tr>
-          <tr><td><a href={L('0015-exercise-invoice-claim-agent')}>4.8</a> Invoice claims</td><td>Both, per channel</td><td>Claim-button claims are structured (workflow); emails are vague and varied (agent)</td></tr>
-          <tr><td><a href={L('0014-exercise-invoice-agent')}>4.9</a> Supplier invoices</td><td>Workflow now; agent as exceptions grow</td><td>Seven paths fit in a few branches; many more would not</td></tr>
+          <tr><td>4.4–P2 Insurance claims</td><td>Workflow</td><td>Same steps for every claim; costs and rules are code</td></tr>
+          <tr><td><a href={L('0015-exercise-invoice-claim-agent')}>P4</a> Invoice claims</td><td>Both, per channel</td><td>Claim-button claims are structured (workflow); emails are vague and varied (agent)</td></tr>
+          <tr><td><a href={L('0014-exercise-invoice-agent')}>P5</a> Supplier invoices</td><td>Workflow now; agent as exceptions grow</td><td>Seven paths fit in a few branches; many more would not</td></tr>
           <tr><td>2.1 Demand-spike detective</td><td>ReAct agent</td><td>Which data to look at next depends on what the last lookup showed</td></tr>
           <tr><td>5.1–5.2 Feedback loops</td><td>A loop inside either design</td><td>Generate → test → feed back is a pattern a workflow or a ReAct agent can contain</td></tr>
         </tbody>
@@ -717,7 +717,7 @@ flowchart TB
   </div>
 
   <DeepDive
-    sources="own synthesis of lessons 4.2, 4.4, 4.5 and 4.6; Anthropic, “Building effective agents”"
+    sources="own synthesis of lessons 4.2, 4.4, P1 and P2; Anthropic, “Building effective agents”"
     tensions={[
       { a: 'Flexibility (handles cases you didn’t plan for)', b: 'Predictability (same input, same path)' },
       { a: 'One design for the whole product', b: 'Different designs per channel or step' },
@@ -730,7 +730,7 @@ flowchart TB
         answer: '<p>For each task: can you write the steps down? If yes, what does the ReAct agent add beyond what a workflow does with the same tools? Ask for the expected LLM calls per item and the volume, the latency budget, and how they will test and audit a path that changes between runs. Agents earn their cost where the path depends on findings; elsewhere they add cost and variance for nothing. Upgrading a workflow step to a ReAct agent later is easy, as long as the tools and gates are already separate.</p>',
       },
       {
-        q:      'How would you decide, with data rather than opinion, between the workflow (4.6) and the ReAct agent (4.5)?',
+        q:      'How would you decide, with data rather than opinion, between the workflow (P2) and the ReAct agent (P1)?',
         hint:   'Same inputs, several measures.',
         answer: '<p>Run both on the same labeled set of claims, several times each. Compare accuracy against the labels, LLM calls and latency per claim, the share that ends in human review, and how often the ReAct agent’s path or answer changes between runs. Include the awkward cases (theft, injuries, vague text). If the workflow matches the ReAct agent’s accuracy on all of them, it wins on everything else; if the ReAct agent handles the awkward cases better, consider an agent step just for those.</p>',
       },

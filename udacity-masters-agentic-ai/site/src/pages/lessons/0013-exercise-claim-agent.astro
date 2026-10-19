@@ -10,7 +10,7 @@ import LessonMindMap     from '@/components/LessonMindMap.astro';
 import LessonToc         from '@/components/LessonToc.astro';
 import SourceBadge       from '@/components/SourceBadge.astro';
 import NotebookView      from '@/components/NotebookView.astro';
-import claimAgentNb      from '../../../../code/course-1/4.5-claim-agent/claim_agent.ipynb?raw';
+import claimAgentNb      from '../../../../code/course-1/p1-claim-agent/claim_agent.ipynb?raw';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -19,7 +19,7 @@ const mindMap = `
 ## The goal
 ### Same claims as 4.4, built as a ReAct agent
 ### Feedback loop: errors go back to the model
-### Compared with 4.4 (chain) and 4.6 (workflow)
+### Compared with 4.4 (chain) and P2 (workflow)
 ## Step 1 · Split the job
 ### Model: read the text, pick the next step
 ### Code: facts, prices, rules
@@ -44,10 +44,10 @@ const mindMap = `
 `.trim();
 ---
 
-<LessonLayout title="4.5 — Exercise: Insurance Claims Agent with ReAct and Feedback Loops">
+<LessonLayout title="P1 — Exercise: Insurance Claims Agent with ReAct and Feedback Loops">
 
   <LessonHeader
-    num="4.5"
+    num="P1"
     title="Exercise: Insurance Claims Agent with ReAct and Feedback Loops"
     subtitle="The 4.4 insurance claims rebuilt as a ReAct agent that corrects itself from feedback, one piece at a time."
   />
@@ -62,8 +62,8 @@ const mindMap = `
       Lesson 4.2 asked: <strong>workflow or agent?</strong> In a workflow your code fixes the steps; in an
       agent the model picks the next step. Lesson <a href={`${base}/lessons/0009-exercise-claim-triage`}>4.4</a>
       built claim triage as a prompt chain: extract → assess → route, every step an LLM call, in a fixed order.
-      This exercise builds the same job as an agent, using the ReAct loop from lesson 2.1. Lesson 4.6 then builds
-      it as a workflow, and 4.7 compares all three on the same claims.
+      This exercise builds the same job as an agent, using the ReAct loop from lesson 2.1. Lesson P2 then builds
+      it as a workflow, and P3 compares all three on the same claims.
     </p>
 
     <p>Two things change compared with 4.4, and both give the agent a reason to choose its path:</p>
@@ -241,7 +241,7 @@ flowchart TB
       <li><strong>Your turn:</strong> four extensions to try.</li>
     </ol>
 
-    <NotebookView notebook={claimAgentNb} path="code/course-1/4.5-claim-agent/claim_agent.ipynb" />
+    <NotebookView notebook={claimAgentNb} path="code/course-1/p1-claim-agent/claim_agent.ipynb" />
 
     <LessonCallout variant="tip" title="Running it in Colab">
       <p>
@@ -256,7 +256,7 @@ flowchart TB
     <div class="lesson-table">
       <table>
         <thead>
-          <tr><th></th><th>4.4 prompt chain</th><th>4.5 agent</th></tr>
+          <tr><th></th><th>4.4 prompt chain</th><th>P1 agent</th></tr>
         </thead>
         <tbody>
           <tr><td>Who picks the next step</td><td>Your code, always the same order</td><td>The model, each turn</td></tr>
@@ -272,7 +272,7 @@ flowchart TB
       For this job the agent isn't the better design. The steps are known in advance: check coverage, price
       the damage, route. A workflow that runs <code>check_coverage</code> and <code>price_damage</code> as fixed
       steps gets the same answers with fewer LLM calls and the same path every time. Lesson
-      <a href={`${base}/lessons/0016-exercise-claims-workflow`}>4.6</a> builds exactly that. The price table, not
+      <a href={`${base}/lessons/0016-exercise-claims-workflow`}>P2</a> builds exactly that. The price table, not
       the agent, is what fixed the hail claim.
     </p>
 
@@ -281,7 +281,7 @@ flowchart TB
       pricing, a vague description needs photos first, a claim that mentions an injury goes to a different
       team. That's the rule of thumb from 4.2: known steps, use a workflow; steps that depend on findings, use
       an agent. Often the answer is both: a workflow with one agent step where the path varies. Lesson
-      <a href={`${base}/lessons/0017-decision-guide-chain-workflow-agent`}>4.7</a> turns this into a decision guide.
+      <a href={`${base}/lessons/0017-decision-guide-chain-workflow-agent`}>P3</a> turns this into a decision guide.
     </p>
 
     <h2 class="lesson-heading">Checklist <SourceBadge source="mine" /></h2>
