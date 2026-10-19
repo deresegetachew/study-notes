@@ -43,13 +43,13 @@ return "needs_review"                              # exit 2: step limit
 `.trim();
 
 const testShape = `
-# Unit test: plain code, no model, same result every run (workflow; the agent's tools)
+# Unit test: plain code, no model, same result every run (workflow; the ReAct agent's tools)
 def test_hail_is_total_loss():
     facts = ClaimFacts(claim_id="C004", incident_type="hail",
                        damage_areas=["hood", "roof", "trunk", "mirror", "mirror", "glass"])
     assert decide(facts)["queue"] == "total_loss"
 
-# Gate test: you play the model, no model needed (the agent's final gate)
+# Gate test: you play the model, no model needed (the ReAct agent's final gate)
 def test_gate_refuses_a_guessed_cost():
     facts = {}
     execute('ACT: check_coverage(claim_id="C004", incident_type="hail")', facts)
@@ -168,7 +168,7 @@ const mindMap = `
     <p>
       What differs is <em>where the tables live and who uses them</em>. The chain has no tools, so the tables go into its
       prompts as text and the model does the lookup, the sum and the rule itself. The workflow's code reads the tables.
-      The agent asks for tools, and the tools read the tables.
+      The ReAct agent asks for tools, and the tools read the tables.
     </p>
 
 
@@ -207,7 +207,7 @@ flowchart LR
 
     <p>
       Blue boxes are model calls, yellow boxes are code. Read the lanes left to right: the chain is all blue, with the
-      tables written into its prompts; the workflow is the same first blue box, then yellow; the agent is a single blue
+      tables written into its prompts; the workflow is the same first blue box, then yellow; the ReAct agent is a single blue
       box in a loop, and which yellow box it reaches is up to the model. Use the ⤢ button to enlarge the diagram.
     </p>
 
@@ -251,7 +251,7 @@ flowchart LR
     <h3 class="lesson-heading">Tool calls are what make it ReAct</h3>
 
     <p>
-      The workflow and the agent use the same functions. In the workflow your code calls
+      The workflow and the ReAct agent use the same functions. In the workflow your code calls
       <code>price_damage(...)</code> at a fixed point. In the ReAct agent the model writes <code>ACT: price_damage(...)</code>,
       your code runs it, and the model reads the result before choosing what to do next. A function the model can ask
       for is a <strong>tool</strong>; the model asking is a <strong>tool call</strong>.
@@ -477,7 +477,7 @@ flowchart LR
     <p>
       Testability follows the same line as everything else on this page: whatever moves from a prompt into code becomes
       cheap, fast and exact to test. That's one more reason to keep rules and numbers in code whichever design you choose,
-      and to reach for an agent only where its flexibility is worth evaluations instead of unit tests.
+      and to reach for a ReAct agent only where its flexibility is worth evaluations instead of unit tests.
     </p>
 
     <h2 class="lesson-heading">The Terms <SourceBadge source="mine" /></h2>
@@ -561,7 +561,7 @@ flowchart LR
     </div>
 
     <p>
-      Mixing is normal: a workflow with one ReAct agent step where the path varies, or an agent whose tools are small
+      Mixing is normal: a workflow with one ReAct agent step where the path varies, or a ReAct agent whose tools are small
       workflows. The decision guide below is for choosing each part.
     </p>
 
@@ -577,7 +577,7 @@ flowchart TB
   Q3 -->|"yes"| R2["🔗 Prompt chain<br/>gate between steps"]:::p
   Q3 -->|"no: some are rules,<br/>lookups or maths"| R3["⚙️ Workflow<br/>code for those steps"]:::w
   R3 --> Q4{{"Is there one step whose<br/>path varies a lot?"}}:::q
-  Q4 -->|"yes"| R5["⚙️🤖 Workflow with an agent step"]:::w
+  Q4 -->|"yes"| R5["⚙️🤖 Workflow with a ReAct agent step"]:::w
   Q4 -->|"no"| R6["✅ Keep the workflow"]:::w
 
   classDef in fill:#f1f5f9,color:#0f172a,stroke:#64748b,stroke-width:2px
@@ -636,7 +636,7 @@ flowchart TB
       <li><strong>Gates in code</strong> on anything an LLM produces (Pydantic for shape, rules for logic).</li>
       <li><strong>Typed contracts</strong> between steps.</li>
       <li><strong>Rules, numbers and lookups in code</strong>, never guessed by the model.</li>
-      <li><strong>Limits</strong>: retries in a workflow, steps in an agent.</li>
+      <li><strong>Limits</strong>: retries in a workflow, steps in a ReAct agent.</li>
       <li><strong>A human fallback</strong>, so nothing is dropped or forced through.</li>
     </ul>
 
@@ -658,7 +658,7 @@ flowchart TB
         '<strong>Try one prompt first</strong>, with a gate on the output',
         '<strong>Write the steps down</strong>: if you can, start with a chain or a workflow',
         '<strong>Mark each step</strong> as language (LLM) or rules/lookups/maths (code)',
-        '<strong>Look for the step whose path varies</strong>; only that part might need an agent',
+        '<strong>Look for the step whose path varies</strong>; only that part might need a ReAct agent',
         '<strong>Weigh volume, latency and audit needs</strong>; they all favour workflows',
         '<strong>Estimate the cost of running</strong>: model calls and tokens per item, times volume',
         '<strong>Mark what can be unit-tested</strong>; everything else needs an evaluation set, run more than once',
@@ -680,9 +680,9 @@ flowchart TB
       },
       {
         q:       'A support bot must answer open-ended customer questions using several internal tools, and the next lookup depends on the last answer. Which design fits?',
-        options: ['An agent, with gates in code on any actions', 'A prompt chain', 'A single prompt', 'A workflow with no LLM'],
+        options: ['A ReAct agent, with gates in code on any actions', 'A prompt chain', 'A single prompt', 'A workflow with no LLM'],
         answer:  0,
-        explain: 'The steps can’t be written down in advance; that is the agent case.',
+        explain: 'The steps can’t be written down in advance; that is the ReAct agent case.',
       },
       {
         q:       'Your agent’s traces show it takes exactly the same four steps for every input. What does that suggest?',
@@ -694,7 +694,7 @@ flowchart TB
         q:       'The business adds a new kind of claim every month, each with its own steps. Which design keeps the cost of change lowest?',
         options: ['The ReAct agent: a new tool and a line in its description, though each change needs whole-trace evaluation', 'The prompt chain: just edit the prompts', 'The workflow: branches are free', 'None: all three cost the same'],
         answer:  0,
-        explain: 'Predictable changes are cheapest in a workflow; new kinds of case with new paths are cheapest in an agent.',
+        explain: 'Predictable changes are cheapest in a workflow; new kinds of case with new paths are cheapest in a ReAct agent.',
       },
       {
         q:       'Which part of the ReAct agent can you test without calling a model?',
@@ -717,22 +717,22 @@ flowchart TB
     tensions={[
       { a: 'Flexibility (handles cases you didn’t plan for)', b: 'Predictability (same input, same path)' },
       { a: 'One design for the whole product', b: 'Different designs per channel or step' },
-      { a: 'Build the agent now (future-proof)', b: 'Build the workflow now (cheaper, simpler)' },
+      { a: 'Build the ReAct agent now (future-proof)', b: 'Build the workflow now (cheaper, simpler)' },
     ]}
     questions={[
       {
         q:      'A team says “agents are the future, so we’ll build everything as an agent.” What would you ask them?',
-        hint:   'What does the agent buy for each task?',
+        hint:   'What does the ReAct agent buy for each task?',
         answer: '<p>For each task: can you write the steps down? If yes, what does the ReAct agent add beyond what a workflow does with the same tools? Ask for the expected LLM calls per item and the volume, the latency budget, and how they will test and audit a path that changes between runs. Agents earn their cost where the path depends on findings; elsewhere they add cost and variance for nothing. Upgrading a workflow step to a ReAct agent later is easy, as long as the tools and gates are already separate.</p>',
       },
       {
-        q:      'How would you decide, with data rather than opinion, between the workflow (4.6) and the agent (4.5)?',
+        q:      'How would you decide, with data rather than opinion, between the workflow (4.6) and the ReAct agent (4.5)?',
         hint:   'Same inputs, several measures.',
         answer: '<p>Run both on the same labeled set of claims, several times each. Compare accuracy against the labels, LLM calls and latency per claim, the share that ends in human review, and how often the ReAct agent’s path or answer changes between runs. Include the awkward cases (theft, injuries, vague text). If the workflow matches the ReAct agent’s accuracy on all of them, it wins on everything else; if the ReAct agent handles the awkward cases better, consider an agent step just for those.</p>',
       },
     ]}
     pitfalls={[
-      'Choosing an agent because it sounds more advanced.',
+      'Choosing a ReAct agent because it sounds more advanced.',
       'Blaming the design for an error caused by a guessed number or a missing gate.',
       'Forcing a workflow onto open-ended input until it becomes a tangle of special cases.',
       'Assuming the design choice is permanent; tools and gates carry over between designs.',
