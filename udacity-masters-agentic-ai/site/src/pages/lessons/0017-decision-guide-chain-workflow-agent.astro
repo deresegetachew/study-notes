@@ -73,7 +73,7 @@ const mindMap = `
 ### Course definition (4.1): the LLM plans and decides when to use tools → only ReAct is an agent
 ## Two questions tell them apart
 ### What are the steps? chain vs. workflow
-### Who decides the next step? workflow vs. agent
+### Who decides the next step? workflow vs. ReAct agent
 ### Loops and gates are in all three
 ## Two kinds of loop
 ### Retry: same step again
@@ -82,33 +82,33 @@ const mindMap = `
 ### Same information for all three
 ### Chain: 4 calls, the model does lookups and sums
 ### Workflow: 1 call, code does them
-### Agent: 4–5 calls, the model asks code to do them
+### ReAct agent: 4–5 calls, the model asks code to do them
 ## Cost of running (C004)
 ### Tokens ≈ 670 : 180 : 2,300
-### Agent history grows every turn
+### ReAct agent history grows every turn
 ### Chain prompts grow with the data
 ## Cost of change
 ### Predictable changes → cheapest in a workflow
-### New kinds of case → cheapest in an agent
+### New kinds of case → cheapest in a ReAct agent
 ### Chain: logic in prompt text, hardest to change
 ## Testability
 ### Unit tests for code, evaluations for model steps
 ### Chain: only gates unit-testable
 ### Workflow: all but extraction unit-testable
-### Agent: tools + gate unit-testable, decisions need evals
+### ReAct agent: tools + gate unit-testable, decisions need evals
 ## When to use what
 ### Chain: all-language steps, fixed order
 ### Workflow: known steps with rules and lookups
-### Agent: path depends on findings
+### ReAct agent: path depends on findings
 ## The decision
 ### One prompt enough? → single prompt
-### Steps known in advance? no → agent
+### Steps known in advance? no → ReAct agent
 ### Every step needs language? → chain
 ### Rules and lookups mixed in → workflow
-### One step varies → workflow + agent step
+### One step varies → workflow + ReAct agent step
 ## Signals
 ### Volume, latency, audit → workflow
-### Many rare cases, path depends on findings → agent
+### Many rare cases, path depends on findings → ReAct agent
 ## Same in every design
 ### Gates in code, typed contracts, limits, human fallback
 ## Start simple
@@ -219,7 +219,7 @@ flowchart LR
 
     <ol>
       <li><strong>What are the steps?</strong> Separates the chain from the workflow.</li>
-      <li><strong>Who decides the next step?</strong> Separates the workflow from the agent.</li>
+      <li><strong>Who decides the next step?</strong> Separates the workflow from the ReAct agent.</li>
     </ol>
 
     <div class="lesson-table">
@@ -243,16 +243,16 @@ flowchart LR
     <p>
       The word "loop" covers two different things here. In the chain and the workflow, a loop is a <strong>retry</strong>:
       a step's output fails its gate, the error goes back to the model, and the <em>same</em> step runs again, at most
-      three times. The next step is still fixed. In the agent, the loop is the <strong>engine</strong>: think, call a
+      three times. The next step is still fixed. In the ReAct agent, the loop is the <strong>engine</strong>: think, call a
       tool, observe, decide again, and each turn can go somewhere different. Both are feedback loops (generate, check,
-      feed the result back); only the agent's decides where to go next.
+      feed the result back); only the ReAct agent's decides where to go next.
     </p>
 
     <h3 class="lesson-heading">Tool calls are what make it ReAct</h3>
 
     <p>
       The workflow and the agent use the same functions. In the workflow your code calls
-      <code>price_damage(...)</code> at a fixed point. In the agent the model writes <code>ACT: price_damage(...)</code>,
+      <code>price_damage(...)</code> at a fixed point. In the ReAct agent the model writes <code>ACT: price_damage(...)</code>,
       your code runs it, and the model reads the result before choosing what to do next. A function the model can ask
       for is a <strong>tool</strong>; the model asking is a <strong>tool call</strong>.
     </p>
@@ -285,7 +285,7 @@ flowchart LR
       With the same information, all three can reach the right queue for C004 (Major, $5,450, <code>total_loss</code>).
       The difference is how. The chain asks the model to do lookups and arithmetic that code does exactly, in four calls
       for every claim, and its gates can only check that the answers are consistent with each other. The workflow does the
-      same work in code with one call. The agent gets the same correctness from the same tools, but spends calls deciding
+      same work in code with one call. The ReAct agent gets the same correctness from the same tools, but spends calls deciding
       what to do next. Run the notebook below to see real numbers, including whether the chain's sums hold up.
     </p>
 
@@ -302,7 +302,7 @@ flowchart LR
 
     <p>
       Compare the first two: same top-to-bottom shape, but the workflow's model calls have become function calls. Then
-      compare the last two: the same functions, but in the agent they're never called in the code you wrote; they're
+      compare the last two: the same functions, but in the ReAct agent they're never called in the code you wrote; they're
       looked up by name from whatever the model asked for.
     </p>
 
@@ -323,7 +323,7 @@ flowchart LR
       <li><strong>One entry point:</strong> <code>triage(fnol, design)</code>.</li>
       <li><strong>Run one:</strong> pick a design and a claim; <code>VERBOSE = True</code> prints every step.</li>
       <li><strong>Compare all three on every claim.</strong></li>
-      <li><strong>Your turn:</strong> the chain without retries (<code>MAX_ATTEMPTS = 1</code>), the agent's path across runs, the chain with a million policies, a claim of your own.</li>
+      <li><strong>Your turn:</strong> the chain without retries (<code>MAX_ATTEMPTS = 1</code>), the ReAct agent's path across runs, the chain with a million policies, a claim of your own.</li>
     </ol>
 
     <NotebookView notebook={compareNb} path="code/course-1/4.7-compare-designs/compare_designs.ipynb" />
@@ -332,7 +332,7 @@ flowchart LR
       <p>
         <strong>Run the cells top to bottom, setup first.</strong> The notebook uses Colab's built-in models, no API key
         needed. Start with C004 in all three designs with <code>VERBOSE = True</code>: the chain shows four model
-        answers, the workflow one answer and four code steps, the agent every THINK / ACT / OBSERVE turn.
+        answers, the workflow one answer and four code steps, the ReAct agent every THINK / ACT / OBSERVE turn.
       </p>
     </LessonCallout>
 
@@ -341,7 +341,7 @@ flowchart LR
     <div class="lesson-table">
       <table>
         <thead>
-          <tr><th></th><th>Prompt chain</th><th>Workflow</th><th>Agent</th></tr>
+          <tr><th></th><th>Prompt chain</th><th>Workflow</th><th>ReAct agent</th></tr>
         </thead>
         <tbody>
           <tr><td>Who picks the next step</td><td>Code</td><td>Code</td><td>The model</td></tr>
@@ -382,7 +382,7 @@ flowchart LR
     <p>
       Roughly 1 : 4 : 12 in tokens for the same answer. At ten claims a day nobody notices; at a hundred thousand a day it
       decides the budget, and the latency decides whether a customer waits for an answer or gets an email later. Retries
-      add to all three, but they hit the agent hardest: every extra turn resends the longest history.
+      add to all three, but they hit the ReAct agent hardest: every extra turn resends the longest history.
     </p>
 
     <h2 class="lesson-heading">Cost of Change <SourceBadge source="mine" /></h2>
@@ -401,7 +401,7 @@ flowchart LR
           <tr><td>A repair price changes</td><td>Edit the table text in a prompt, re-test the prompt</td><td>Edit the data; nothing else</td><td>Edit the data; nothing else</td></tr>
           <tr><td>A new coverage rule</td><td>Rewrite the coverage prompt and check the model applies it</td><td>Change <code>check_coverage</code>, add a unit test</td><td>Change the tool; maybe its description</td></tr>
           <tr><td>A new queue (e.g. injuries go to a <code>bodily_injury</code> team)</td><td>Route prompt and its output model</td><td>One branch in code, one extracted field</td><td>A line in the prompt and the final gate</td></tr>
-          <tr><td>A new kind of claim with a different path (a theft: no pricing, a police report first)</td><td>Hard: a chain is a straight line, so every step's prompt has to handle it</td><td>A new branch, a new field, new tests; fine once, painful the tenth time</td><td>Often a new tool and a line in its description; the agent finds the path</td></tr>
+          <tr><td>A new kind of claim with a different path (a theft: no pricing, a police report first)</td><td>Hard: a chain is a straight line, so every step's prompt has to handle it</td><td>A new branch, a new field, new tests; fine once, painful the tenth time</td><td>Often a new tool and a line in its description; it finds the path</td></tr>
           <tr><td>Switch to a new model</td><td>Re-check 4 prompts</td><td>Re-check 1 prompt</td><td>Re-check whole traces: the paths themselves can change</td></tr>
           <tr><td>A million policies</td><td>Redesign: move the lookup into code (it becomes a workflow)</td><td>Swap the dict for a database query</td><td>Swap the dict for a database query</td></tr>
           <tr><td>An auditor asks why a claim got its queue</td><td>Four logged answers</td><td>The same code path every time; easiest</td><td>Read the trace; the path differs per claim</td></tr>
@@ -411,7 +411,7 @@ flowchart LR
 
     <p>
       The pattern: the <strong>workflow</strong> is cheapest to change for anything you can predict (prices, rules, queues),
-      because the logic is plain code with tests. The <strong>agent</strong> is cheapest for what you can't predict (new kinds
+      because the logic is plain code with tests. The <strong>ReAct agent</strong> is cheapest for what you can't predict (new kinds
       of cases), because it finds the path itself, but every change needs whole-trace evaluation instead of unit tests.
       The <strong>chain</strong> keeps logic and data in prompt text, which is the hardest place to change, test and scale.
     </p>
@@ -449,7 +449,7 @@ flowchart LR
 
     <p>
       Green ✅ boxes can be unit-tested; orange 🎲 boxes need evaluations. The chain is mostly orange: only its gates are
-      plain code. The workflow is mostly green: one orange box at the top. The agent's tools, parser and final gate are
+      plain code. The workflow is mostly green: one orange box at the top. The ReAct agent's tools, parser and final gate are
       green, but the most important part, the decisions it makes every turn, is orange.
     </p>
 
@@ -531,7 +531,7 @@ flowchart LR
 
     <LessonDiagram definition={`
 flowchart LR
-  A["📝 Single prompt"]:::p --> B["🔗 Prompt chain"]:::p --> C["⚙️ Workflow<br/>code + LLM steps"]:::w --> D["⚙️🤖 Workflow with<br/>one agent step"]:::w --> E["🤖 Agent"]:::a
+  A["📝 Single prompt"]:::p --> B["🔗 Prompt chain"]:::p --> C["⚙️ Workflow<br/>code + LLM steps"]:::w --> D["⚙️🤖 Workflow with<br/>one ReAct agent step"]:::w --> E["🤖 ReAct agent"]:::a
   classDef p fill:#dcfce7,color:#14532d,stroke:#16a34a,stroke-width:2px
   classDef w fill:#fef3c7,color:#78350f,stroke:#d97706,stroke-width:2px
   classDef a fill:#dbeafe,color:#1e3a8a,stroke:#2563eb,stroke-width:2px
@@ -561,7 +561,7 @@ flowchart LR
     </div>
 
     <p>
-      Mixing is normal: a workflow with one agent step where the path varies, or an agent whose tools are small
+      Mixing is normal: a workflow with one ReAct agent step where the path varies, or an agent whose tools are small
       workflows. The decision guide below is for choosing each part.
     </p>
 
@@ -572,7 +572,7 @@ flowchart TB
   S["🧩 A task"]:::in --> Q1{{"Can one well-written prompt<br/>do it reliably?"}}:::q
   Q1 -->|"yes"| R1["📝 Single prompt<br/>+ a gate on the output"]:::p
   Q1 -->|"no"| Q2{{"Can you write the steps<br/>down in advance?"}}:::q
-  Q2 -->|"no: the next step depends<br/>on what you find"| R4["🤖 Agent<br/>tools · gates in code · step limit"]:::a
+  Q2 -->|"no: the next step depends<br/>on what you find"| R4["🤖 ReAct agent<br/>tools · gates in code · step limit"]:::a
   Q2 -->|"yes"| Q3{{"Does every step need<br/>language understanding?"}}:::q
   Q3 -->|"yes"| R2["🔗 Prompt chain<br/>gate between steps"]:::p
   Q3 -->|"no: some are rules,<br/>lookups or maths"| R3["⚙️ Workflow<br/>code for those steps"]:::w
@@ -598,7 +598,7 @@ flowchart TB
           <tr><td>Steps are known and rarely change</td><td>Workflow (or chain)</td></tr>
           <tr><td>Steps include rules, numbers or lookups</td><td>Workflow: those steps are code</td></tr>
           <tr><td>The next step depends on what the last one found</td><td>Agent</td></tr>
-          <tr><td>Many rare cases, and new ones keep appearing</td><td>Agent, or a workflow with an agent step</td></tr>
+          <tr><td>Many rare cases, and new ones keep appearing</td><td>ReAct agent, or a workflow with a ReAct agent step</td></tr>
           <tr><td>High volume, cost per item matters</td><td>Workflow</td></tr>
           <tr><td>Users are waiting (latency)</td><td>Workflow: fewer calls</td></tr>
           <tr><td>Audits or regulation: same input, same path</td><td>Workflow</td></tr>
@@ -619,8 +619,8 @@ flowchart TB
           <tr><td>4.4–4.6 Insurance claims</td><td>Workflow</td><td>Same steps for every claim; costs and rules are code</td></tr>
           <tr><td><a href={L('0015-exercise-invoice-claim-agent')}>4.8</a> Invoice claims</td><td>Both, per channel</td><td>Claim-button claims are structured (workflow); emails are vague and varied (agent)</td></tr>
           <tr><td><a href={L('0014-exercise-invoice-agent')}>4.9</a> Supplier invoices</td><td>Workflow now; agent as exceptions grow</td><td>Seven paths fit in a few branches; many more would not</td></tr>
-          <tr><td>2.1 Demand-spike detective</td><td>Agent</td><td>Which data to look at next depends on what the last lookup showed</td></tr>
-          <tr><td>5.1–5.2 Feedback loops</td><td>A loop inside either design</td><td>Generate → test → feed back is a pattern a workflow or an agent can contain</td></tr>
+          <tr><td>2.1 Demand-spike detective</td><td>ReAct agent</td><td>Which data to look at next depends on what the last lookup showed</td></tr>
+          <tr><td>5.1–5.2 Feedback loops</td><td>A loop inside either design</td><td>Generate → test → feed back is a pattern a workflow or a ReAct agent can contain</td></tr>
         </tbody>
       </table>
     </div>
@@ -643,7 +643,7 @@ flowchart TB
     <LessonCallout variant="key" title="Start simple, move right when it hurts">
       <p>
         Begin with the simplest design that could work, and move along the scale only when it stops working: a
-        workflow whose branches keep multiplying, or traces showing an agent that takes the same path every time
+        workflow whose branches keep multiplying, or traces showing a ReAct agent that takes the same path every time
         (it's a workflow in disguise, at a higher price). Anthropic's article
         <a href="https://www.anthropic.com/engineering/building-effective-agents" target="_blank" rel="noopener">Building effective agents</a>
         makes the same case, and describes prompt chaining and other workflow patterns in more detail.
@@ -723,12 +723,12 @@ flowchart TB
       {
         q:      'A team says “agents are the future, so we’ll build everything as an agent.” What would you ask them?',
         hint:   'What does the agent buy for each task?',
-        answer: '<p>For each task: can you write the steps down? If yes, what does the agent add beyond what a workflow does with the same tools? Ask for the expected LLM calls per item and the volume, the latency budget, and how they will test and audit a path that changes between runs. Agents earn their cost where the path depends on findings; elsewhere they add cost and variance for nothing. Upgrading a workflow step to an agent later is easy, as long as the tools and gates are already separate.</p>',
+        answer: '<p>For each task: can you write the steps down? If yes, what does the ReAct agent add beyond what a workflow does with the same tools? Ask for the expected LLM calls per item and the volume, the latency budget, and how they will test and audit a path that changes between runs. Agents earn their cost where the path depends on findings; elsewhere they add cost and variance for nothing. Upgrading a workflow step to a ReAct agent later is easy, as long as the tools and gates are already separate.</p>',
       },
       {
         q:      'How would you decide, with data rather than opinion, between the workflow (4.6) and the agent (4.5)?',
         hint:   'Same inputs, several measures.',
-        answer: '<p>Run both on the same labeled set of claims, several times each. Compare accuracy against the labels, LLM calls and latency per claim, the share that ends in human review, and how often the agent’s path or answer changes between runs. Include the awkward cases (theft, injuries, vague text). If the workflow matches the agent’s accuracy on all of them, it wins on everything else; if the agent handles the awkward cases better, consider an agent step just for those.</p>',
+        answer: '<p>Run both on the same labeled set of claims, several times each. Compare accuracy against the labels, LLM calls and latency per claim, the share that ends in human review, and how often the ReAct agent’s path or answer changes between runs. Include the awkward cases (theft, injuries, vague text). If the workflow matches the ReAct agent’s accuracy on all of them, it wins on everything else; if the ReAct agent handles the awkward cases better, consider an agent step just for those.</p>',
       },
     ]}
     pitfalls={[
