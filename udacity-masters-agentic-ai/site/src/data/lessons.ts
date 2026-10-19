@@ -28,7 +28,7 @@ export const LESSONS: LessonEntry[] = [
   { href: '/lessons/0009-exercise-claim-triage',                num: '4.4', title: 'Exercise: Insurance Claims with a Prompt Chain', course: 1 },
   { href: '/lessons/0013-exercise-claim-agent',                num: '4.5', title: 'Exercise: Insurance Claims Agent with ReAct and Feedback Loops', course: 1 },
   { href: '/lessons/0016-exercise-claims-workflow',            num: '4.6', title: 'Exercise: Insurance Claims as a Workflow', course: 1 },
-  { href: '/lessons/0017-decision-guide-chain-workflow-agent', num: '4.7', title: 'Decision Guide: Prompt Chain, Workflow or Agent?', course: 1 },
+  { href: '/lessons/0017-decision-guide-chain-workflow-agent', num: '4.7', title: 'Decision Guide: Prompt Chain, Workflow or ReAct Agent?', course: 1 },
   { href: '/lessons/0015-exercise-invoice-claim-agent',        num: '4.8', title: 'Exercise: Invoice Claim Agent',      course: 1 },
   { href: '/lessons/0014-exercise-invoice-agent',              num: '4.9', title: 'Exercise: Invoice Processing Agent', course: 1 },
   { href: '/lessons/0010-llm-feedback-loops',                   num: '5.1', title: 'LLM Feedback Loops',                 course: 1 },

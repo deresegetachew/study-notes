@@ -43,11 +43,12 @@ return "needs_review"                              # exit 2: step limit
 `.trim();
 
 const mindMap = `
-# Decision Guide: Prompt Chain, Workflow or Agent?
+# Decision Guide: Prompt Chain, Workflow or ReAct Agent?
 ## Three designs
 ### Prompt chain: fixed steps, all LLM calls
 ### Workflow: fixed steps, code + LLM, branches
-### Agent: the model picks each step
+### ReAct agent: the model picks each step
+### All three are agentic systems; only ReAct is an agent in the narrow sense
 ## Two questions tell them apart
 ### What are the steps? chain vs. workflow
 ### Who decides the next step? workflow vs. agent
@@ -76,11 +77,11 @@ const mindMap = `
 `.trim();
 ---
 
-<LessonLayout title="4.7 — Decision Guide: Prompt Chain, Workflow or Agent?">
+<LessonLayout title="4.7 — Decision Guide: Prompt Chain, Workflow or ReAct Agent?">
 
   <LessonHeader
     num="4.7"
-    title="Decision Guide: Prompt Chain, Workflow or Agent?"
+    title="Decision Guide: Prompt Chain, Workflow or ReAct Agent?"
     subtitle="The same insurance claims built three ways, compared side by side, and a guide for choosing the design."
   />
 
@@ -340,6 +341,17 @@ flowchart LR
         or hits a limit (lessons 2.1 and 4.5).
       </li>
     </ul>
+
+    <h3 class="lesson-heading">Aren't they all agents?</h3>
+
+    <p>
+      In the broad sense, yes: all three are <strong>agentic systems</strong>, LLM applications built from the
+      lesson 4.1 parts (model, instructions, tools, memory, orchestration). In the narrow sense, only the ReAct one is an
+      <strong>agent</strong>, because only there does the model decide its own next step. The course uses the word both
+      ways: lesson 4.1 calls anything with tools and an orchestration layer an agent, while lesson 4.2 contrasts a
+      "hard-coded workflow" with an "AI agent (ReAct)". Anthropic's article draws the same line as 4.2. These notes say
+      <em>ReAct agent</em> for the narrow meaning, so the comparison stays clear.
+    </p>
 
     <p>They sit on a scale, from most predictable to most flexible:</p>
 
